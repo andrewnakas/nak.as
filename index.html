@@ -28,14 +28,18 @@
     -webkit-font-smoothing: antialiased;
     overflow-x: hidden;
   }
-  body { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; }
+  body {
+    height: 100vh;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
 
   header {
-    position: fixed;
-    top: 0; left: 0; right: 0;
-    padding: 24px 28px;
+    flex: 0 0 auto;
+    padding: 18px 28px;
     z-index: 10;
-    pointer-events: none;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -47,27 +51,32 @@
     letter-spacing: 0.08em;
     text-transform: uppercase;
   }
-  header nav {
-    pointer-events: auto;
-    display: flex;
-    gap: 18px;
-    font-size: 12px;
-    letter-spacing: 0.12em;
+  header .meta {
+    font-size: 11px;
+    letter-spacing: 0.16em;
     text-transform: uppercase;
+    color: rgba(255,255,255,0.4);
   }
-  header nav a {
+  header .meta a {
     color: rgba(255,255,255,0.6);
     text-decoration: none;
-    cursor: pointer;
   }
-  header nav a:hover { color: #fff; }
+  header .meta a:hover { color: #fff; }
 
-  /* ---------- model viewer (hero) ---------- */
-  .hero {
-    position: relative;
-    height: 100vh;
-    height: 100dvh;
+  /* ---------- main row: 3D on left, soundboard on right ---------- */
+  main {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: row;
+    min-height: 0;
     width: 100%;
+  }
+
+  .stage {
+    flex: 1 1 60%;
+    position: relative;
+    min-width: 0;
+    min-height: 0;
   }
   model-viewer {
     width: 100%;
@@ -79,38 +88,26 @@
   }
   .hero-hint {
     position: absolute;
-    left: 28px;
-    bottom: 24px;
-    font-size: 12px;
+    left: 20px;
+    bottom: 16px;
+    font-size: 11px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: rgba(255,255,255,0.45);
+    color: rgba(255,255,255,0.35);
     pointer-events: none;
   }
-  .scroll-cue {
-    position: absolute;
-    bottom: 24px;
-    left: 50%;
-    transform: translateX(-50%);
-    font-size: 11px;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: rgba(255,255,255,0.5);
-    animation: bounce 2.4s ease-in-out infinite;
-  }
-  @keyframes bounce {
-    0%, 100% { transform: translateX(-50%) translateY(0); opacity: 0.5; }
-    50%      { transform: translateX(-50%) translateY(6px); opacity: 1; }
-  }
 
-  /* ---------- soundboard section ---------- */
+  /* ---------- soundboard panel (right column) ---------- */
   .sb-section {
+    flex: 1 1 40%;
     position: relative;
-    min-height: 100vh;
-    min-height: 100dvh;
-    width: 100%;
-    padding: 80px 28px 80px;
+    min-width: 0;
+    min-height: 0;
+    border-left: 1px solid rgba(255,255,255,0.08);
+    padding: 24px 24px 24px;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
   }
 
   /* Intro stage — covers the section, fades out after shatter */
@@ -150,10 +147,11 @@
     align-items: center;
     justify-content: center;
     perspective: 1200px;
+    overflow: hidden;
   }
   .icon {
-    width: 280px;
-    height: 280px;
+    width: 200px;
+    height: 200px;
     position: relative;
     will-change: transform, opacity;
     opacity: 0;
@@ -165,16 +163,17 @@
     height: 100%;
     object-fit: cover;
     border-radius: 16px;
-    box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+    box-shadow: 0 20px 50px rgba(0,0,0,0.6);
   }
   .icon .open { opacity: 0; }
   .icon.is-flying {
     animation: flyIn 1.67s cubic-bezier(.4,.05,.2,1) forwards;
   }
+  /* Fly from far left (offscreen), spin 3 times, land just right of center of the panel */
   @keyframes flyIn {
-    0%   { opacity: 0; transform: translate(-90vw, 0) rotate(0deg) scale(0.6); }
+    0%   { opacity: 0; transform: translate(-120%, 0) rotate(0deg) scale(0.6); }
     8%   { opacity: 1; }
-    100% { opacity: 1; transform: translate(35vw, 0) rotate(1080deg) scale(1); }
+    100% { opacity: 1; transform: translate(25%, 0) rotate(1080deg) scale(1); }
   }
 
   /* Shatter shards */
@@ -203,11 +202,13 @@
 
   /* ---------- board grid ---------- */
   .board-wrap {
-    max-width: 1100px;
-    margin: 0 auto;
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
     opacity: 0;
-    transform: translateY(20px);
-    transition: opacity 0.8s ease, transform 0.8s ease;
+    transform: translateY(12px);
+    transition: opacity 0.6s ease, transform 0.6s ease;
   }
   .board-wrap.is-shown {
     opacity: 1;
@@ -215,42 +216,49 @@
   }
   .board-title {
     text-align: center;
-    font-size: 12px;
+    font-size: 10px;
     letter-spacing: 0.24em;
     text-transform: uppercase;
-    color: rgba(255,255,255,0.5);
-    margin: 0 0 32px;
+    color: rgba(255,255,255,0.45);
+    margin: 0 0 16px;
+    flex: 0 0 auto;
   }
   .board-title strong {
     display: block;
-    font-size: 28px;
+    font-size: 18px;
     letter-spacing: 0.04em;
     font-weight: 500;
     color: #fff;
-    margin-bottom: 6px;
+    margin-bottom: 4px;
     text-transform: none;
   }
   .board {
+    flex: 1 1 auto;
+    overflow-y: auto;
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 8px;
+    align-content: start;
+    padding-right: 4px;
   }
+  .board::-webkit-scrollbar { width: 6px; }
+  .board::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
   .sb-btn {
     position: relative;
     background: rgba(255,255,255,0.04);
     border: 1px solid rgba(255,255,255,0.12);
     color: #fff;
-    padding: 18px 14px;
+    padding: 14px 10px;
     font-family: inherit;
-    font-size: 12px;
+    font-size: 11px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     text-align: center;
     cursor: pointer;
-    border-radius: 8px;
+    border-radius: 6px;
     transition: background 0.15s, border-color 0.15s, transform 0.05s;
     overflow: hidden;
-    min-height: 64px;
+    min-height: 56px;
   }
   .sb-btn:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.3); }
   .sb-btn:active { transform: scale(0.98); }
@@ -275,27 +283,23 @@
   }
   .sb-btn.is-playing .stop-hint { display: block; }
 
-  footer {
-    padding: 24px 28px;
-    text-align: center;
-    font-size: 11px;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: rgba(255,255,255,0.35);
-  }
-  footer a { color: rgba(255,255,255,0.55); text-decoration: none; }
-  footer a:hover { color: #fff; }
-
-  @media (max-width: 600px) {
-    header { padding: 18px 20px; }
+  /* ---------- responsive: stack on narrow screens ---------- */
+  @media (max-width: 760px) {
+    body { height: auto; min-height: 100vh; min-height: 100dvh; overflow-y: auto; }
+    header { padding: 14px 18px; }
     header h1 { font-size: 15px; }
-    header nav { gap: 12px; font-size: 11px; }
-    .hero-hint { left: 20px; bottom: 18px; }
-    .sb-section { padding: 60px 18px; }
-    .icon { width: 200px; height: 200px; }
-    .board { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
-    .sb-btn { padding: 14px 8px; font-size: 11px; min-height: 56px; }
-    .board-title strong { font-size: 22px; }
+    header .meta { font-size: 10px; }
+    main { flex-direction: column; }
+    .stage { flex: 0 0 60vh; height: 60vh; }
+    .sb-section {
+      flex: 1 1 auto;
+      min-height: 60vh;
+      border-left: none;
+      border-top: 1px solid rgba(255,255,255,0.08);
+      padding: 18px;
+    }
+    .board { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 6px; }
+    .icon { width: 160px; height: 160px; }
   }
 </style>
 </head>
@@ -303,62 +307,57 @@
 
   <header>
     <h1>Andrew Nakas</h1>
-    <nav>
-      <a href="#soundboard">Soundboard</a>
-    </nav>
+    <div class="meta">
+      <a href="mailto:andrew.nakas@gmail.com">andrew.nakas@gmail.com</a>
+    </div>
   </header>
 
-  <section class="hero">
-    <model-viewer
-      src="andrew_nakas_3d_scan.glb"
-      alt="3D scan of Andrew Nakas"
-      camera-controls
-      touch-action="pan-y"
-      auto-rotate
-      auto-rotate-delay="0"
-      rotation-per-second="20deg"
-      interaction-prompt="none"
-      exposure="1.0"
-      shadow-intensity="0"
-      environment-image="neutral"
-      camera-orbit="0deg 90deg auto"
-      min-camera-orbit="auto 0deg auto"
-      max-camera-orbit="auto 180deg auto">
-    </model-viewer>
-    <div class="hero-hint">Drag · Scroll · Pinch</div>
-    <a href="#soundboard" class="scroll-cue" aria-label="Scroll to soundboard">▼ Soundboard</a>
-  </section>
+  <main>
+    <section class="stage">
+      <model-viewer
+        src="andrew_nakas_3d_scan.glb"
+        alt="3D scan of Andrew Nakas"
+        camera-controls
+        touch-action="pan-y"
+        auto-rotate
+        auto-rotate-delay="0"
+        rotation-per-second="20deg"
+        interaction-prompt="none"
+        exposure="1.0"
+        shadow-intensity="0"
+        environment-image="neutral"
+        camera-orbit="0deg 90deg auto"
+        min-camera-orbit="auto 0deg auto"
+        max-camera-orbit="auto 180deg auto">
+      </model-viewer>
+      <div class="hero-hint">Drag · Scroll · Pinch</div>
+    </section>
 
-  <section class="sb-section" id="soundboard">
+    <section class="sb-section" id="soundboard">
 
-    <div class="intro-stage" id="introStage">
-      <button class="start-btn" id="startBtn" type="button">▶ Play Intro</button>
+      <div class="intro-stage" id="introStage">
+        <button class="start-btn" id="startBtn" type="button">▶ Play Intro</button>
 
-      <div class="icon-stage" aria-hidden="true">
-        <div class="icon" id="iconEl">
-          <img class="closed" src="images/icon_closed.webp" alt="" />
-          <img class="open"   src="images/icon_open.webp"   alt="" />
+        <div class="icon-stage" aria-hidden="true">
+          <div class="icon" id="iconEl">
+            <img class="closed" src="images/icon_closed.webp" alt="" />
+            <img class="open"   src="images/icon_open.webp"   alt="" />
+          </div>
         </div>
+
+        <div class="shatter" id="shatter" aria-hidden="true"></div>
       </div>
 
-      <div class="shatter" id="shatter" aria-hidden="true"></div>
-    </div>
+      <div class="board-wrap" id="boardWrap">
+        <p class="board-title">
+          <strong>Nakas Motivation Soundboard</strong>
+          Tap to play · tap again to stop
+        </p>
+        <div class="board" id="board"></div>
+      </div>
 
-    <div class="board-wrap" id="boardWrap">
-      <p class="board-title">
-        <strong>Nakas Motivation Soundboard</strong>
-        Tap any tile to play. Tap again to stop.
-      </p>
-      <div class="board" id="board"></div>
-    </div>
-
-  </section>
-
-  <footer>
-    <a href="mailto:andrew.nakas@gmail.com">andrew.nakas@gmail.com</a>
-    &nbsp;·&nbsp;
-    <a href="https://github.com/andrewnakas/nak.as" target="_blank" rel="noopener">source</a>
-  </footer>
+    </section>
+  </main>
 
 <script>
 (() => {
@@ -381,9 +380,6 @@
     { file: "clip111111.mp3",    label: "Clip 111111" },
     { file: "clip1111111.mp3",   label: "Clip 1111111" },
     { file: "clip1111111111111.mp3", label: "Long Clip" },
-    { file: "long_a.mp3",        label: "Long Track A · 2:52" },
-    { file: "long_b.mp3",        label: "Long Track B · 2:47" },
-    { file: "long_c.mp3",        label: "Long Track C · 2:47" },
   ];
 
   // ---------- elements ----------
@@ -539,14 +535,6 @@
   }
 
   startBtn.addEventListener("click", playIntro);
-
-  // Smooth scroll the soundboard nav link
-  document.querySelectorAll('a[href="#soundboard"]').forEach(a => {
-    a.addEventListener("click", e => {
-      e.preventDefault();
-      document.getElementById("soundboard").scrollIntoView({ behavior: "smooth" });
-    });
-  });
 })();
 </script>
 </body>
