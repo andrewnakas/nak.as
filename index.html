@@ -12,8 +12,9 @@
 <meta property="og:type" content="website" />
 <meta property="og:url" content="https://nak.as" />
 <link rel="preload" as="image" href="images/icon_closed.webp" />
-<link rel="preload" as="image" href="images/icon_open.webp" />
+<link rel="preload" as="image" href="images/mouth.webp" />
 <link rel="preload" as="audio" href="sounds/title.mp3" />
+<link rel="preload" as="audio" href="sounds/explosion.mp3" />
 <script type="module" src="https://unpkg.com/@google/model-viewer@4.0.0/dist/model-viewer.min.js"></script>
 <style>
   :root { color-scheme: dark; }
@@ -155,17 +156,49 @@
     position: relative;
     will-change: transform, opacity;
     opacity: 0;
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.6);
   }
-  .icon img {
+  .icon .face {
     position: absolute;
     inset: 0;
     width: 100%;
     height: 100%;
     object-fit: cover;
-    border-radius: 16px;
-    box-shadow: 0 20px 50px rgba(0,0,0,0.6);
   }
-  .icon .open { opacity: 0; }
+  /* Dark "mouth interior" patch revealed when the jaw opens */
+  .icon .mouth-cavity {
+    position: absolute;
+    left: 36%;
+    top: 70%;
+    width: 28%;
+    height: 8%;
+    background: #2a0a0a;
+    border-radius: 50% / 60%;
+  }
+  /* The hinged lower jaw — pivots from the top edge */
+  .icon .jaw {
+    position: absolute;
+    left: 30%;
+    top: 68%;
+    width: 40%;
+    height: 24%;
+    transform-origin: 50% 0%;
+    transform: rotate(0deg);
+    will-change: transform;
+    pointer-events: none;
+    /* let the jaw scoop hide its own seam at the top */
+    filter: drop-shadow(0 1px 1px rgba(0,0,0,0.2));
+  }
+  .icon .jaw img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    /* crop to the central mouth area of the mouth.webp (skip top whitespace) */
+    object-position: center 30%;
+    display: block;
+  }
   .icon.is-flying {
     animation: flyIn 1.67s cubic-bezier(.4,.05,.2,1) forwards;
   }
@@ -336,12 +369,15 @@
     <section class="sb-section" id="soundboard">
 
       <div class="intro-stage" id="introStage">
-        <button class="start-btn" id="startBtn" type="button">▶ Play Intro</button>
+        <button class="start-btn" id="startBtn" type="button">▶ Tap anywhere to start</button>
 
         <div class="icon-stage" aria-hidden="true">
           <div class="icon" id="iconEl">
-            <img class="closed" src="images/icon_closed.webp" alt="" />
-            <img class="open"   src="images/icon_open.webp"   alt="" />
+            <img class="face" src="images/icon_closed.webp" alt="" />
+            <div class="mouth-cavity"></div>
+            <div class="jaw" id="jawEl">
+              <img src="images/mouth.webp" alt="" />
+            </div>
           </div>
         </div>
 
@@ -386,7 +422,7 @@
   const introStage = document.getElementById("introStage");
   const startBtn   = document.getElementById("startBtn");
   const iconEl     = document.getElementById("iconEl");
-  const iconOpen   = iconEl.querySelector(".open");
+  const jawEl      = document.getElementById("jawEl");
   const shatterEl  = document.getElementById("shatter");
   const boardWrap  = document.getElementById("boardWrap");
   const boardEl    = document.getElementById("board");
@@ -455,6 +491,8 @@
     analyser.connect(audioCtx.destination);
 
     const buf = new Uint8Array(analyser.fftSize);
+    let smoothed = 0;
+    let peak = 0.05; // running peak for auto-normalization
     const tick = () => {
       analyser.getByteTimeDomainData(buf);
       let sumSq = 0;
@@ -463,9 +501,14 @@
         sumSq += v * v;
       }
       const rms = Math.sqrt(sumSq / buf.length);
-      // map amplitude → 0..1 mouth openness
-      const openness = Math.min(1, Math.max(0, (rms - 0.04) * 6));
-      iconOpen.style.opacity = openness.toFixed(3);
+      // track running peak so quiet clips still drive a full-range jaw
+      peak = Math.max(peak * 0.995, rms);
+      const noiseFloor = 0.015;
+      const norm = Math.max(0, (rms - noiseFloor) / Math.max(0.04, peak - noiseFloor));
+      const openness = Math.min(1, norm);
+      smoothed = smoothed * 0.35 + openness * 0.65;
+      const angle = smoothed * 38;  // max ~38deg jaw drop
+      jawEl.style.transform = "rotate(" + angle.toFixed(2) + "deg)";
       lipRaf = requestAnimationFrame(tick);
     };
     tick();
@@ -473,7 +516,7 @@
 
   function stopLipSync() {
     cancelAnimationFrame(lipRaf);
-    iconOpen.style.opacity = "0";
+    jawEl.style.transform = "rotate(0deg)";
   }
 
   // Build the shard grid lazily (once)
@@ -509,6 +552,10 @@
     iconEl.style.opacity = "0";
     buildShards();
     shatterEl.classList.add("is-active");
+    // boom
+    const boom = new Audio("sounds/explosion.mp3");
+    boom.volume = 0.8;
+    boom.play().catch(() => {});
     setTimeout(() => {
       introStage.classList.add("is-done");
       boardWrap.classList.add("is-shown");
@@ -534,7 +581,37 @@
     });
   }
 
-  startBtn.addEventListener("click", playIntro);
+  // ---------- autoplay on startup, fallback to first user interaction ----------
+  let started = false;
+  function startOnce() {
+    if (started) return;
+    started = true;
+    playIntro();
+  }
+
+  startBtn.addEventListener("click", startOnce);
+
+  // Try to autoplay immediately on load. Most browsers will block this
+  // unless the user has interacted with the site before — in that case
+  // the first click/tap/keypress anywhere on the page will start the intro.
+  window.addEventListener("load", () => {
+    const probe = new Audio("sounds/title.mp3");
+    probe.volume = 0;
+    probe.play()
+      .then(() => { probe.pause(); startOnce(); })
+      .catch(() => {
+        // autoplay blocked — wait for first user gesture
+        const handler = () => { startOnce(); cleanup(); };
+        const cleanup = () => {
+          document.removeEventListener("pointerdown", handler);
+          document.removeEventListener("keydown", handler);
+          document.removeEventListener("touchstart", handler);
+        };
+        document.addEventListener("pointerdown", handler, { once: true });
+        document.addEventListener("keydown", handler, { once: true });
+        document.addEventListener("touchstart", handler, { once: true });
+      });
+  });
 })();
 </script>
 </body>
