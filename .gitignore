@@ -1,0 +1,6 @@
+.DS_Store
+.claude/
+node_modules/
+
+# Raw scan source assets (the .glb at the repo root is the served version)
+andrew-nakas-3d-scan/
