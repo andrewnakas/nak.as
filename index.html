@@ -561,33 +561,62 @@
     }, 700);
   }
 
+  // Preloaded boom — created once at intro time so it plays instantly
+  // without a fetch/decode delay on the click.
+  let boomAudio = null;
+
   function detonate() {
-    // Boom audio kicks off slightly before the visual shatter so the
-    // attack of the explosion punches into the shard burst.
-    const boom = new Audio("sounds/explosion.mp3");
-    boom.volume = 0.85;
-    boom.play().catch(() => {});
-    setTimeout(shatter, 80);
+    if (boomAudio) {
+      try { boomAudio.currentTime = 0; } catch (e) {}
+      boomAudio.play().catch(() => {});
+    }
+    shatter();
   }
 
   function playIntro() {
     startBtn.classList.add("is-hidden");
+
     titleAudio = new Audio("sounds/title.mp3");
     titleAudio.crossOrigin = "anonymous";
     titleAudio.preload = "auto";
 
-    // begin animation + audio together for tight sync
-    iconEl.classList.add("is-flying");
-    titleAudio.addEventListener("playing", startLipSync, { once: true });
+    boomAudio = new Audio("sounds/explosion.mp3");
+    boomAudio.preload = "auto";
+    boomAudio.volume = 0.85;
+    boomAudio.load();
+
+    titleAudio.addEventListener("playing", () => {
+      // lock the visual fly-in to the actual audio start so they can't
+      // drift apart on slow/decode networks
+      iconEl.classList.add("is-flying");
+      startLipSync();
+    }, { once: true });
+
     titleAudio.addEventListener("ended", () => {
       stopLipSync();
       // brief beat after "nakas motivation" finishes, then BOOM
-      setTimeout(detonate, 350);
+      setTimeout(detonate, 150);
     });
-    titleAudio.play().catch(() => {
-      // if audio fails, still finish the visual on the same timeline
-      setTimeout(detonate, 2020);
-    });
+
+    // Wait for the title clip to actually be ready before pressing play
+    // so the audio and the visual fly-in start in lockstep.
+    let playCalled = false;
+    const startPlayback = () => {
+      if (playCalled) return;
+      playCalled = true;
+      titleAudio.play().catch(() => {
+        // if audio is blocked or fails, run the full timeline visually
+        iconEl.classList.add("is-flying");
+        setTimeout(detonate, 1820);
+      });
+    };
+    if (titleAudio.readyState >= 3) {
+      startPlayback();
+    } else {
+      titleAudio.addEventListener("canplaythrough", startPlayback, { once: true });
+      // safety net: don't hang waiting on canplaythrough on slow networks
+      setTimeout(startPlayback, 800);
+    }
   }
 
   // ---------- autoplay on startup, fallback to first user interaction ----------
