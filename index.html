@@ -170,20 +170,20 @@
   /* Dark "mouth interior" patch revealed when the jaw opens */
   .icon .mouth-cavity {
     position: absolute;
-    left: 36%;
-    top: 70%;
-    width: 28%;
-    height: 8%;
+    left: 40%;
+    top: 71%;
+    width: 20%;
+    height: 6%;
     background: #2a0a0a;
     border-radius: 50% / 60%;
   }
   /* The hinged lower jaw — pivots from the top edge */
   .icon .jaw {
     position: absolute;
-    left: 30%;
-    top: 68%;
-    width: 40%;
-    height: 24%;
+    left: 36%;
+    top: 70%;
+    width: 28%;
+    height: 17%;
     transform-origin: 50% 0%;
     transform: rotate(0deg);
     will-change: transform;
@@ -200,12 +200,15 @@
     display: block;
   }
   .icon.is-flying {
-    animation: flyIn 1.67s cubic-bezier(.4,.05,.2,1) forwards;
+    animation: flyIn 1.95s cubic-bezier(.4,.05,.2,1) forwards;
   }
-  /* Fly from far left (offscreen), spin 3 times, land just right of center of the panel */
+  /* Fly from far left (offscreen), spin 3 times, land just right of center of the panel.
+     Duration is slightly longer than the title clip so the icon is still settling as
+     "nakas motivation" finishes, then holds briefly before the explosion. */
   @keyframes flyIn {
     0%   { opacity: 0; transform: translate(-120%, 0) rotate(0deg) scale(0.6); }
     8%   { opacity: 1; }
+    85%  { transform: translate(25%, 0) rotate(1080deg) scale(1); }
     100% { opacity: 1; transform: translate(25%, 0) rotate(1080deg) scale(1); }
   }
 
@@ -552,14 +555,19 @@
     iconEl.style.opacity = "0";
     buildShards();
     shatterEl.classList.add("is-active");
-    // boom
-    const boom = new Audio("sounds/explosion.mp3");
-    boom.volume = 0.8;
-    boom.play().catch(() => {});
     setTimeout(() => {
       introStage.classList.add("is-done");
       boardWrap.classList.add("is-shown");
     }, 700);
+  }
+
+  function detonate() {
+    // Boom audio kicks off slightly before the visual shatter so the
+    // attack of the explosion punches into the shard burst.
+    const boom = new Audio("sounds/explosion.mp3");
+    boom.volume = 0.85;
+    boom.play().catch(() => {});
+    setTimeout(shatter, 80);
   }
 
   function playIntro() {
@@ -573,11 +581,12 @@
     titleAudio.addEventListener("playing", startLipSync, { once: true });
     titleAudio.addEventListener("ended", () => {
       stopLipSync();
-      shatter();
+      // brief beat after "nakas motivation" finishes, then BOOM
+      setTimeout(detonate, 350);
     });
     titleAudio.play().catch(() => {
-      // if audio fails, still finish the visual
-      setTimeout(shatter, 1670);
+      // if audio fails, still finish the visual on the same timeline
+      setTimeout(detonate, 2020);
     });
   }
 
