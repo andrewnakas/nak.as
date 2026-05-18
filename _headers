@@ -2,5 +2,11 @@
   Cache-Control: public, max-age=31536000, immutable
   Content-Type: model/gltf-binary
 
+/sounds/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/images/*
+  Cache-Control: public, max-age=31536000, immutable
+
 /
   Cache-Control: public, max-age=300

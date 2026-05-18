@@ -2,5 +2,6 @@
 .claude/
 node_modules/
 
-# Raw scan source assets (the .glb at the repo root is the served version)
+# Raw source assets (encoded versions in sounds/ and images/ are what we serve)
 andrew-nakas-3d-scan/
+nakasmotivation_soundboard/

@@ -11,29 +11,34 @@
 <meta property="og:description" content="Andrew Nakas — personal site." />
 <meta property="og:type" content="website" />
 <meta property="og:url" content="https://nak.as" />
+<link rel="preload" as="image" href="images/icon_closed.webp" />
+<link rel="preload" as="image" href="images/icon_open.webp" />
+<link rel="preload" as="audio" href="sounds/title.mp3" />
 <script type="module" src="https://unpkg.com/@google/model-viewer@4.0.0/dist/model-viewer.min.js"></script>
 <style>
   :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
   html, body {
     margin: 0;
     padding: 0;
     background: #000;
     color: #fff;
-    height: 100%;
-    overflow: hidden;
+    min-height: 100%;
     font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
   }
-  body {
-    display: flex;
-    flex-direction: column;
-  }
+  body { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; }
+
   header {
     position: fixed;
     top: 0; left: 0; right: 0;
     padding: 24px 28px;
-    z-index: 2;
+    z-index: 10;
     pointer-events: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
   }
   header h1 {
     margin: 0;
@@ -42,8 +47,29 @@
     letter-spacing: 0.08em;
     text-transform: uppercase;
   }
+  header nav {
+    pointer-events: auto;
+    display: flex;
+    gap: 18px;
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  header nav a {
+    color: rgba(255,255,255,0.6);
+    text-decoration: none;
+    cursor: pointer;
+  }
+  header nav a:hover { color: #fff; }
+
+  /* ---------- model viewer (hero) ---------- */
+  .hero {
+    position: relative;
+    height: 100vh;
+    height: 100dvh;
+    width: 100%;
+  }
   model-viewer {
-    flex: 1;
     width: 100%;
     height: 100%;
     background: #000;
@@ -51,63 +77,477 @@
     --progress-bar-height: 1px;
     --poster-color: #000;
   }
-  footer {
-    position: fixed;
-    bottom: 0; left: 0; right: 0;
-    padding: 20px 28px;
-    z-index: 2;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+  .hero-hint {
+    position: absolute;
+    left: 28px;
+    bottom: 24px;
     font-size: 12px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: rgba(255,255,255,0.55);
+    color: rgba(255,255,255,0.45);
     pointer-events: none;
   }
-  footer a {
-    color: rgba(255,255,255,0.75);
-    text-decoration: none;
+  .scroll-cue {
+    position: absolute;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.5);
+    animation: bounce 2.4s ease-in-out infinite;
+  }
+  @keyframes bounce {
+    0%, 100% { transform: translateX(-50%) translateY(0); opacity: 0.5; }
+    50%      { transform: translateX(-50%) translateY(6px); opacity: 1; }
+  }
+
+  /* ---------- soundboard section ---------- */
+  .sb-section {
+    position: relative;
+    min-height: 100vh;
+    min-height: 100dvh;
+    width: 100%;
+    padding: 80px 28px 80px;
+    overflow: hidden;
+  }
+
+  /* Intro stage — covers the section, fades out after shatter */
+  .intro-stage {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    background: #000;
+  }
+  .intro-stage.is-done { opacity: 0; pointer-events: none; transition: opacity 0.6s ease; }
+
+  .start-btn {
     pointer-events: auto;
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.4);
+    color: #fff;
+    padding: 14px 28px;
+    font-family: inherit;
+    font-size: 13px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
   }
-  footer a:hover { color: #fff; }
-  .hint {
+  .start-btn:hover { background: rgba(255,255,255,0.08); border-color: #fff; }
+  .start-btn.is-hidden { opacity: 0; pointer-events: none; transition: opacity 0.3s; }
+
+  /* The flying icon */
+  .icon-stage {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    perspective: 1200px;
+  }
+  .icon {
+    width: 280px;
+    height: 280px;
+    position: relative;
+    will-change: transform, opacity;
+    opacity: 0;
+  }
+  .icon img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 16px;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+  }
+  .icon .open { opacity: 0; }
+  .icon.is-flying {
+    animation: flyIn 1.67s cubic-bezier(.4,.05,.2,1) forwards;
+  }
+  @keyframes flyIn {
+    0%   { opacity: 0; transform: translate(-90vw, 0) rotate(0deg) scale(0.6); }
+    8%   { opacity: 1; }
+    100% { opacity: 1; transform: translate(35vw, 0) rotate(1080deg) scale(1); }
+  }
+
+  /* Shatter shards */
+  .shatter {
+    position: absolute;
+    inset: 0;
     pointer-events: none;
-    user-select: none;
   }
+  .shard {
+    position: absolute;
+    background-image: var(--shard-img);
+    background-size: var(--shard-bg-size);
+    background-position: var(--shard-bg-pos);
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    will-change: transform, opacity;
+    opacity: 0;
+  }
+  .shatter.is-active .shard {
+    animation: shardFly 1.4s cubic-bezier(.2,.6,.3,1) forwards;
+  }
+  @keyframes shardFly {
+    0%   { opacity: 1; transform: translate(0,0) rotate(0deg) scale(1); }
+    100% { opacity: 0; transform: translate(var(--tx), var(--ty)) rotate(var(--rz)) scale(0.4); }
+  }
+
+  /* ---------- board grid ---------- */
+  .board-wrap {
+    max-width: 1100px;
+    margin: 0 auto;
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.8s ease, transform 0.8s ease;
+  }
+  .board-wrap.is-shown {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  .board-title {
+    text-align: center;
+    font-size: 12px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.5);
+    margin: 0 0 32px;
+  }
+  .board-title strong {
+    display: block;
+    font-size: 28px;
+    letter-spacing: 0.04em;
+    font-weight: 500;
+    color: #fff;
+    margin-bottom: 6px;
+    text-transform: none;
+  }
+  .board {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 12px;
+  }
+  .sb-btn {
+    position: relative;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.12);
+    color: #fff;
+    padding: 18px 14px;
+    font-family: inherit;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    text-align: center;
+    cursor: pointer;
+    border-radius: 8px;
+    transition: background 0.15s, border-color 0.15s, transform 0.05s;
+    overflow: hidden;
+    min-height: 64px;
+  }
+  .sb-btn:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.3); }
+  .sb-btn:active { transform: scale(0.98); }
+  .sb-btn.is-playing {
+    background: rgba(255,255,255,0.14);
+    border-color: rgba(255,255,255,0.6);
+  }
+  .sb-btn .progress {
+    position: absolute;
+    left: 0; bottom: 0;
+    height: 2px;
+    width: 0;
+    background: #fff;
+    transition: width 0.05s linear;
+  }
+  .sb-btn .stop-hint {
+    display: none;
+    margin-top: 4px;
+    font-size: 9px;
+    opacity: 0.6;
+    letter-spacing: 0.16em;
+  }
+  .sb-btn.is-playing .stop-hint { display: block; }
+
+  footer {
+    padding: 24px 28px;
+    text-align: center;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.35);
+  }
+  footer a { color: rgba(255,255,255,0.55); text-decoration: none; }
+  footer a:hover { color: #fff; }
+
   @media (max-width: 600px) {
     header { padding: 18px 20px; }
-    footer { padding: 16px 20px; font-size: 11px; }
     header h1 { font-size: 15px; }
+    header nav { gap: 12px; font-size: 11px; }
+    .hero-hint { left: 20px; bottom: 18px; }
+    .sb-section { padding: 60px 18px; }
+    .icon { width: 200px; height: 200px; }
+    .board { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
+    .sb-btn { padding: 14px 8px; font-size: 11px; min-height: 56px; }
+    .board-title strong { font-size: 22px; }
   }
 </style>
 </head>
 <body>
+
   <header>
     <h1>Andrew Nakas</h1>
+    <nav>
+      <a href="#soundboard">Soundboard</a>
+    </nav>
   </header>
 
-  <model-viewer
-    src="andrew_nakas_3d_scan.glb"
-    alt="3D scan of Andrew Nakas"
-    camera-controls
-    touch-action="pan-y"
-    auto-rotate
-    auto-rotate-delay="0"
-    rotation-per-second="20deg"
-    interaction-prompt="none"
-    exposure="1.0"
-    shadow-intensity="0"
-    environment-image="neutral"
-    camera-orbit="0deg 90deg auto"
-    min-camera-orbit="auto 0deg auto"
-    max-camera-orbit="auto 180deg auto"
-    style="background:#000;">
-  </model-viewer>
+  <section class="hero">
+    <model-viewer
+      src="andrew_nakas_3d_scan.glb"
+      alt="3D scan of Andrew Nakas"
+      camera-controls
+      touch-action="pan-y"
+      auto-rotate
+      auto-rotate-delay="0"
+      rotation-per-second="20deg"
+      interaction-prompt="none"
+      exposure="1.0"
+      shadow-intensity="0"
+      environment-image="neutral"
+      camera-orbit="0deg 90deg auto"
+      min-camera-orbit="auto 0deg auto"
+      max-camera-orbit="auto 180deg auto">
+    </model-viewer>
+    <div class="hero-hint">Drag · Scroll · Pinch</div>
+    <a href="#soundboard" class="scroll-cue" aria-label="Scroll to soundboard">▼ Soundboard</a>
+  </section>
+
+  <section class="sb-section" id="soundboard">
+
+    <div class="intro-stage" id="introStage">
+      <button class="start-btn" id="startBtn" type="button">▶ Play Intro</button>
+
+      <div class="icon-stage" aria-hidden="true">
+        <div class="icon" id="iconEl">
+          <img class="closed" src="images/icon_closed.webp" alt="" />
+          <img class="open"   src="images/icon_open.webp"   alt="" />
+        </div>
+      </div>
+
+      <div class="shatter" id="shatter" aria-hidden="true"></div>
+    </div>
+
+    <div class="board-wrap" id="boardWrap">
+      <p class="board-title">
+        <strong>Nakas Motivation Soundboard</strong>
+        Tap any tile to play. Tap again to stop.
+      </p>
+      <div class="board" id="board"></div>
+    </div>
+
+  </section>
 
   <footer>
-    <span class="hint">Drag to rotate · Scroll to zoom</span>
     <a href="mailto:andrew.nakas@gmail.com">andrew.nakas@gmail.com</a>
+    &nbsp;·&nbsp;
+    <a href="https://github.com/andrewnakas/nak.as" target="_blank" rel="noopener">source</a>
   </footer>
+
+<script>
+(() => {
+  // ---------- soundboard data ----------
+  const SOUNDS = [
+    { file: "shakeuproots.mp3",  label: "Shake Up Roots" },
+    { file: "takeflight.mp3",    label: "Take Flight" },
+    { file: "clip02.mp3",        label: "Clip 02" },
+    { file: "clip03.mp3",        label: "Clip 03" },
+    { file: "clip04.mp3",        label: "Clip 04" },
+    { file: "clip05.mp3",        label: "Clip 05" },
+    { file: "clip06.mp3",        label: "Clip 06" },
+    { file: "clip07.mp3",        label: "Clip 07" },
+    { file: "clip10.mp3",        label: "Clip 10" },
+    { file: "clip11.mp3",        label: "Clip 11" },
+    { file: "clip12.mp3",        label: "Clip 12" },
+    { file: "clip14.mp3",        label: "Clip 14" },
+    { file: "clip15.mp3",        label: "Clip 15" },
+    { file: "clip111.mp3",       label: "Clip 111" },
+    { file: "clip111111.mp3",    label: "Clip 111111" },
+    { file: "clip1111111.mp3",   label: "Clip 1111111" },
+    { file: "clip1111111111111.mp3", label: "Long Clip" },
+    { file: "long_a.mp3",        label: "Long Track A · 2:52" },
+    { file: "long_b.mp3",        label: "Long Track B · 2:47" },
+    { file: "long_c.mp3",        label: "Long Track C · 2:47" },
+  ];
+
+  // ---------- elements ----------
+  const introStage = document.getElementById("introStage");
+  const startBtn   = document.getElementById("startBtn");
+  const iconEl     = document.getElementById("iconEl");
+  const iconOpen   = iconEl.querySelector(".open");
+  const shatterEl  = document.getElementById("shatter");
+  const boardWrap  = document.getElementById("boardWrap");
+  const boardEl    = document.getElementById("board");
+
+  // ---------- build board ----------
+  const buttons = SOUNDS.map(s => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "sb-btn";
+    btn.dataset.file = "sounds/" + s.file;
+    btn.innerHTML =
+      `<span class="label">${s.label}</span>` +
+      `<span class="stop-hint">tap to stop</span>` +
+      `<span class="progress"></span>`;
+    btn.addEventListener("click", () => toggle(btn));
+    boardEl.appendChild(btn);
+    return btn;
+  });
+
+  // ---------- audio playback (one at a time) ----------
+  let current = null;          // { btn, audio, progressEl, raf }
+  function stop() {
+    if (!current) return;
+    current.audio.pause();
+    current.audio.currentTime = 0;
+    current.btn.classList.remove("is-playing");
+    current.progressEl.style.width = "0";
+    cancelAnimationFrame(current.raf);
+    current = null;
+  }
+  function toggle(btn) {
+    if (current && current.btn === btn) { stop(); return; }
+    stop();
+    const audio = new Audio(btn.dataset.file);
+    const progressEl = btn.querySelector(".progress");
+    btn.classList.add("is-playing");
+    const entry = { btn, audio, progressEl, raf: 0 };
+    current = entry;
+    const tick = () => {
+      if (!current || current.audio !== audio) return;
+      if (audio.duration) {
+        progressEl.style.width = (audio.currentTime / audio.duration * 100) + "%";
+      }
+      entry.raf = requestAnimationFrame(tick);
+    };
+    audio.addEventListener("ended", () => { if (current === entry) stop(); });
+    audio.addEventListener("error", () => { if (current === entry) stop(); });
+    audio.play().then(() => { entry.raf = requestAnimationFrame(tick); })
+                .catch(() => stop());
+  }
+
+  // ---------- intro: fly-in + lip-sync + shatter ----------
+  let titleAudio = null;
+  let audioCtx = null;
+  let analyser = null;
+  let lipRaf = 0;
+
+  function startLipSync() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    const src = audioCtx.createMediaElementSource(titleAudio);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 512;
+    analyser.smoothingTimeConstant = 0.4;
+    src.connect(analyser);
+    analyser.connect(audioCtx.destination);
+
+    const buf = new Uint8Array(analyser.fftSize);
+    const tick = () => {
+      analyser.getByteTimeDomainData(buf);
+      let sumSq = 0;
+      for (let i = 0; i < buf.length; i++) {
+        const v = (buf[i] - 128) / 128;
+        sumSq += v * v;
+      }
+      const rms = Math.sqrt(sumSq / buf.length);
+      // map amplitude → 0..1 mouth openness
+      const openness = Math.min(1, Math.max(0, (rms - 0.04) * 6));
+      iconOpen.style.opacity = openness.toFixed(3);
+      lipRaf = requestAnimationFrame(tick);
+    };
+    tick();
+  }
+
+  function stopLipSync() {
+    cancelAnimationFrame(lipRaf);
+    iconOpen.style.opacity = "0";
+  }
+
+  // Build the shard grid lazily (once)
+  let shardsBuilt = false;
+  function buildShards() {
+    if (shardsBuilt) return;
+    shardsBuilt = true;
+    const cols = 6, rows = 6;
+    const size = 280 / cols; // pixels per shard at desktop
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const sh = document.createElement("div");
+        sh.className = "shard";
+        sh.style.width  = size + "px";
+        sh.style.height = size + "px";
+        sh.style.left = `calc(50% + ${(c - cols/2) * size}px)`;
+        sh.style.top  = `calc(50% + ${(r - rows/2) * size}px)`;
+        sh.style.setProperty("--shard-img", "url(images/icon_closed.webp)");
+        sh.style.setProperty("--shard-bg-size", (size * cols) + "px " + (size * rows) + "px");
+        sh.style.setProperty("--shard-bg-pos", `${-c * size}px ${-r * size}px`);
+        // random launch vector
+        const angle = (Math.atan2(r - rows/2 + 0.5, c - cols/2 + 0.5));
+        const dist  = 400 + Math.random() * 500;
+        sh.style.setProperty("--tx", Math.cos(angle) * dist + "px");
+        sh.style.setProperty("--ty", Math.sin(angle) * dist - 100 + "px");
+        sh.style.setProperty("--rz", (Math.random() * 720 - 360) + "deg");
+        shatterEl.appendChild(sh);
+      }
+    }
+  }
+
+  function shatter() {
+    iconEl.style.opacity = "0";
+    buildShards();
+    shatterEl.classList.add("is-active");
+    setTimeout(() => {
+      introStage.classList.add("is-done");
+      boardWrap.classList.add("is-shown");
+    }, 700);
+  }
+
+  function playIntro() {
+    startBtn.classList.add("is-hidden");
+    titleAudio = new Audio("sounds/title.mp3");
+    titleAudio.crossOrigin = "anonymous";
+    titleAudio.preload = "auto";
+
+    // begin animation + audio together for tight sync
+    iconEl.classList.add("is-flying");
+    titleAudio.addEventListener("playing", startLipSync, { once: true });
+    titleAudio.addEventListener("ended", () => {
+      stopLipSync();
+      shatter();
+    });
+    titleAudio.play().catch(() => {
+      // if audio fails, still finish the visual
+      setTimeout(shatter, 1670);
+    });
+  }
+
+  startBtn.addEventListener("click", playIntro);
+
+  // Smooth scroll the soundboard nav link
+  document.querySelectorAll('a[href="#soundboard"]').forEach(a => {
+    a.addEventListener("click", e => {
+      e.preventDefault();
+      document.getElementById("soundboard").scrollIntoView({ behavior: "smooth" });
+    });
+  });
+})();
+</script>
 </body>
 </html>
