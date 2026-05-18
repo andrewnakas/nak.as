@@ -97,6 +97,78 @@
     color: rgba(255,255,255,0.35);
     pointer-events: none;
   }
+  /* Loader overlay shown while the .glb is downloading/decoding */
+  .loader {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 22px;
+    background: #000;
+    z-index: 2;
+    transition: opacity 0.6s ease;
+    pointer-events: none;
+  }
+  .loader.is-done { opacity: 0; }
+  .loader-figure {
+    position: relative;
+    width: 90px;
+    height: 140px;
+  }
+  /* simple stick-figure silhouette, rotating like the 3D model will */
+  .loader-figure::before,
+  .loader-figure::after {
+    content: "";
+    position: absolute;
+    background: rgba(255,255,255,0.85);
+    border-radius: 50%;
+  }
+  .loader-figure::before {
+    /* head */
+    width: 36px; height: 36px;
+    left: 27px; top: 0;
+  }
+  .loader-figure::after {
+    /* body — tapered rectangle via border-radius */
+    width: 56px; height: 94px;
+    left: 17px; top: 38px;
+    border-radius: 28px 28px 18px 18px;
+  }
+  .loader-figure {
+    animation: loaderSpin 2.6s ease-in-out infinite;
+    transform-style: preserve-3d;
+  }
+  @keyframes loaderSpin {
+    0%, 100% { transform: rotateY(0deg); }
+    50%      { transform: rotateY(360deg); }
+  }
+  .loader-bar {
+    width: 140px;
+    height: 2px;
+    background: rgba(255,255,255,0.1);
+    overflow: hidden;
+    position: relative;
+  }
+  .loader-bar::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    width: 40%;
+    background: rgba(255,255,255,0.85);
+    animation: loaderBar 1.4s ease-in-out infinite;
+  }
+  @keyframes loaderBar {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(350%); }
+  }
+  .loader-label {
+    font-size: 10px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.5);
+  }
 
   /* ---------- soundboard panel (right column) ---------- */
   .sb-section {
@@ -279,6 +351,12 @@
   }
   .board::-webkit-scrollbar { width: 6px; }
   .board::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+  /* gated until the intro finishes */
+  .board.is-locked .sb-btn {
+    cursor: not-allowed;
+    opacity: 0.5;
+    pointer-events: none;
+  }
   .sb-btn {
     position: relative;
     background: rgba(255,255,255,0.04);
@@ -351,6 +429,7 @@
   <main>
     <section class="stage">
       <model-viewer
+        id="modelViewer"
         src="andrew_nakas_3d_scan.glb"
         alt="3D scan of Andrew Nakas"
         camera-controls
@@ -366,13 +445,18 @@
         min-camera-orbit="auto 0deg auto"
         max-camera-orbit="auto 180deg auto">
       </model-viewer>
+      <div class="loader" id="loader" aria-label="Loading 3D scan">
+        <div class="loader-figure" aria-hidden="true"></div>
+        <div class="loader-bar"></div>
+        <div class="loader-label">Loading 3D Nakas</div>
+      </div>
       <div class="hero-hint">Drag · Scroll · Pinch</div>
     </section>
 
     <section class="sb-section" id="soundboard">
 
       <div class="intro-stage" id="introStage">
-        <button class="start-btn" id="startBtn" type="button">▶ Tap anywhere to start</button>
+        <button class="start-btn" id="startBtn" type="button">▶ Play Nakas Motivation</button>
 
         <div class="icon-stage" aria-hidden="true">
           <div class="icon" id="iconEl">
@@ -457,6 +541,7 @@
     current = null;
   }
   function toggle(btn) {
+    if (boardEl.classList.contains("is-locked")) return;
     if (current && current.btn === btn) { stop(); return; }
     stop();
     const audio = new Audio(btn.dataset.file);
@@ -558,6 +643,7 @@
     setTimeout(() => {
       introStage.classList.add("is-done");
       boardWrap.classList.add("is-shown");
+      unlockBoard();
     }, 700);
   }
 
@@ -573,83 +659,88 @@
     shatter();
   }
 
-  function playIntro() {
-    startBtn.classList.add("is-hidden");
+  // ---------- gating: soundboard locked until shatter ----------
+  function lockBoard()   { boardEl.classList.add("is-locked"); }
+  function unlockBoard() { boardEl.classList.remove("is-locked"); }
+  lockBoard();
+
+  // ---------- explicit intro start (browser autoplay rules require this) ----------
+  let started = false;
+
+  async function playIntro() {
+    if (started) return;
+    started = true;
+
+    startBtn.disabled = true;
+    startBtn.textContent = "Loading…";
 
     titleAudio = new Audio("sounds/title.mp3");
-    titleAudio.crossOrigin = "anonymous";
     titleAudio.preload = "auto";
 
     boomAudio = new Audio("sounds/explosion.mp3");
     boomAudio.preload = "auto";
     boomAudio.volume = 0.85;
-    boomAudio.load();
 
-    titleAudio.addEventListener("playing", () => {
-      // lock the visual fly-in to the actual audio start so they can't
-      // drift apart on slow/decode networks
-      iconEl.classList.add("is-flying");
-      startLipSync();
-    }, { once: true });
+    // Preload both clips up front so play() succeeds instantly inside
+    // the user gesture handler. Browsers only allow audio.play() if it
+    // runs synchronously with — or shortly after — a user gesture.
+    await Promise.all([
+      waitForReady(titleAudio),
+      waitForReady(boomAudio),
+    ]).catch(() => {});
+
+    startBtn.classList.add("is-hidden");
 
     titleAudio.addEventListener("ended", () => {
       stopLipSync();
       // brief beat after "nakas motivation" finishes, then BOOM
       setTimeout(detonate, 150);
     });
+    titleAudio.addEventListener("playing", startLipSync, { once: true });
 
-    // Wait for the title clip to actually be ready before pressing play
-    // so the audio and the visual fly-in start in lockstep.
-    let playCalled = false;
-    const startPlayback = () => {
-      if (playCalled) return;
-      playCalled = true;
-      titleAudio.play().catch(() => {
-        // if audio is blocked or fails, run the full timeline visually
-        iconEl.classList.add("is-flying");
-        setTimeout(detonate, 1820);
-      });
-    };
-    if (titleAudio.readyState >= 3) {
-      startPlayback();
-    } else {
-      titleAudio.addEventListener("canplaythrough", startPlayback, { once: true });
-      // safety net: don't hang waiting on canplaythrough on slow networks
-      setTimeout(startPlayback, 800);
-    }
+    // Start visual + audio together. Because both clips are already
+    // decoded, the audio begins instantly so they stay in sync.
+    iconEl.classList.add("is-flying");
+    titleAudio.play().catch(() => {
+      // very unlikely now that we waited for canplaythrough inside the
+      // user gesture — but if the browser still blocks, run the visuals
+      // on the same timeline so the explosion still lands.
+      setTimeout(() => { stopLipSync(); detonate(); }, 1820);
+    });
   }
 
-  // ---------- autoplay on startup, fallback to first user interaction ----------
-  let started = false;
-  function startOnce() {
-    if (started) return;
-    started = true;
-    playIntro();
+  function waitForReady(audio) {
+    return new Promise((resolve) => {
+      if (audio.readyState >= 4) { resolve(); return; }
+      const done = () => {
+        audio.removeEventListener("canplaythrough", done);
+        audio.removeEventListener("loadeddata", done);
+        resolve();
+      };
+      audio.addEventListener("canplaythrough", done, { once: true });
+      audio.addEventListener("loadeddata", done, { once: true });
+      // hard ceiling: 3s — if the network is too slow, don't hang the user
+      setTimeout(done, 3000);
+      audio.load();
+    });
   }
 
-  startBtn.addEventListener("click", startOnce);
+  startBtn.addEventListener("click", playIntro);
 
-  // Try to autoplay immediately on load. Most browsers will block this
-  // unless the user has interacted with the site before — in that case
-  // the first click/tap/keypress anywhere on the page will start the intro.
-  window.addEventListener("load", () => {
-    const probe = new Audio("sounds/title.mp3");
-    probe.volume = 0;
-    probe.play()
-      .then(() => { probe.pause(); startOnce(); })
-      .catch(() => {
-        // autoplay blocked — wait for first user gesture
-        const handler = () => { startOnce(); cleanup(); };
-        const cleanup = () => {
-          document.removeEventListener("pointerdown", handler);
-          document.removeEventListener("keydown", handler);
-          document.removeEventListener("touchstart", handler);
-        };
-        document.addEventListener("pointerdown", handler, { once: true });
-        document.addEventListener("keydown", handler, { once: true });
-        document.addEventListener("touchstart", handler, { once: true });
-      });
-  });
+  // ---------- hide the 3D loader once the model is ready ----------
+  const loaderEl = document.getElementById("loader");
+  const mv = document.getElementById("modelViewer");
+  const hideLoader = () => {
+    loaderEl.classList.add("is-done");
+    setTimeout(() => { loaderEl.style.display = "none"; }, 600);
+  };
+  if (mv.loaded) {
+    hideLoader();
+  } else {
+    mv.addEventListener("load", hideLoader, { once: true });
+    // safety: if the event never fires (e.g. very slow network), bail at 30s
+    setTimeout(hideLoader, 30000);
+  }
 })();
 </script>
 </body>
