@@ -97,7 +97,8 @@
     color: rgba(255,255,255,0.35);
     pointer-events: none;
   }
-  /* Loader overlay shown while the .glb is downloading/decoding */
+  /* Loader overlay shown while the full-res .glb is downloading.
+     Renders a true low-poly version of the scan, spinning. */
   .loader {
     position: absolute;
     inset: 0;
@@ -105,44 +106,19 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 22px;
+    gap: 18px;
     background: #000;
     z-index: 2;
     transition: opacity 0.6s ease;
     pointer-events: none;
   }
   .loader.is-done { opacity: 0; }
-  .loader-figure {
-    position: relative;
-    width: 90px;
-    height: 140px;
-  }
-  /* simple stick-figure silhouette, rotating like the 3D model will */
-  .loader-figure::before,
-  .loader-figure::after {
-    content: "";
-    position: absolute;
-    background: rgba(255,255,255,0.85);
-    border-radius: 50%;
-  }
-  .loader-figure::before {
-    /* head */
-    width: 36px; height: 36px;
-    left: 27px; top: 0;
-  }
-  .loader-figure::after {
-    /* body — tapered rectangle via border-radius */
-    width: 56px; height: 94px;
-    left: 17px; top: 38px;
-    border-radius: 28px 28px 18px 18px;
-  }
-  .loader-figure {
-    animation: loaderSpin 2.6s ease-in-out infinite;
-    transform-style: preserve-3d;
-  }
-  @keyframes loaderSpin {
-    0%, 100% { transform: rotateY(0deg); }
-    50%      { transform: rotateY(360deg); }
+  .loader model-viewer {
+    width: 280px;
+    height: 280px;
+    background: transparent;
+    --poster-color: transparent;
+    --progress-bar-color: transparent;
   }
   .loader-bar {
     width: 140px;
@@ -397,6 +373,56 @@
   }
   .sb-btn.is-playing .stop-hint { display: block; }
 
+  /* ---------- now-playing panel (face + waveform) ---------- */
+  .now-playing {
+    flex: 0 0 auto;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid rgba(255,255,255,0.08);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-height: 100px;
+    opacity: 0.35;
+    transition: opacity 0.25s ease;
+  }
+  .now-playing.is-active { opacity: 1; }
+  .np-face {
+    flex: 0 0 auto;
+  }
+  .np-icon {
+    width: 100px;
+    height: 100px;
+    position: relative;
+    border-radius: 12px;
+    overflow: hidden;
+    opacity: 1;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+  }
+  .np-side {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .np-label {
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.65);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .np-wave {
+    width: 100%;
+    height: 60px;
+    display: block;
+    background: rgba(255,255,255,0.03);
+    border-radius: 4px;
+  }
+
   /* ---------- responsive: stack on narrow screens ---------- */
   @media (max-width: 760px) {
     body { height: auto; min-height: 100vh; min-height: 100dvh; overflow-y: auto; }
@@ -430,7 +456,7 @@
     <section class="stage">
       <model-viewer
         id="modelViewer"
-        src="andrew_nakas_3d_scan.glb"
+        src="andrew_nakas_med.glb"
         alt="3D scan of Andrew Nakas"
         camera-controls
         touch-action="pan-y"
@@ -446,7 +472,20 @@
         max-camera-orbit="auto 180deg auto">
       </model-viewer>
       <div class="loader" id="loader" aria-label="Loading 3D scan">
-        <div class="loader-figure" aria-hidden="true"></div>
+        <model-viewer
+          src="andrew_nakas_lowpoly.glb"
+          alt=""
+          disable-tap
+          disable-pan
+          disable-zoom
+          interaction-prompt="none"
+          auto-rotate
+          auto-rotate-delay="0"
+          rotation-per-second="90deg"
+          exposure="1.0"
+          shadow-intensity="0"
+          environment-image="neutral"
+          camera-orbit="0deg 90deg auto"></model-viewer>
         <div class="loader-bar"></div>
         <div class="loader-label">Loading 3D Nakas</div>
       </div>
@@ -477,6 +516,22 @@
           Tap to play · tap again to stop
         </p>
         <div class="board" id="board"></div>
+
+        <div class="now-playing" id="nowPlaying" aria-hidden="true">
+          <div class="np-face">
+            <div class="icon np-icon" id="npIcon">
+              <img class="face" src="images/icon_closed.webp" alt="" />
+              <div class="mouth-cavity"></div>
+              <div class="jaw" id="npJaw">
+                <img src="images/mouth.webp" alt="" />
+              </div>
+            </div>
+          </div>
+          <div class="np-side">
+            <div class="np-label" id="npLabel">—</div>
+            <canvas class="np-wave" id="npWave" width="600" height="60"></canvas>
+          </div>
+        </div>
       </div>
 
     </section>
@@ -529,8 +584,113 @@
     return btn;
   });
 
-  // ---------- audio playback (one at a time) ----------
-  let current = null;          // { btn, audio, progressEl, raf }
+  // ---------- shared Web Audio plumbing ----------
+  // A single AudioContext is created lazily on first user gesture
+  // (browsers require that). MediaElementSources are cached per audio
+  // element because they can only be created once.
+  let audioCtx = null;
+  const sourceCache = new WeakMap();
+
+  function ensureCtx() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    return audioCtx;
+  }
+
+  function wireAnalyser(audio) {
+    const ctx = ensureCtx();
+    let src = sourceCache.get(audio);
+    if (!src) {
+      src = ctx.createMediaElementSource(audio);
+      sourceCache.set(audio, src);
+    }
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 1024;
+    analyser.smoothingTimeConstant = 0.4;
+    src.connect(analyser);
+    analyser.connect(ctx.destination);
+    return analyser;
+  }
+
+  // ---------- generic lip-sync + waveform renderer ----------
+  // Runs an rAF loop that reads the analyser, rotates the jaw based on
+  // RMS amplitude, and optionally draws the time-domain waveform to a
+  // canvas. Returns a stop() function.
+  function runLipAndWave(opts) {
+    const { analyser, jawEl: jaw, canvas } = opts;
+    const buf = new Uint8Array(analyser.fftSize);
+    let smoothed = 0;
+    let peak = 0.05;
+    let raf = 0;
+    let ctx2d = null;
+    if (canvas) {
+      ctx2d = canvas.getContext("2d");
+      // bump canvas resolution to its CSS size for crisp lines
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width > 0) {
+        canvas.width  = Math.floor(rect.width  * dpr);
+        canvas.height = Math.floor(rect.height * dpr);
+        ctx2d.scale(dpr, dpr);
+      }
+    }
+    const cssW = canvas ? canvas.getBoundingClientRect().width  : 0;
+    const cssH = canvas ? canvas.getBoundingClientRect().height : 0;
+
+    const tick = () => {
+      analyser.getByteTimeDomainData(buf);
+
+      // RMS -> jaw
+      let sumSq = 0;
+      for (let i = 0; i < buf.length; i++) {
+        const v = (buf[i] - 128) / 128;
+        sumSq += v * v;
+      }
+      const rms = Math.sqrt(sumSq / buf.length);
+      peak = Math.max(peak * 0.995, rms);
+      const noiseFloor = 0.015;
+      const norm = Math.max(0, (rms - noiseFloor) / Math.max(0.04, peak - noiseFloor));
+      const openness = Math.min(1, norm);
+      smoothed = smoothed * 0.35 + openness * 0.65;
+      if (jaw) {
+        const angle = smoothed * 38;
+        jaw.style.transform = "rotate(" + angle.toFixed(2) + "deg)";
+      }
+
+      // waveform
+      if (ctx2d) {
+        ctx2d.clearRect(0, 0, cssW, cssH);
+        ctx2d.lineWidth = 1.5;
+        ctx2d.strokeStyle = "rgba(255,255,255,0.85)";
+        ctx2d.beginPath();
+        const step = buf.length / cssW;
+        const mid = cssH / 2;
+        for (let x = 0; x < cssW; x++) {
+          const sample = buf[Math.floor(x * step)];
+          const y = mid + ((sample - 128) / 128) * mid * 0.9;
+          if (x === 0) ctx2d.moveTo(x, y); else ctx2d.lineTo(x, y);
+        }
+        ctx2d.stroke();
+      }
+
+      raf = requestAnimationFrame(tick);
+    };
+    tick();
+
+    return () => {
+      cancelAnimationFrame(raf);
+      if (jaw) jaw.style.transform = "rotate(0deg)";
+      if (ctx2d) ctx2d.clearRect(0, 0, cssW, cssH);
+    };
+  }
+
+  // ---------- soundboard playback ----------
+  const nowPlayingEl = document.getElementById("nowPlaying");
+  const npJaw  = document.getElementById("npJaw");
+  const npWave = document.getElementById("npWave");
+  const npLabel = document.getElementById("npLabel");
+
+  let current = null;  // { btn, audio, progressEl, raf, stopAnim }
   function stop() {
     if (!current) return;
     current.audio.pause();
@@ -538,73 +698,73 @@
     current.btn.classList.remove("is-playing");
     current.progressEl.style.width = "0";
     cancelAnimationFrame(current.raf);
+    if (current.stopAnim) current.stopAnim();
+    nowPlayingEl.classList.remove("is-active");
+    npLabel.textContent = "—";
     current = null;
   }
+
   function toggle(btn) {
     if (boardEl.classList.contains("is-locked")) return;
     if (current && current.btn === btn) { stop(); return; }
     stop();
-    const audio = new Audio(btn.dataset.file);
+
+    // We need a fresh <audio> per playback OR a cached one — but
+    // createMediaElementSource can only be called once per element.
+    // So cache one <audio> per file URL and reuse it.
+    const file = btn.dataset.file;
+    let audio = audioPool.get(file);
+    if (!audio) {
+      audio = new Audio(file);
+      audio.crossOrigin = "anonymous";
+      audioPool.set(file, audio);
+    }
+    try { audio.currentTime = 0; } catch (e) {}
+
     const progressEl = btn.querySelector(".progress");
     btn.classList.add("is-playing");
-    const entry = { btn, audio, progressEl, raf: 0 };
+
+    const analyser = wireAnalyser(audio);
+    const stopAnim = runLipAndWave({ analyser, jawEl: npJaw, canvas: npWave });
+
+    nowPlayingEl.classList.add("is-active");
+    npLabel.textContent = btn.querySelector(".label").textContent;
+
+    const entry = { btn, audio, progressEl, raf: 0, stopAnim };
     current = entry;
-    const tick = () => {
+
+    const progressTick = () => {
       if (!current || current.audio !== audio) return;
       if (audio.duration) {
         progressEl.style.width = (audio.currentTime / audio.duration * 100) + "%";
       }
-      entry.raf = requestAnimationFrame(tick);
+      entry.raf = requestAnimationFrame(progressTick);
     };
-    audio.addEventListener("ended", () => { if (current === entry) stop(); });
-    audio.addEventListener("error", () => { if (current === entry) stop(); });
-    audio.play().then(() => { entry.raf = requestAnimationFrame(tick); })
-                .catch(() => stop());
+
+    const onEnd = () => { if (current === entry) stop(); };
+    audio.addEventListener("ended", onEnd, { once: true });
+    audio.addEventListener("error", onEnd, { once: true });
+
+    audio.play()
+      .then(() => { entry.raf = requestAnimationFrame(progressTick); })
+      .catch(() => stop());
   }
 
-  // ---------- intro: fly-in + lip-sync + shatter ----------
+  // Per-URL audio element cache so createMediaElementSource can reuse
+  // the same node (it errors on repeat-create).
+  const audioPool = new Map();
+
+  // ---------- intro lip-sync ----------
   let titleAudio = null;
-  let audioCtx = null;
-  let analyser = null;
-  let lipRaf = 0;
+  let stopIntroLipSync = null;
 
   function startLipSync() {
-    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    if (audioCtx.state === "suspended") audioCtx.resume();
-    const src = audioCtx.createMediaElementSource(titleAudio);
-    analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 512;
-    analyser.smoothingTimeConstant = 0.4;
-    src.connect(analyser);
-    analyser.connect(audioCtx.destination);
-
-    const buf = new Uint8Array(analyser.fftSize);
-    let smoothed = 0;
-    let peak = 0.05; // running peak for auto-normalization
-    const tick = () => {
-      analyser.getByteTimeDomainData(buf);
-      let sumSq = 0;
-      for (let i = 0; i < buf.length; i++) {
-        const v = (buf[i] - 128) / 128;
-        sumSq += v * v;
-      }
-      const rms = Math.sqrt(sumSq / buf.length);
-      // track running peak so quiet clips still drive a full-range jaw
-      peak = Math.max(peak * 0.995, rms);
-      const noiseFloor = 0.015;
-      const norm = Math.max(0, (rms - noiseFloor) / Math.max(0.04, peak - noiseFloor));
-      const openness = Math.min(1, norm);
-      smoothed = smoothed * 0.35 + openness * 0.65;
-      const angle = smoothed * 38;  // max ~38deg jaw drop
-      jawEl.style.transform = "rotate(" + angle.toFixed(2) + "deg)";
-      lipRaf = requestAnimationFrame(tick);
-    };
-    tick();
+    const analyser = wireAnalyser(titleAudio);
+    stopIntroLipSync = runLipAndWave({ analyser, jawEl: jawEl, canvas: null });
   }
 
   function stopLipSync() {
-    cancelAnimationFrame(lipRaf);
-    jawEl.style.transform = "rotate(0deg)";
+    if (stopIntroLipSync) { stopIntroLipSync(); stopIntroLipSync = null; }
   }
 
   // Build the shard grid lazily (once)
@@ -644,6 +804,12 @@
       introStage.classList.add("is-done");
       boardWrap.classList.add("is-shown");
       unlockBoard();
+      // Upgrade the 3D model to full-res now that the user has interacted.
+      // The medium version stays cached so the swap is seamless.
+      const mv2 = document.getElementById("modelViewer");
+      if (mv2 && mv2.getAttribute("src") !== "andrew_nakas_3d_scan.glb") {
+        mv2.setAttribute("src", "andrew_nakas_3d_scan.glb");
+      }
     }, 700);
   }
 

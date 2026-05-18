@@ -1,6 +1,8 @@
 .DS_Store
 .claude/
 node_modules/
+package.json
+package-lock.json
 
 # Raw source assets (encoded versions in sounds/ and images/ are what we serve)
 andrew-nakas-3d-scan/
