@@ -1,0 +1,10 @@
+{
+  "posts": [
+    {
+      "slug": "hello-world",
+      "title": "Hello, world",
+      "date": "2026-05-27",
+      "summary": "First post on nak.as. A note on why this site exists and what's coming next."
+    }
+  ]
+}

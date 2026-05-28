@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Blog — Andrew Nakas</title>
+<meta name="description" content="Writing by Andrew Nakas." />
+<meta name="theme-color" content="#000000" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='black'/%3E%3Ctext x='16' y='22' font-family='Helvetica,Arial,sans-serif' font-size='18' font-weight='700' fill='white' text-anchor='middle'%3EN%3C/text%3E%3C/svg%3E" />
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #000;
+    color: #fff;
+    min-height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  header {
+    padding: 18px 28px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  header h1 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  header h1 a { color: #fff; text-decoration: none; }
+  header nav {
+    display: flex;
+    gap: 18px;
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  header nav a {
+    color: rgba(255,255,255,0.6);
+    text-decoration: none;
+  }
+  header nav a:hover, header nav a.is-current { color: #fff; }
+
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 60px 28px 80px;
+  }
+  .page-title {
+    font-size: 32px;
+    letter-spacing: 0.02em;
+    font-weight: 500;
+    margin: 0 0 8px;
+  }
+  .page-sub {
+    color: rgba(255,255,255,0.5);
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin: 0 0 40px;
+  }
+  .post-list { list-style: none; padding: 0; margin: 0; }
+  .post-item {
+    padding: 24px 0;
+    border-top: 1px solid rgba(255,255,255,0.08);
+  }
+  .post-item:last-child { border-bottom: 1px solid rgba(255,255,255,0.08); }
+  .post-item a {
+    color: #fff;
+    text-decoration: none;
+    display: block;
+  }
+  .post-item a:hover .post-title { text-decoration: underline; }
+  .post-date {
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.45);
+    margin-bottom: 6px;
+  }
+  .post-title {
+    font-size: 22px;
+    font-weight: 500;
+    margin: 0 0 6px;
+  }
+  .post-summary {
+    color: rgba(255,255,255,0.7);
+    font-size: 14px;
+    line-height: 1.55;
+    margin: 0;
+  }
+  .empty, .error {
+    color: rgba(255,255,255,0.5);
+    font-size: 14px;
+    padding: 24px 0;
+  }
+  footer {
+    padding: 24px 28px;
+    text-align: center;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.35);
+    border-top: 1px solid rgba(255,255,255,0.06);
+  }
+  footer a { color: rgba(255,255,255,0.55); text-decoration: none; }
+  footer a:hover { color: #fff; }
+</style>
+</head>
+<body>
+  <header>
+    <h1><a href="/">Andrew Nakas</a></h1>
+    <nav>
+      <a href="/">Home</a>
+      <a href="/blog.html" class="is-current">Blog</a>
+    </nav>
+  </header>
+
+  <main>
+    <h2 class="page-title">Blog</h2>
+    <p class="page-sub">Writing</p>
+
+    <ul class="post-list" id="postList">
+      <li class="empty">Loading…</li>
+    </ul>
+  </main>
+
+  <footer>
+    <a href="mailto:andrew.nakas@gmail.com">andrew.nakas@gmail.com</a>
+  </footer>
+
+<script>
+(async () => {
+  const listEl = document.getElementById("postList");
+  try {
+    const res = await fetch("/posts/index.json", { cache: "no-cache" });
+    if (!res.ok) throw new Error("Failed to load post index");
+    const data = await res.json();
+    const posts = (data.posts || []).slice().sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+    if (posts.length === 0) {
+      listEl.innerHTML = '<li class="empty">No posts yet.</li>';
+      return;
+    }
+    listEl.innerHTML = posts.map(p => {
+      const date = formatDate(p.date);
+      const summary = p.summary ? `<p class="post-summary">${escapeHtml(p.summary)}</p>` : "";
+      return `
+        <li class="post-item">
+          <a href="/post.html?slug=${encodeURIComponent(p.slug)}">
+            <div class="post-date">${date}</div>
+            <h3 class="post-title">${escapeHtml(p.title)}</h3>
+            ${summary}
+          </a>
+        </li>`;
+    }).join("");
+  } catch (err) {
+    listEl.innerHTML = `<li class="error">Couldn't load posts. ${escapeHtml(err.message)}</li>`;
+  }
+})();
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+function formatDate(d) {
+  if (!d) return "";
+  const dt = new Date(d + "T00:00:00");
+  if (isNaN(dt.getTime())) return d;
+  return dt.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+}
+</script>
+</body>
+</html>

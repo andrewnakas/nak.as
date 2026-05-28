@@ -8,5 +8,8 @@
 /images/*
   Cache-Control: public, max-age=31536000, immutable
 
+/posts/*
+  Cache-Control: public, max-age=60
+
 /
   Cache-Control: public, max-age=300

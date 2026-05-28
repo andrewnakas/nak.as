@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Andrew Nakas</title>
+<meta name="theme-color" content="#000000" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='black'/%3E%3Ctext x='16' y='22' font-family='Helvetica,Arial,sans-serif' font-size='18' font-weight='700' fill='white' text-anchor='middle'%3EN%3C/text%3E%3C/svg%3E" />
+<script src="https://cdn.jsdelivr.net/npm/marked@13.0.3/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #000;
+    color: #fff;
+    min-height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  header {
+    padding: 18px 28px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  header h1 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  header h1 a { color: #fff; text-decoration: none; }
+  header nav {
+    display: flex;
+    gap: 18px;
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  header nav a {
+    color: rgba(255,255,255,0.6);
+    text-decoration: none;
+  }
+  header nav a:hover, header nav a.is-current { color: #fff; }
+
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 60px 28px 80px;
+  }
+  .back {
+    display: inline-block;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.5);
+    text-decoration: none;
+    margin-bottom: 32px;
+  }
+  .back:hover { color: #fff; }
+  .post-date {
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.45);
+    margin-bottom: 8px;
+  }
+
+  article {
+    line-height: 1.65;
+    font-size: 16px;
+    color: rgba(255,255,255,0.92);
+  }
+  article h1 {
+    font-size: 32px;
+    letter-spacing: 0.01em;
+    font-weight: 500;
+    margin: 0 0 16px;
+    line-height: 1.2;
+    color: #fff;
+  }
+  article h2 {
+    font-size: 22px;
+    font-weight: 500;
+    margin: 40px 0 12px;
+    color: #fff;
+  }
+  article h3 {
+    font-size: 18px;
+    font-weight: 500;
+    margin: 32px 0 10px;
+    color: #fff;
+  }
+  article p { margin: 0 0 16px; }
+  article a {
+    color: #fff;
+    text-decoration: underline;
+    text-decoration-color: rgba(255,255,255,0.35);
+    text-underline-offset: 3px;
+  }
+  article a:hover { text-decoration-color: #fff; }
+  article ul, article ol { padding-left: 22px; margin: 0 0 16px; }
+  article li { margin-bottom: 6px; }
+  article code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.88em;
+    background: rgba(255,255,255,0.08);
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+  article pre {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    padding: 14px 16px;
+    border-radius: 6px;
+    overflow-x: auto;
+    margin: 0 0 16px;
+  }
+  article pre code {
+    background: transparent;
+    padding: 0;
+  }
+  article blockquote {
+    margin: 0 0 16px;
+    padding: 4px 18px;
+    border-left: 2px solid rgba(255,255,255,0.25);
+    color: rgba(255,255,255,0.75);
+  }
+  article img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 4px;
+    margin: 16px 0;
+  }
+  article hr {
+    border: 0;
+    border-top: 1px solid rgba(255,255,255,0.1);
+    margin: 32px 0;
+  }
+  article table {
+    border-collapse: collapse;
+    margin: 0 0 16px;
+  }
+  article th, article td {
+    border: 1px solid rgba(255,255,255,0.15);
+    padding: 6px 10px;
+  }
+
+  .status {
+    color: rgba(255,255,255,0.5);
+    font-size: 14px;
+    padding: 24px 0;
+  }
+  footer {
+    padding: 24px 28px;
+    text-align: center;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.35);
+    border-top: 1px solid rgba(255,255,255,0.06);
+  }
+  footer a { color: rgba(255,255,255,0.55); text-decoration: none; }
+  footer a:hover { color: #fff; }
+</style>
+</head>
+<body>
+  <header>
+    <h1><a href="/">Andrew Nakas</a></h1>
+    <nav>
+      <a href="/">Home</a>
+      <a href="/blog.html" class="is-current">Blog</a>
+    </nav>
+  </header>
+
+  <main>
+    <a href="/blog.html" class="back">← All posts</a>
+    <div class="post-date" id="postDate"></div>
+    <article id="article">
+      <p class="status">Loading…</p>
+    </article>
+  </main>
+
+  <footer>
+    <a href="mailto:andrew.nakas@gmail.com">andrew.nakas@gmail.com</a>
+  </footer>
+
+<script>
+(async () => {
+  const article = document.getElementById("article");
+  const dateEl = document.getElementById("postDate");
+
+  const params = new URLSearchParams(location.search);
+  const slug = params.get("slug");
+
+  if (!slug || !/^[a-z0-9][a-z0-9-]*$/i.test(slug)) {
+    article.innerHTML = '<p class="status">Post not found.</p>';
+    return;
+  }
+
+  try {
+    // Look up metadata in parallel with fetching the body
+    const [indexRes, bodyRes] = await Promise.all([
+      fetch("/posts/index.json", { cache: "no-cache" }),
+      fetch("/posts/" + encodeURIComponent(slug) + ".md", { cache: "no-cache" }),
+    ]);
+    if (!bodyRes.ok) throw new Error("Post not found");
+    const body = await bodyRes.text();
+
+    let meta = null;
+    if (indexRes.ok) {
+      const data = await indexRes.json();
+      meta = (data.posts || []).find(p => p.slug === slug);
+    }
+    if (meta) {
+      document.title = meta.title + " — Andrew Nakas";
+      if (meta.date) dateEl.textContent = formatDate(meta.date);
+    }
+
+    const html = DOMPurify.sanitize(marked.parse(body, { gfm: true, breaks: false }));
+    article.innerHTML = html;
+  } catch (err) {
+    article.innerHTML = '<p class="status">Couldn\'t load this post.</p>';
+  }
+})();
+
+function formatDate(d) {
+  const dt = new Date(d + "T00:00:00");
+  if (isNaN(dt.getTime())) return d;
+  return dt.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+}
+</script>
+</body>
+</html>
