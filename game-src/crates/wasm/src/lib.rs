@@ -4,7 +4,7 @@
 //! Roles: 0 = host (runs the authoritative sim; solo play is a host with no
 //! peers), 1 = client (applies host snapshots, renders interpolated view).
 
-use protocol::{C2H, H2C};
+use protocol::{GameEvent, C2H, H2C};
 use sim::client::ClientView;
 use sim::draw::DrawList;
 use sim::{render_view, Sim};
@@ -19,19 +19,22 @@ pub struct Game {
     role: u8,
     view: ClientView,
     input_seq: u32,
+    /// Sound cues received over the network (client role).
+    client_audio: Vec<(i32, i32, u16)>,
 }
 
 #[wasm_bindgen]
 impl Game {
-    /// Panics on malformed content; world.json is validated at build time
-    /// by tools/build-maps.mjs.
+    /// Panics on malformed content; the bundle is validated at build time
+    /// by tools/build-maps.mjs + tools/check-content.mjs.
     #[wasm_bindgen(constructor)]
     pub fn new(content_json: &str, role: u8, seed: u64) -> Game {
         Game {
-            sim: Sim::new(content_json, seed).expect("invalid world content"),
+            sim: Sim::new(content_json, seed).expect("invalid content bundle"),
             role,
             view: ClientView::new(),
             input_seq: 0,
+            client_audio: Vec::new(),
         }
     }
 
@@ -66,10 +69,22 @@ impl Game {
         self.sim.step();
     }
 
-    /// Serialized snapshot to broadcast (same for every slot until
-    /// per-screen interest filtering lands with enemies).
+    /// Serialized snapshot to broadcast.
     pub fn snapshot_bytes(&self) -> Vec<u8> {
         protocol::encode(&H2C::Snapshot(self.sim.snapshot()))
+    }
+
+    /// Net events since the last call, wrapped for the reliable channel.
+    /// Empty result means nothing to send.
+    pub fn drain_events_bytes(&mut self) -> Vec<u8> {
+        let events = self.sim.drain_events();
+        if events.is_empty() {
+            return Vec::new();
+        }
+        protocol::encode(&H2C::Event {
+            tick: self.sim.tick,
+            payload: protocol::encode(&events),
+        })
     }
 
     // ---- client path ----
@@ -85,7 +100,15 @@ impl Game {
     pub fn apply_host_msg(&mut self, bytes: &[u8], now_ms: f64) {
         match protocol::decode::<H2C>(bytes) {
             Some(H2C::Snapshot(snap)) => self.view.push(now_ms as u64, snap),
-            Some(H2C::Event { .. }) | Some(H2C::SaveState { .. }) | None => {}
+            Some(H2C::Event { payload, .. }) => {
+                if let Some(events) = protocol::decode::<Vec<GameEvent>>(&payload) {
+                    for ev in events {
+                        let GameEvent::Audio { sx, sy, cue } = ev;
+                        self.client_audio.push((sx, sy, cue));
+                    }
+                }
+            }
+            Some(H2C::SaveState { .. }) | None => {}
         }
     }
 
@@ -94,12 +117,40 @@ impl Game {
     pub fn render_frame(&self, viewpoint: u8, now_ms: f64) -> Vec<u16> {
         let mut list = DrawList::new();
         if self.role == ROLE_CLIENT {
-            let players = self.view.sample(now_ms as u64);
-            render_view(&self.sim.world, &players, viewpoint as usize, &mut list);
+            let (players, entities) = self.view.sample(now_ms as u64);
+            render_view(
+                &self.sim.world,
+                &self.sim.defs,
+                &players,
+                &entities,
+                viewpoint as usize,
+                self.view.latest_tick(),
+                &mut list,
+            );
         } else {
             self.sim.render(viewpoint as usize, &mut list);
         }
         list.0
+    }
+
+    /// Sound cues for the viewpoint player's screen since the last call.
+    pub fn drain_audio(&mut self, viewpoint: u8) -> Vec<u16> {
+        if self.role == ROLE_CLIENT {
+            let at = self.view.player_screen(viewpoint);
+            let out = match at {
+                Some((sx, sy)) => self
+                    .client_audio
+                    .iter()
+                    .filter(|(ax, ay, _)| *ax == sx && *ay == sy)
+                    .map(|&(_, _, c)| c)
+                    .collect(),
+                None => Vec::new(),
+            };
+            self.client_audio.clear();
+            out
+        } else {
+            self.sim.drain_audio(viewpoint as usize)
+        }
     }
 
     pub fn tick_count(&self) -> u32 {

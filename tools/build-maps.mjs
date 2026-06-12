@@ -9,10 +9,15 @@ import { fileURLToPath } from 'node:url';
 
 import { TILES } from '../content/sprites/tiles.mjs';
 import { SPRITES } from '../content/sprites/sprites.mjs';
+import { CHARSET } from '../content/sprites/font.mjs';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = join(REPO, 'content', 'maps', 'overworld.txt');
 const OUT_DIR = join(REPO, 'game', 'assets', 'content');
+
+const ENEMY_NAMES = new Set(
+  JSON.parse(readFileSync(join(OUT_DIR, 'enemies.json'), 'utf8')).map((e) => e.name),
+);
 
 const COLS = 10;
 const ROWS = 8;
@@ -41,9 +46,16 @@ for (let i = 0; i < lines.length; i++) {
   }
   if (line.startsWith('SCREEN ')) {
     const [, col, row, name] = line.split(/\s+/);
-    screen = { x: Number(col), y: Number(row), name, rows: [], line: i };
+    screen = { x: Number(col), y: Number(row), name, rows: [], entities: [], line: i };
     screens.push(screen);
     mode = 'screen';
+    continue;
+  }
+  if (line.startsWith('E ')) {
+    if (!screen) fail(i, 'E line outside a SCREEN');
+    const [, type, tx, ty] = line.split(/\s+/);
+    if (!ENEMY_NAMES.has(type)) fail(i, `unknown enemy '${type}'`);
+    screen.entities.push({ t: type, tx: Number(tx), ty: Number(ty), line: i });
     continue;
   }
   if (line.startsWith('SPAWN ')) {
@@ -83,6 +95,15 @@ for (const s of screens) {
       s.tiles.push(legend.get(ch));
     }
   }
+  for (const e of s.entities) {
+    if (e.tx < 0 || e.tx >= COLS || e.ty < 0 || e.ty >= ROWS) {
+      fail(e.line, `screen ${s.name}: entity '${e.t}' out of bounds`);
+    }
+    const tile = s.tiles[e.ty * COLS + e.tx];
+    if (TILES[tile].solid && e.t !== 'dune_wasp') {
+      fail(e.line, `screen ${s.name}: entity '${e.t}' on solid tile '${TILES[tile].name}'`);
+    }
+  }
 }
 
 if (!spawn) throw new Error('no SPAWN directive');
@@ -94,7 +115,14 @@ const world = {
   tile_names: TILES.map((t) => t.name),
   tile_solid: TILES.map((t) => t.solid),
   sprite_names: SPRITES.map((s) => s.name),
-  screens: screens.map((s) => ({ x: s.x, y: s.y, name: s.name, tiles: s.tiles })),
+  font_chars: CHARSET,
+  screens: screens.map((s) => ({
+    x: s.x,
+    y: s.y,
+    name: s.name,
+    tiles: s.tiles,
+    entities: s.entities.map(({ t, tx, ty }) => ({ t, tx, ty })),
+  })),
   spawn,
 };
 

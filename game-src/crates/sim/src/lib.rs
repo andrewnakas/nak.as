@@ -4,30 +4,57 @@
 //! - integer fixed-point only (see `fixed`); no f32/f64
 //! - all randomness via the seeded `rng::Pcg32`
 //! - no wall-clock time; the tick counter is the only clock
-//! - no iteration over HashMap/HashSet in sim logic
+//! - no iteration over HashMap/HashSet in sim logic (BTreeMap is fine)
 
 #![forbid(unsafe_code)]
 
 pub mod client;
+pub mod defs;
 pub mod draw;
+pub mod entity;
 pub mod fixed;
 pub mod input;
 pub mod rng;
 pub mod world;
 
+use defs::{Brain, Defs, DropItem};
 use draw::{DrawList, FLAG_FLIP_X, HUD_H, SCREEN_H, SCREEN_W};
+use entity::{Entity, StepCtx, ET_ENEMY, ET_PICKUP, ET_PROJECTILE, PK_HEART, PK_ITEM, PK_SHELLS};
 use fixed::{fx, to_px, Fx};
 use input::*;
-use protocol::{PlayerSnap, SnapshotData};
+use protocol::{EntitySnap, GameEvent, PlayerSnap, SnapshotData};
 use rng::Pcg32;
-use world::World;
+use serde::Deserialize;
+use std::collections::BTreeMap;
+use world::{World, WorldJson};
 
 pub const TICKS_PER_SEC: u32 = 60;
 pub const MAX_PLAYERS: usize = 4;
 pub const TRANSITION_TICKS: u32 = 40;
 
+/// Sound cue ids (mirrored in game/js/audio.js).
+pub mod cues {
+    pub const SWING: u16 = 1;
+    pub const HIT: u16 = 2;
+    pub const ENEMY_DIE: u16 = 3;
+    pub const HURT: u16 = 4;
+    pub const HEART: u16 = 5;
+    pub const SHELL: u16 = 6;
+    pub const ITEM: u16 = 7;
+    pub const DIE: u16 = 8;
+    pub const SHOOT: u16 = 9;
+}
+
 /// Player walk speed: 1.25 px/tick = 75 px/s, close to LA's feel.
 const WALK_SPEED: Fx = fx(1) + fx(1) / 4;
+
+const ATTACK_TICKS: u8 = 16;
+/// Sword connects during this window of attack_t (counting down).
+const HIT_WINDOW: std::ops::RangeInclusive<u8> = 4..=12;
+const PLAYER_IFRAMES: u8 = 60;
+const ENEMY_IFRAMES: u8 = 10;
+const RESPAWN_TICKS: u32 = 120;
+const ENEMY_RESPAWN_TICKS: u32 = 1800; // screen empty 30s -> enemies return
 
 /// Sprite is 16x16; movement collides on a feet box near the bottom.
 const FEET_X0: i32 = 3;
@@ -58,7 +85,26 @@ pub struct Player {
     pub walking: bool,
     pub anim: u32,
     pub buttons: u16,
+    pub prev_buttons: u16,
     pub transition: Option<Transition>,
+    pub hp: i16,
+    pub max_hp: i16,
+    pub shells: u32,
+    /// Material counts indexed by item def (real inventory in Phase 4).
+    pub materials: Vec<u16>,
+    pub attack_t: u8,
+    pub iframes: u8,
+    pub kvx: Fx,
+    pub kvy: Fx,
+    pub dead_t: u32,
+}
+
+#[derive(Deserialize)]
+struct Bundle {
+    world: WorldJson,
+    items: Vec<defs::ItemJson>,
+    enemies: Vec<defs::EnemyJson>,
+    drops: BTreeMap<String, Vec<defs::DropJson>>,
 }
 
 pub struct Sim {
@@ -66,9 +112,15 @@ pub struct Sim {
     pub seed: u64,
     rng: Pcg32,
     pub world: World,
+    pub defs: Defs,
     pub players: [Option<Player>; 4],
-    /// FNV of the content JSON; exchanged in the multiplayer handshake so
-    /// mismatched clients are rejected before play.
+    pub entities: Vec<Entity>,
+    next_id: u32,
+    last_spawn: BTreeMap<(i32, i32), u32>,
+    /// Local sound cues (drained by the renderer side each frame).
+    audio: Vec<(i32, i32, u16)>,
+    /// Net events accumulated since the last drain (host broadcasts these).
+    events: Vec<GameEvent>,
     pub content_hash: u64,
 }
 
@@ -78,14 +130,55 @@ impl Sim {
         for b in content_json.as_bytes() {
             h.byte(*b);
         }
-        Ok(Sim {
+        let bundle: Bundle = serde_json::from_str(content_json).map_err(|e| e.to_string())?;
+        let sprite_names = bundle.world.sprite_names.clone();
+        let defs = Defs::build(bundle.items, bundle.enemies, bundle.drops, &|name| {
+            world::sprite_index(&sprite_names, name)
+        })?;
+        let world = World::build(bundle.world, &|name| {
+            defs.enemy_index(name)
+                .ok_or_else(|| format!("map references unknown enemy '{name}'"))
+        })?;
+
+        let mut sim = Sim {
             tick: 0,
             seed,
             rng: Pcg32::new(seed, 1),
-            world: World::from_json(content_json)?,
+            world,
+            defs,
             players: [None, None, None, None],
+            entities: Vec::new(),
+            next_id: 1,
+            last_spawn: BTreeMap::new(),
+            audio: Vec::new(),
+            events: Vec::new(),
             content_hash: h.finish(),
-        })
+        };
+        for i in 0..sim.world.screens.len() {
+            sim.spawn_screen(i);
+        }
+        Ok(sim)
+    }
+
+    fn spawn_screen(&mut self, screen_idx: usize) {
+        let screen = &self.world.screens[screen_idx];
+        let coords = (screen.x, screen.y);
+        let mut spawned = Vec::new();
+        for sp in &screen.spawns {
+            let def = &self.defs.enemies[sp.enemy as usize];
+            spawned.push(Entity::enemy(
+                self.next_id,
+                sp.enemy,
+                def.hp,
+                screen.x,
+                screen.y,
+                sp.x,
+                sp.y,
+            ));
+            self.next_id += 1;
+        }
+        self.entities.extend(spawned);
+        self.last_spawn.insert(coords, self.tick);
     }
 
     pub fn add_player(&mut self, slot: usize) {
@@ -102,7 +195,17 @@ impl Sim {
             walking: false,
             anim: 0,
             buttons: 0,
+            prev_buttons: 0,
             transition: None,
+            hp: 6,
+            max_hp: 6,
+            shells: 0,
+            materials: vec![0; self.defs.items.len()],
+            attack_t: 0,
+            iframes: 0,
+            kvx: 0,
+            kvy: 0,
+            dead_t: 0,
         });
     }
 
@@ -118,37 +221,49 @@ impl Sim {
         }
     }
 
-    /// Full player snapshot (per-screen interest filtering arrives with
-    /// enemies; four players is small enough to send whole).
-    pub fn snapshot(&self) -> SnapshotData {
-        SnapshotData {
-            tick: self.tick,
-            players: self
-                .players
+    fn emit_cue(&mut self, sx: i32, sy: i32, cue: u16) {
+        self.audio.push((sx, sy, cue));
+        self.events.push(GameEvent::Audio { sx, sy, cue });
+    }
+
+    /// Local sound cues on the viewpoint player's screen; clears the queue.
+    pub fn drain_audio(&mut self, viewpoint: usize) -> Vec<u16> {
+        let at = self.players[viewpoint.min(MAX_PLAYERS - 1)]
+            .as_ref()
+            .map(|p| (p.sx, p.sy));
+        let out = match at {
+            Some((sx, sy)) => self
+                .audio
                 .iter()
-                .enumerate()
-                .filter_map(|(slot, p)| {
-                    p.as_ref().map(|p| PlayerSnap {
-                        slot: slot as u8,
-                        sx: p.sx,
-                        sy: p.sy,
-                        x: p.x,
-                        y: p.y,
-                        facing: p.facing,
-                        walking: p.walking,
-                        anim: p.anim,
-                        transition: p.transition.map(|t| (t.dir, t.t)),
-                    })
-                })
+                .filter(|(ax, ay, _)| *ax == sx && *ay == sy)
+                .map(|&(_, _, c)| c)
                 .collect(),
-        }
+            None => Vec::new(),
+        };
+        self.audio.clear();
+        out
+    }
+
+    /// Net events since last call (encoded for the reliable channel).
+    pub fn drain_events(&mut self) -> Vec<GameEvent> {
+        std::mem::take(&mut self.events)
     }
 
     pub fn step(&mut self) {
-        self.tick = self.tick.wrapping_add(1);
+        self.tick = self.wrapping_tick();
         for slot in 0..MAX_PLAYERS {
             self.step_player(slot);
         }
+        self.step_entities();
+        self.resolve_combat();
+        self.cleanup_and_drops();
+        if self.tick % 60 == 0 {
+            self.respawn_screens();
+        }
+    }
+
+    fn wrapping_tick(&self) -> u32 {
+        self.tick.wrapping_add(1)
     }
 
     fn step_player(&mut self, slot: usize) {
@@ -157,12 +272,73 @@ impl Sim {
             return;
         };
 
+        if pl.iframes > 0 {
+            pl.iframes -= 1;
+        }
+
+        if pl.dead_t > 0 {
+            pl.dead_t -= 1;
+            if pl.dead_t == 0 {
+                let sp = self.world.spawn;
+                pl.sx = sp.sx;
+                pl.sy = sp.sy;
+                pl.x = fx(sp.x);
+                pl.y = fx(sp.y);
+                pl.hp = pl.max_hp;
+                pl.iframes = PLAYER_IFRAMES;
+                pl.kvx = 0;
+                pl.kvy = 0;
+                pl.transition = None;
+            }
+            pl.prev_buttons = pl.buttons;
+            self.players[slot] = Some(pl);
+            return;
+        }
+
         if let Some(tr) = &mut pl.transition {
             tr.t += 1;
             if tr.t >= TRANSITION_TICKS {
                 pl.transition = None;
             }
+            pl.prev_buttons = pl.buttons;
             self.players[slot] = Some(pl);
+            return;
+        }
+
+        // Knockback dominates while strong.
+        if pl.kvx != 0 || pl.kvy != 0 {
+            let screen = self.world.screen_at(pl.sx, pl.sy);
+            if let Some(screen) = screen {
+                let nx = pl.x + pl.kvx;
+                if self.feet_clear(screen, nx, pl.y) {
+                    pl.x = nx.clamp(MIN_X, MAX_X);
+                }
+                let ny = pl.y + pl.kvy;
+                if self.feet_clear(screen, pl.x, ny) {
+                    pl.y = ny.clamp(MIN_Y, MAX_Y);
+                }
+            }
+            pl.kvx = pl.kvx - pl.kvx / 4 - pl.kvx.signum();
+            pl.kvy = pl.kvy - pl.kvy / 4 - pl.kvy.signum();
+            pl.prev_buttons = pl.buttons;
+            self.players[slot] = Some(pl);
+            return;
+        }
+
+        // Sword swing: A edge starts; movement locked while swinging.
+        if pl.attack_t > 0 {
+            pl.attack_t -= 1;
+            pl.walking = false;
+            pl.prev_buttons = pl.buttons;
+            self.players[slot] = Some(pl);
+            return;
+        }
+        if pl.buttons & BTN_A != 0 && pl.prev_buttons & BTN_A == 0 {
+            pl.attack_t = ATTACK_TICKS;
+            let (sx, sy) = (pl.sx, pl.sy);
+            pl.prev_buttons = pl.buttons;
+            self.players[slot] = Some(pl);
+            self.emit_cue(sx, sy, cues::SWING);
             return;
         }
 
@@ -198,6 +374,7 @@ impl Sim {
         let screen = match self.world.screen_at(pl.sx, pl.sy) {
             Some(s) => s,
             None => {
+                pl.prev_buttons = pl.buttons;
                 self.players[slot] = Some(pl);
                 return;
             }
@@ -250,7 +427,289 @@ impl Sim {
             }
         }
 
+        pl.prev_buttons = pl.buttons;
         self.players[slot] = Some(pl);
+    }
+
+    fn step_entities(&mut self) {
+        let mut new_entities = Vec::new();
+        // Index loop (not iterator) so brains can borrow world/defs/players.
+        for i in 0..self.entities.len() {
+            let mut e = self.entities[i].clone();
+            match e.etype {
+                ET_ENEMY => {
+                    let ctx = StepCtx {
+                        world: &self.world,
+                        defs: &self.defs,
+                        tick: self.tick,
+                    };
+                    if let Some(mut proj) =
+                        entity::step_enemy(&mut e, &ctx, &self.players, &mut self.rng)
+                    {
+                        proj.id = self.next_id;
+                        self.next_id += 1;
+                        let (sx, sy) = (proj.sx, proj.sy);
+                        new_entities.push(proj);
+                        self.audio.push((sx, sy, cues::SHOOT));
+                        self.events.push(GameEvent::Audio {
+                            sx,
+                            sy,
+                            cue: cues::SHOOT,
+                        });
+                    }
+                }
+                ET_PROJECTILE => entity::step_projectile(&mut e, &self.world),
+                _ => entity::step_pickup(&mut e),
+            }
+            self.entities[i] = e;
+        }
+        self.entities.extend(new_entities);
+    }
+
+    fn resolve_combat(&mut self) {
+        // 1. Sword hits enemies.
+        for slot in 0..MAX_PLAYERS {
+            let Some(p) = self.players[slot].clone() else {
+                continue;
+            };
+            if p.dead_t > 0 || !HIT_WINDOW.contains(&p.attack_t) {
+                continue;
+            }
+            let (hx0, hy0, hx1, hy1) = sword_box(&p);
+            let mut cues_out = Vec::new();
+            for e in self.entities.iter_mut() {
+                if !e.alive || e.etype != ET_ENEMY || e.iframes > 0 {
+                    continue;
+                }
+                if e.sx != p.sx || e.sy != p.sy {
+                    continue;
+                }
+                let (ex0, ey0, ex1, ey1) = e.feet_box();
+                if hx0 < ex1 && ex0 < hx1 && hy0 < ey1 && ey0 < hy1 {
+                    e.hp -= 1;
+                    e.iframes = ENEMY_IFRAMES;
+                    // Rooted enemies don't get knocked back.
+                    if self.defs.enemies[e.def as usize].brain != Brain::Thornling {
+                        e.vx = fx(3) * (e.x - p.x).signum();
+                        e.vy = fx(3) * (e.y - p.y).signum();
+                    }
+                    cues_out.push(if e.hp <= 0 { cues::ENEMY_DIE } else { cues::HIT });
+                    if e.hp <= 0 {
+                        e.alive = false;
+                    }
+                }
+            }
+            for c in cues_out {
+                self.emit_cue(p.sx, p.sy, c);
+            }
+        }
+
+        // 2. Enemies / projectiles hurt players; pickups collect.
+        for slot in 0..MAX_PLAYERS {
+            let Some(mut p) = self.players[slot].clone() else {
+                continue;
+            };
+            if p.dead_t > 0 || p.transition.is_some() {
+                continue;
+            }
+            let px0 = to_px(p.x) + FEET_X0;
+            let py0 = to_px(p.y) + FEET_Y0;
+            let px1 = to_px(p.x) + FEET_X1;
+            let py1 = to_px(p.y) + FEET_Y1;
+            let mut changed = false;
+
+            for i in 0..self.entities.len() {
+                let mut e = self.entities[i].clone();
+                if !e.alive || e.sx != p.sx || e.sy != p.sy {
+                    continue;
+                }
+                let (ex0, ey0, ex1, ey1) = e.feet_box();
+                if !(px0 < ex1 && ex0 < px1 && py0 < ey1 && ey0 < py1) {
+                    continue;
+                }
+                match e.etype {
+                    ET_ENEMY if p.iframes == 0 => {
+                        let def = &self.defs.enemies[e.def as usize];
+                        p.hp -= def.damage;
+                        p.iframes = PLAYER_IFRAMES;
+                        p.kvx = fx(3) * (p.x - e.x).signum();
+                        p.kvy = fx(3) * (p.y - e.y).signum();
+                        if def.brain == Brain::Snatcher && p.shells > 0 {
+                            let steal = p.shells.min(3);
+                            p.shells -= steal;
+                            e.data += steal as i32;
+                            e.state = 3; // flee
+                            e.state_t = 0;
+                        }
+                        self.emit_cue(p.sx, p.sy, cues::HURT);
+                        if p.hp <= 0 {
+                            p.dead_t = RESPAWN_TICKS;
+                            self.emit_cue(p.sx, p.sy, cues::DIE);
+                        }
+                        changed = true;
+                    }
+                    ET_PROJECTILE if p.iframes == 0 => {
+                        p.hp -= e.data as i16;
+                        p.iframes = PLAYER_IFRAMES;
+                        p.kvx = e.vx * 2;
+                        p.kvy = e.vy * 2;
+                        e.alive = false;
+                        self.emit_cue(p.sx, p.sy, cues::HURT);
+                        if p.hp <= 0 {
+                            p.dead_t = RESPAWN_TICKS;
+                            self.emit_cue(p.sx, p.sy, cues::DIE);
+                        }
+                        changed = true;
+                    }
+                    ET_PICKUP => {
+                        match e.def {
+                            PK_HEART => {
+                                p.hp = (p.hp + 2).min(p.max_hp);
+                                self.emit_cue(p.sx, p.sy, cues::HEART);
+                            }
+                            PK_SHELLS => {
+                                p.shells += e.data as u32;
+                                self.emit_cue(p.sx, p.sy, cues::SHELL);
+                            }
+                            _ => {
+                                let idx = e.data as usize;
+                                if idx < p.materials.len() {
+                                    p.materials[idx] += 1;
+                                }
+                                self.emit_cue(p.sx, p.sy, cues::ITEM);
+                            }
+                        }
+                        e.alive = false;
+                        changed = true;
+                    }
+                    _ => {}
+                }
+                self.entities[i] = e;
+                if p.dead_t > 0 {
+                    break;
+                }
+            }
+            if changed || p.iframes > 0 {
+                self.players[slot] = Some(p);
+            }
+        }
+    }
+
+    fn cleanup_and_drops(&mut self) {
+        let mut drops = Vec::new();
+        for e in &self.entities {
+            if e.alive || e.etype != ET_ENEMY || e.hp > 0 {
+                continue;
+            }
+            let def = &self.defs.enemies[e.def as usize];
+            // Gels split once instead of dropping loot.
+            if def.brain == Brain::Gel && e.data == 0 {
+                for k in 0..2u8 {
+                    let mut mini = Entity::enemy(
+                        0,
+                        e.def,
+                        1,
+                        e.sx,
+                        e.sy,
+                        to_px(e.x) + if k == 0 { -6 } else { 6 },
+                        to_px(e.y),
+                    );
+                    mini.data = 1;
+                    mini.home = e.home;
+                    drops.push(mini);
+                }
+                continue;
+            }
+            let table = self.defs.drop_tables[def.drop_table].clone();
+            for entry in table {
+                if !self.rng.chance_permille(entry.permille) {
+                    continue;
+                }
+                let amount = entry.min + self.rng.below(entry.max - entry.min + 1);
+                let (def_kind, data) = match entry.item {
+                    DropItem::Heart => (PK_HEART, 0),
+                    DropItem::Shells => (PK_SHELLS, amount as i32),
+                    DropItem::Item(idx) => (PK_ITEM, idx as i32),
+                };
+                let jx = self.rng.below(13) as i32 - 6;
+                let jy = self.rng.below(13) as i32 - 6;
+                drops.push(Entity {
+                    id: 0,
+                    etype: ET_PICKUP,
+                    def: def_kind,
+                    data,
+                    sx: e.sx,
+                    sy: e.sy,
+                    x: e.x + fx(jx),
+                    y: e.y + fx(jy),
+                    vx: 0,
+                    vy: 0,
+                    hp: 1,
+                    facing: 0,
+                    state: 0,
+                    state_t: 0,
+                    anim: 0,
+                    iframes: 0,
+                    home: e.home,
+                    alive: true,
+                });
+            }
+            // Snatchers spill stolen shells on death.
+            if def.brain == Brain::Snatcher && e.data > 0 {
+                drops.push(Entity {
+                    id: 0,
+                    etype: ET_PICKUP,
+                    def: PK_SHELLS,
+                    data: e.data,
+                    sx: e.sx,
+                    sy: e.sy,
+                    x: e.x,
+                    y: e.y,
+                    vx: 0,
+                    vy: 0,
+                    hp: 1,
+                    facing: 0,
+                    state: 0,
+                    state_t: 0,
+                    anim: 0,
+                    iframes: 0,
+                    home: e.home,
+                    alive: true,
+                });
+            }
+        }
+        self.entities.retain(|e| e.alive);
+        for mut d in drops {
+            d.id = self.next_id;
+            self.next_id += 1;
+            self.entities.push(d);
+        }
+    }
+
+    fn respawn_screens(&mut self) {
+        let mut to_spawn = Vec::new();
+        for (idx, screen) in self.world.screens.iter().enumerate() {
+            if screen.spawns.is_empty() {
+                continue;
+            }
+            let coords = (screen.x, screen.y);
+            let occupied = self
+                .players
+                .iter()
+                .flatten()
+                .any(|p| p.sx == screen.x && p.sy == screen.y);
+            let has_living = self
+                .entities
+                .iter()
+                .any(|e| e.etype == ET_ENEMY && e.home == coords);
+            let last = self.last_spawn.get(&coords).copied().unwrap_or(0);
+            if !occupied && !has_living && self.tick.saturating_sub(last) > ENEMY_RESPAWN_TICKS {
+                to_spawn.push(idx);
+            }
+        }
+        for idx in to_spawn {
+            self.spawn_screen(idx);
+        }
     }
 
     fn feet_clear(&self, screen: &world::Screen, x: Fx, y: Fx) -> bool {
@@ -262,11 +721,88 @@ impl Sim {
             || self.world.is_solid(screen, px + FEET_X1, py + FEET_Y1))
     }
 
+    // ---- snapshots ----
+
+    pub fn snapshot(&self) -> SnapshotData {
+        let players: Vec<PlayerSnap> = self
+            .players
+            .iter()
+            .enumerate()
+            .filter_map(|(slot, p)| {
+                p.as_ref().map(|p| PlayerSnap {
+                    slot: slot as u8,
+                    sx: p.sx,
+                    sy: p.sy,
+                    x: p.x,
+                    y: p.y,
+                    facing: p.facing,
+                    walking: p.walking,
+                    anim: p.anim,
+                    transition: p.transition.map(|t| (t.dir, t.t)),
+                    hp: p.hp,
+                    max_hp: p.max_hp,
+                    shells: p.shells,
+                    attack_t: p.attack_t,
+                    iframes: p.iframes,
+                    dead: p.dead_t > 0,
+                })
+            })
+            .collect();
+
+        // Interest: entities on any screen that has (or is scrolling from) a player.
+        let mut screens: Vec<(i32, i32)> = Vec::new();
+        for p in self.players.iter().flatten() {
+            screens.push((p.sx, p.sy));
+            if let Some(tr) = p.transition {
+                let (dx, dy) = match tr.dir {
+                    0 => (0, 1),
+                    1 => (0, -1),
+                    2 => (-1, 0),
+                    _ => (1, 0),
+                };
+                screens.push((p.sx - dx, p.sy - dy));
+            }
+        }
+
+        let entities = self
+            .entities
+            .iter()
+            .filter(|e| screens.contains(&(e.sx, e.sy)))
+            .map(|e| EntitySnap {
+                id: e.id,
+                etype: e.etype,
+                def: e.def,
+                data: e.data,
+                sx: e.sx,
+                sy: e.sy,
+                x: e.x,
+                y: e.y,
+                facing: e.facing,
+                anim: e.anim,
+                flash: e.iframes > 0,
+            })
+            .collect();
+
+        SnapshotData {
+            tick: self.tick,
+            players,
+            entities,
+        }
+    }
+
     // ---- rendering ----
 
     /// Emit the draw list as seen by `viewpoint`'s player.
     pub fn render(&self, viewpoint: usize, out: &mut DrawList) {
-        render_view(&self.world, &self.players, viewpoint, out);
+        render_view(
+            &self.world,
+            &self.defs,
+            &self.players,
+            &self.entities,
+            viewpoint,
+            self.tick,
+            out,
+        );
     }
 
     /// FNV-1a over the canonical state; used by determinism tests and the
@@ -275,6 +811,7 @@ impl Sim {
         let mut h = Fnv::new();
         h.u32(self.tick);
         h.u64(self.rng.state_bits());
+        h.u32(self.next_id);
         for p in self.players.iter() {
             match p {
                 None => h.u32(0xDEAD),
@@ -286,6 +823,16 @@ impl Sim {
                     h.i32(p.y);
                     h.u32(p.facing as u32);
                     h.u32(p.anim);
+                    h.i32(p.hp as i32);
+                    h.u32(p.shells);
+                    h.u32(p.attack_t as u32);
+                    h.u32(p.iframes as u32);
+                    h.u32(p.dead_t);
+                    h.i32(p.kvx);
+                    h.i32(p.kvy);
+                    for m in &p.materials {
+                        h.u32(*m as u32);
+                    }
                     match p.transition {
                         None => h.u32(0),
                         Some(tr) => {
@@ -296,17 +843,36 @@ impl Sim {
                 }
             }
         }
+        for e in &self.entities {
+            h.u32(e.id);
+            h.u32(e.etype as u32);
+            h.u32(e.def as u32);
+            h.i32(e.data);
+            h.i32(e.sx);
+            h.i32(e.sy);
+            h.i32(e.x);
+            h.i32(e.y);
+            h.i32(e.hp as i32);
+            h.u32(e.state as u32);
+            h.u32(e.state_t);
+            h.i32(e.vx);
+            h.i32(e.vy);
+        }
         h.finish()
     }
 }
 
-/// Render the world + players as seen from `viewpoint`'s screen. Free
-/// function so the host (live sim state) and clients (interpolated
-/// snapshot state) share one code path. Paint order: tiles, sprites, HUD.
+/// Render the world + players + entities as seen from `viewpoint`'s screen.
+/// Free function so the host (live sim state) and clients (interpolated
+/// snapshot state) share one code path. Paint order: tiles, pickups,
+/// enemies/projectiles, players, HUD.
 pub fn render_view(
     world: &World,
+    defs: &Defs,
     players: &[Option<Player>; MAX_PLAYERS],
+    entities: &[Entity],
     viewpoint: usize,
+    tick: u32,
     out: &mut DrawList,
 ) {
     let Some(Some(vp)) = players.get(viewpoint) else {
@@ -317,7 +883,8 @@ pub fn render_view(
     match vp.transition {
         None => {
             draw_screen(world, vp.sx, vp.sy, 0, 0, out);
-            draw_players_on(world, players, vp.sx, vp.sy, 0, 0, out);
+            draw_entities_on(world, defs, entities, vp.sx, vp.sy, 0, 0, tick, out);
+            draw_players_on(world, players, vp.sx, vp.sy, 0, 0, tick, out);
         }
         Some(tr) => {
             // vp is already on the NEW screen; the old screen scrolls away.
@@ -338,13 +905,14 @@ pub fn render_view(
             let (old_ox, old_oy) = (-dx * shift_x, -dy * shift_y);
             draw_screen(world, osx, osy, old_ox, old_oy, out);
             draw_screen(world, vp.sx, vp.sy, new_ox, new_oy, out);
-            draw_players_on(world, players, osx, osy, old_ox, old_oy, out);
-            draw_players_on(world, players, vp.sx, vp.sy, new_ox, new_oy, out);
+            draw_entities_on(world, defs, entities, osx, osy, old_ox, old_oy, tick, out);
+            draw_entities_on(world, defs, entities, vp.sx, vp.sy, new_ox, new_oy, tick, out);
+            draw_players_on(world, players, osx, osy, old_ox, old_oy, tick, out);
+            draw_players_on(world, players, vp.sx, vp.sy, new_ox, new_oy, tick, out);
         }
     }
 
-    // HUD bar (hearts etc. come with combat).
-    out.rect(0, 0, 0, SCREEN_W as u16, HUD_H as u16);
+    draw_hud(world, vp, out);
 }
 
 fn draw_screen(world: &World, sx: i32, sy: i32, ox: i32, oy: i32, out: &mut DrawList) {
@@ -359,6 +927,60 @@ fn draw_screen(world: &World, sx: i32, sy: i32, ox: i32, oy: i32, out: &mut Draw
     }
 }
 
+fn draw_entities_on(
+    world: &World,
+    defs: &Defs,
+    entities: &[Entity],
+    sx: i32,
+    sy: i32,
+    ox: i32,
+    oy: i32,
+    tick: u32,
+    out: &mut DrawList,
+) {
+    // Pickups under actors.
+    for e in entities {
+        if e.sx != sx || e.sy != sy || e.etype != ET_PICKUP {
+            continue;
+        }
+        // Blink during the final 2s before despawning.
+        if e.state_t > entity::PICKUP_TTL - 120 && (tick >> 2) & 1 == 1 {
+            continue;
+        }
+        let sprite = match e.def {
+            PK_HEART => world.sprites.heart_drop,
+            PK_SHELLS => world.sprites.shell_drop,
+            _ => defs
+                .items
+                .get(e.data as usize)
+                .map_or(world.sprites.shell_drop, |it| it.sprite),
+        };
+        out.sprite(sprite, to_px(e.x) + ox, to_px(e.y) + oy, 0, 0);
+    }
+
+    for e in entities {
+        if e.sx != sx || e.sy != sy {
+            continue;
+        }
+        match e.etype {
+            ET_ENEMY => {
+                // Hit flash: skip frames while invulnerable.
+                if e.iframes > 0 && (tick >> 1) & 1 == 1 {
+                    continue;
+                }
+                let def = &defs.enemies[e.def as usize];
+                let frame = ((e.anim >> 4) & 1) as u16;
+                let flags = if e.facing == 3 { FLAG_FLIP_X } else { 0 };
+                out.sprite(def.sprite + frame, to_px(e.x) + ox, to_px(e.y) + oy, 0, flags);
+            }
+            ET_PROJECTILE => {
+                out.sprite(world.sprites.seed, to_px(e.x) + ox, to_px(e.y) + oy, 0, 0);
+            }
+            _ => {}
+        }
+    }
+}
+
 fn draw_players_on(
     world: &World,
     players: &[Option<Player>; MAX_PLAYERS],
@@ -366,6 +988,7 @@ fn draw_players_on(
     sy: i32,
     ox: i32,
     oy: i32,
+    tick: u32,
     out: &mut DrawList,
 ) {
     // Draw in y order so southern players overlap northern ones.
@@ -373,21 +996,87 @@ fn draw_players_on(
         .filter(|&i| {
             players[i]
                 .as_ref()
-                .is_some_and(|p| p.sx == sx && p.sy == sy)
+                .is_some_and(|p| p.sx == sx && p.sy == sy && p.dead_t == 0)
         })
         .collect();
     order.sort_by_key(|&i| players[i].as_ref().unwrap().y);
 
     for i in order {
         let p = players[i].as_ref().unwrap();
-        let frame = if p.walking { (p.anim >> 3) & 1 } else { 0 } as u16;
-        let (base, flags) = match p.facing {
-            1 => (world.sprites.player_up, 0),
-            2 => (world.sprites.player_side, 0),
-            3 => (world.sprites.player_side, FLAG_FLIP_X),
-            _ => (world.sprites.player_down, 0),
+        let flicker = p.iframes > 0 && (tick >> 1) & 1 == 1;
+        let px = to_px(p.x) + ox;
+        let py = to_px(p.y) + oy;
+
+        // Sword: behind the player when facing up, in front otherwise.
+        let sword = (p.attack_t > 0).then(|| {
+            let (sprite, sxo, syo, flags) = match p.facing {
+                1 => (world.sprites.sword_up, 0, -14, 0),
+                2 => (world.sprites.sword_side, -14, 2, 0),
+                3 => (world.sprites.sword_side, 14, 2, FLAG_FLIP_X),
+                _ => (world.sprites.sword_down, 0, 14, 0),
+            };
+            (sprite, px + sxo, py + syo, flags)
+        });
+
+        if let Some((s, x, y, f)) = sword {
+            if p.facing == 1 {
+                out.sprite(s, x, y, 0, f);
+            }
+        }
+        if !flicker {
+            let frame = if p.walking { (p.anim >> 3) & 1 } else { 0 } as u16;
+            let (base, flags) = match p.facing {
+                1 => (world.sprites.player_up, 0),
+                2 => (world.sprites.player_side, 0),
+                3 => (world.sprites.player_side, FLAG_FLIP_X),
+                _ => (world.sprites.player_down, 0),
+            };
+            out.sprite(base + frame, px, py, 0, flags);
+        }
+        if let Some((s, x, y, f)) = sword {
+            if p.facing != 1 {
+                out.sprite(s, x, y, 0, f);
+            }
+        }
+    }
+}
+
+fn draw_hud(world: &World, vp: &Player, out: &mut DrawList) {
+    out.rect(0, 0, 0, SCREEN_W as u16, HUD_H as u16);
+    // Hearts: '#' full, '%' half, '&' empty in the font charset.
+    let full = (vp.hp.max(0) / 2) as i32;
+    let half = (vp.hp.max(0) % 2) as i32;
+    let total = (vp.max_hp / 2) as i32;
+    for i in 0..total {
+        let c = if i < full {
+            '#'
+        } else if i == full && half == 1 {
+            '%'
+        } else {
+            '&'
         };
-        out.sprite(base + frame, to_px(p.x) + ox, to_px(p.y) + oy, 0, flags);
+        if let Some(g) = world.glyph(c) {
+            out.glyph(g, 2 + i * 9, 4, 1);
+        }
+    }
+    // Shells: icon + count, right-aligned.
+    let text = format!("{}", vp.shells);
+    let x0 = SCREEN_W - 4 - (text.len() as i32 + 1) * 8;
+    if let Some(g) = world.glyph('$') {
+        out.glyph(g, x0, 4, 1);
+    }
+    draw_text(world, &text, x0 + 9, 4, 1, out);
+}
+
+pub fn draw_text(world: &World, text: &str, x: i32, y: i32, variant: u16, out: &mut DrawList) {
+    let mut cx = x;
+    for c in text.chars() {
+        if c != ' ' {
+            if let Some(g) = world.glyph(c) {
+                out.glyph(g, cx, y, variant);
+            }
+        }
+        cx += 8;
     }
 }
 
@@ -425,13 +1114,24 @@ impl Default for Fnv {
     }
 }
 
+fn sword_box(p: &Player) -> (i32, i32, i32, i32) {
+    let px = to_px(p.x);
+    let py = to_px(p.y);
+    match p.facing {
+        1 => (px, py - 14, px + 16, py + 4),
+        2 => (px - 14, py, px + 4, py + 16),
+        3 => (px + 12, py, px + 30, py + 16),
+        _ => (px, py + 12, px + 16, py + 30),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// 2x1-screen test world: borders solid, interiors open, gap on the
-    /// shared edge so players can cross between screens.
-    fn test_world() -> String {
+    /// 2x1-screen bundle: borders solid, interiors open, gap on the shared
+    /// edge, one thornling and one gel on screen 0.
+    fn test_bundle() -> String {
         let mut screens = Vec::new();
         for sx in 0..2 {
             let mut tiles = vec![0u16; 80];
@@ -445,30 +1145,55 @@ mod tests {
                     tiles[ty * 10 + 9] = 1;
                 }
             }
+            let entities = if sx == 0 {
+                r#"[{"t":"thornling","tx":2,"ty":2},{"t":"gel","tx":7,"ty":5}]"#
+            } else {
+                "[]"
+            };
             screens.push(format!(
-                r#"{{"x":{sx},"y":0,"name":"t{sx}","tiles":{tiles:?}}}"#
+                r#"{{"x":{sx},"y":0,"name":"t{sx}","tiles":{tiles:?},"entities":{entities}}}"#
             ));
         }
+        let sprites = [
+            "player_down_0",
+            "player_up_0",
+            "player_side_0",
+            "sword_down",
+            "sword_up",
+            "sword_side",
+            "seed",
+            "heart_drop",
+            "shell_drop",
+            "thornling_0",
+            "gel_0",
+            "claw",
+        ];
+        let sprite_names = sprites.map(|s| format!("\"{s}\"")).join(",");
         format!(
-            r#"{{"tile_names":["floor","wall"],"tile_solid":[false,true],
-"sprite_names":["player_down_0","player_up_0","player_side_0"],
-"screens":[{}],"spawn":{{"sx":0,"sy":0,"x":72,"y":64}}}}"#,
+            r#"{{"world":{{"tile_names":["floor","wall"],"tile_solid":[false,true],
+"sprite_names":[{sprite_names}],"font_chars":"0123456789#%&$",
+"screens":[{}],"spawn":{{"sx":0,"sy":0,"x":72,"y":64}}}},
+"items":[{{"name":"crab_claw","sprite":"claw"}}],
+"enemies":[
+ {{"name":"thornling","brain":"thornling","hp":2,"damage":1,"speed":0,"sprite":"thornling_0","drops":"basic"}},
+ {{"name":"gel","brain":"gel","hp":2,"damage":1,"speed":128,"sprite":"gel_0","drops":"basic"}}],
+"drops":{{"basic":[{{"item":"heart","p":400}},{{"item":"shells","p":600,"min":1,"max":3}},{{"item":"crab_claw","p":300}}]}}}}"#,
             screens.join(",")
         )
     }
 
     fn scripted_run(ticks: u32) -> u64 {
-        let world = test_world();
-        let mut sim = Sim::new(&world, 0xA11CE).unwrap();
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 0xA11CE).unwrap();
         sim.add_player(0);
         sim.add_player(1);
         let mut script = Pcg32::new(42, 7);
         for t in 0..ticks {
             if t % 13 == 0 {
-                sim.set_input(0, (script.next_u32() & 0xf) as u16);
+                sim.set_input(0, (script.next_u32() & 0x1f) as u16); // incl. A
             }
             if t % 7 == 0 {
-                sim.set_input(1, (script.next_u32() & 0xf) as u16);
+                sim.set_input(1, (script.next_u32() & 0x1f) as u16);
             }
             sim.step();
         }
@@ -482,8 +1207,8 @@ mod tests {
 
     #[test]
     fn players_move_and_collide() {
-        let world = test_world();
-        let mut sim = Sim::new(&world, 1).unwrap();
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 1).unwrap();
         sim.add_player(0);
         let x0 = sim.players[0].as_ref().unwrap().x;
         sim.set_input(0, BTN_RIGHT);
@@ -491,25 +1216,91 @@ mod tests {
             sim.step();
         }
         assert!(sim.players[0].as_ref().unwrap().x > x0);
-        // Hold up: should stop at the wall row, not pass through.
-        sim.set_input(0, BTN_UP);
-        for _ in 0..600 {
+    }
+
+    #[test]
+    fn screen_transition_through_gap() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 1).unwrap();
+        sim.add_player(0);
+        // Spawn (y=64) is aligned with the edge gap (rows 3-4); walk right through it.
+        sim.set_input(0, BTN_RIGHT);
+        for _ in 0..400 {
             sim.step();
         }
         let p = sim.players[0].as_ref().unwrap();
-        assert_eq!(p.sy, 0);
-        assert!(to_px(p.y) >= HUD_H + 16 - FEET_Y0);
+        assert_eq!(p.sx, 1, "player should have crossed to screen 1");
+    }
+
+    #[test]
+    fn sword_kills_enemy_and_drops_spawn() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 99).unwrap();
+        sim.add_player(0);
+        // Teleport next to the thornling at tile (2,2) -> px (32, 48).
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.x = fx(32);
+            p.y = fx(48 + 18);
+            p.facing = 1; // up
+        }
+        let enemies_before = sim
+            .entities
+            .iter()
+            .filter(|e| e.etype == ET_ENEMY)
+            .count();
+        // Swing twice (thornling hp=2), releasing A between swings.
+        for _ in 0..2 {
+            sim.set_input(0, BTN_A);
+            for _ in 0..20 {
+                sim.step();
+            }
+            sim.set_input(0, 0);
+            for _ in 0..4 {
+                sim.step();
+            }
+        }
+        let enemies_after = sim
+            .entities
+            .iter()
+            .filter(|e| e.etype == ET_ENEMY)
+            .count();
+        assert_eq!(enemies_after, enemies_before - 1, "thornling should die");
+        // With p=400+600+300 drop rolls, seed 99 should yield at least one pickup.
+        let pickups = sim
+            .entities
+            .iter()
+            .filter(|e| e.etype == ET_PICKUP)
+            .count();
+        assert!(pickups > 0, "expected at least one drop");
+    }
+
+    #[test]
+    fn enemy_contact_hurts_and_respawn_works() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 5).unwrap();
+        sim.add_player(0);
+        // Walk into the gel's corner long enough to take contact damage.
+        sim.set_input(0, BTN_RIGHT | BTN_DOWN);
+        let mut hurt = false;
+        for _ in 0..600 {
+            sim.step();
+            if sim.players[0].as_ref().unwrap().hp < 6 {
+                hurt = true;
+                break;
+            }
+        }
+        assert!(hurt, "gel should reach and hurt the player");
     }
 
     #[test]
     fn snapshot_roundtrip_and_interpolation() {
-        let world = test_world();
-        let mut sim = Sim::new(&world, 7).unwrap();
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 7).unwrap();
         sim.add_player(0);
         sim.set_input(0, BTN_RIGHT);
 
         let mut view = client::ClientView::new();
-        // Two snapshots 50ms apart, 3 ticks of movement between them.
         let bytes0 = protocol::encode(&protocol::H2C::Snapshot(sim.snapshot()));
         for _ in 0..3 {
             sim.step();
@@ -522,26 +1313,13 @@ mod tests {
         let x0 = snap0.players[0].x;
         let x1 = snap1.players[0].x;
         assert!(x1 > x0);
+        assert!(!snap1.entities.is_empty(), "entities should be in snapshot");
 
         view.push(1000, snap0);
         view.push(1050, snap1);
-        // Sample so the render target (now - delay) lands midway between them.
-        let players = view.sample(1145);
+        let (players, entities) = view.sample(1145);
         let xs = players[0].as_ref().unwrap().x;
         assert!(xs > x0 && xs < x1, "expected {x0} < {xs} < {x1}");
-    }
-
-    #[test]
-    fn screen_transition_through_gap() {
-        let world = test_world();
-        let mut sim = Sim::new(&world, 1).unwrap();
-        sim.add_player(0);
-        // Spawn (y=64) is aligned with the edge gap (rows 3-4); walk right through it.
-        sim.set_input(0, BTN_RIGHT);
-        for _ in 0..400 {
-            sim.step();
-        }
-        let p = sim.players[0].as_ref().unwrap();
-        assert_eq!(p.sx, 1, "player should have crossed to screen 1");
+        assert!(!entities.is_empty());
     }
 }

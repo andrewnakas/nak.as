@@ -8,6 +8,8 @@
 //! kind SPRITE: a = tile index in sprite sheet, b/c = biased x/y,
 //!              d = palette id, e = flags (bit0 flip-x, bit1 flip-y)
 //! kind RECT:   a = shade 0-3, b/c = biased x/y, d = width, e = height
+//! kind GLYPH:  a = glyph index in font sheet (8x8), b/c = biased x/y,
+//!              d = variant (0 dark, 1 light), e = unused
 //!
 //! Coordinates are biased by COORD_BIAS so partially off-screen records
 //! (screen-scroll transitions) stay unsigned.
@@ -18,6 +20,7 @@ pub const COORD_BIAS: i32 = 512;
 pub const KIND_TILE: u16 = 1;
 pub const KIND_SPRITE: u16 = 2;
 pub const KIND_RECT: u16 = 3;
+pub const KIND_GLYPH: u16 = 4;
 
 pub const FLAG_FLIP_X: u16 = 1;
 pub const FLAG_FLIP_Y: u16 = 2;
@@ -53,5 +56,9 @@ impl DrawList {
 
     pub fn rect(&mut self, shade: u16, x: i32, y: i32, w: u16, h: u16) {
         self.push(KIND_RECT, shade, x, y, w, h);
+    }
+
+    pub fn glyph(&mut self, index: u16, x: i32, y: i32, variant: u16) {
+        self.push(KIND_GLYPH, index, x, y, variant, 0);
     }
 }

@@ -7,22 +7,30 @@ export class Game {
     add_player(slot: number): void;
     apply_host_msg(bytes: Uint8Array, now_ms: number): void;
     content_hash(): bigint;
+    /**
+     * Sound cues for the viewpoint player's screen since the last call.
+     */
+    drain_audio(viewpoint: number): Uint16Array;
+    /**
+     * Net events since the last call, wrapped for the reliable channel.
+     * Empty result means nothing to send.
+     */
+    drain_events_bytes(): Uint8Array;
     encode_input(buttons: number): Uint8Array;
     /**
      * Decode and apply one message from the client in `slot`.
      */
     handle_client_msg(slot: number, bytes: Uint8Array): void;
     /**
-     * Panics on malformed content; world.json is validated at build time
-     * by tools/build-maps.mjs.
+     * Panics on malformed content; the bundle is validated at build time
+     * by tools/build-maps.mjs + tools/check-content.mjs.
      */
     constructor(content_json: string, role: number, seed: bigint);
     remove_player(slot: number): void;
     render_frame(viewpoint: number, now_ms: number): Uint16Array;
     set_input(slot: number, buttons: number): void;
     /**
-     * Serialized snapshot to broadcast (same for every slot until
-     * per-screen interest filtering lands with enemies).
+     * Serialized snapshot to broadcast.
      */
     snapshot_bytes(): Uint8Array;
     state_hash(): bigint;
@@ -38,6 +46,8 @@ export interface InitOutput {
     readonly game_add_player: (a: number, b: number) => void;
     readonly game_apply_host_msg: (a: number, b: number, c: number, d: number) => void;
     readonly game_content_hash: (a: number) => bigint;
+    readonly game_drain_audio: (a: number, b: number, c: number) => void;
+    readonly game_drain_events_bytes: (a: number, b: number) => void;
     readonly game_encode_input: (a: number, b: number, c: number) => void;
     readonly game_handle_client_msg: (a: number, b: number, c: number, d: number) => void;
     readonly game_new: (a: number, b: number, c: number, d: bigint) => number;

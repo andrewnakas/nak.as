@@ -23,12 +23,48 @@ pub struct PlayerSnap {
     pub anim: u32,
     /// (direction, elapsed ticks) of an active screen-scroll transition.
     pub transition: Option<(u8, u32)>,
+    pub hp: i16,
+    pub max_hp: i16,
+    pub shells: u32,
+    pub attack_t: u8,
+    pub iframes: u8,
+    pub dead: bool,
+}
+
+/// Entity type tags inside EntitySnap.
+pub const ET_ENEMY: u8 = 0;
+pub const ET_PROJECTILE: u8 = 1;
+pub const ET_PICKUP: u8 = 2;
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+pub struct EntitySnap {
+    pub id: u32,
+    pub etype: u8,
+    /// Index into the matching def table (enemy def / projectile kind /
+    /// pickup kind; pickup item index rides in `data`).
+    pub def: u8,
+    pub data: i32,
+    pub sx: i32,
+    pub sy: i32,
+    pub x: i32,
+    pub y: i32,
+    pub facing: u8,
+    pub anim: u32,
+    pub flash: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SnapshotData {
     pub tick: u32,
     pub players: Vec<PlayerSnap>,
+    pub entities: Vec<EntitySnap>,
+}
+
+/// Discrete things that happened in the sim, sent reliably to clients.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum GameEvent {
+    /// Sound cue scoped to a screen so each client plays only local sounds.
+    Audio { sx: i32, sy: i32, cue: u16 },
 }
 
 /// Client → host.

@@ -134,6 +134,10 @@ export class PeerLink {
     if (this.r?.readyState === 'open') this.r.send(JSON.stringify(obj));
   }
 
+  sendRBytes(bytes) {
+    if (this.r?.readyState === 'open') this.r.send(bytes);
+  }
+
   close() {
     this._closed = true;
     this.pc.close();

@@ -35,6 +35,8 @@ T...,..TTT
 TT.T..,.TT
 T,..--..,T
 TT..--..TT
+E thornling 3 2
+E marsh_gel 6 3
 
 SCREEN 1 0 bramble_glade
 TTTTTTTTTT
@@ -45,6 +47,8 @@ T.ggggg,.T
 T..,g....T
 T...--...T
 TT..--..TT
+E shellsnatcher 5 3
+E marsh_gel 2 5
 
 SCREEN 2 0 bramble_east
 TTTTTTTTTT
@@ -55,6 +59,8 @@ T....r...T
 T.,....,.T
 T........T
 TTT....TTT
+E thornling 5 2
+E dune_wasp 7 4
 
 SCREEN 3 0 cliff_overlook
 cccccccccc
@@ -65,6 +71,8 @@ c.P....P.c
 c...,....c
 c.,....,.c
 ccc....ccc
+E dune_wasp 4 3
+E dune_wasp 7 5
 
 SCREEN 0 1 west_fields
 TT..--..TT
@@ -75,6 +83,8 @@ T.**.**.,T
 T.F.FF.F.T
 T,......,T
 TT.s..s.TT
+E marsh_gel 3 3
+E shellsnatcher 7 6
 
 SCREEN 1 1 driftwood_village
 TT..--..TT
@@ -95,6 +105,7 @@ TTT....TTT
 ...,...,..
 .,...b....
 ..s....s..
+E marsh_gel 7 6
 
 SCREEN 3 1 greenreach
 ccc....ccc
@@ -105,6 +116,8 @@ c.gg.ggg.-
 c..ggg...c
 c.,...,..c
 cc.s...scc
+E thornling 4 3
+E shellsnatcher 6 5
 
 SCREEN 0 2 shellcomb_west
 TT.s..s.TT
@@ -115,6 +128,8 @@ wwsssssssw
 wwwwsswwww
 WwwwwwwwwW
 WWWWwwWWWW
+E snapcrab 3 1
+E snapcrab 6 2
 
 SCREEN 1 2 shellcomb_dock
 .s..--..s.
@@ -135,6 +150,8 @@ wsssswwssw
 wwsswwwwww
 WwwwwwwwwW
 WWWWwwWWWW
+E snapcrab 4 2
+E dune_wasp 7 1
 
 SCREEN 3 2 tidepools
 cc.s...scc
@@ -145,5 +162,8 @@ wwss.ssrww
 wwwsswwwww
 Wwwrwwwwwc
 WWWWwwWWWW
+E snapcrab 4 3
+E snapcrab 7 3
+E dune_wasp 3 1
 
 SPAWN 1 1 72 80

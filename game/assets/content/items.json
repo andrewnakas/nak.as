@@ -1,0 +1,7 @@
+[
+  { "name": "crab_claw", "sprite": "mat_claw" },
+  { "name": "wasp_stinger", "sprite": "mat_stinger" },
+  { "name": "gel_core", "sprite": "mat_gelcore" },
+  { "name": "hardwood", "sprite": "mat_wood" },
+  { "name": "stag_pelt", "sprite": "mat_pelt" }
+]

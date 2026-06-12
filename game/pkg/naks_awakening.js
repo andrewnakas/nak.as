@@ -34,6 +34,42 @@ export class Game {
         return BigInt.asUintN(64, ret);
     }
     /**
+     * Sound cues for the viewpoint player's screen since the last call.
+     * @param {number} viewpoint
+     * @returns {Uint16Array}
+     */
+    drain_audio(viewpoint) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.game_drain_audio(retptr, this.__wbg_ptr, viewpoint);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayU16FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export2(r0, r1 * 2, 2);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * Net events since the last call, wrapped for the reliable channel.
+     * Empty result means nothing to send.
+     * @returns {Uint8Array}
+     */
+    drain_events_bytes() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.game_drain_events_bytes(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayU8FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export2(r0, r1 * 1, 1);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
      * @param {number} buttons
      * @returns {Uint8Array}
      */
@@ -61,8 +97,8 @@ export class Game {
         wasm.game_handle_client_msg(this.__wbg_ptr, slot, ptr0, len0);
     }
     /**
-     * Panics on malformed content; world.json is validated at build time
-     * by tools/build-maps.mjs.
+     * Panics on malformed content; the bundle is validated at build time
+     * by tools/build-maps.mjs + tools/check-content.mjs.
      * @param {string} content_json
      * @param {number} role
      * @param {bigint} seed
@@ -107,8 +143,7 @@ export class Game {
         wasm.game_set_input(this.__wbg_ptr, slot, buttons);
     }
     /**
-     * Serialized snapshot to broadcast (same for every slot until
-     * per-screen interest filtering lands with enemies).
+     * Serialized snapshot to broadcast.
      * @returns {Uint8Array}
      */
     snapshot_bytes() {

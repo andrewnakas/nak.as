@@ -3,8 +3,9 @@
 //! interpolated view ~120 ms in the past, so movement is smooth between
 //! 20 Hz snapshots. Integer math throughout (times are whole milliseconds).
 
+use crate::entity::Entity;
 use crate::{Player, Transition, MAX_PLAYERS};
-use protocol::{PlayerSnap, SnapshotData};
+use protocol::{EntitySnap, PlayerSnap, SnapshotData};
 
 /// How far behind the freshest snapshot we render.
 const RENDER_DELAY_MS: u64 = 120;
@@ -37,12 +38,21 @@ impl ClientView {
         self.snaps.last().map_or(0, |(_, s)| s.tick)
     }
 
-    /// Reconstruct the player array as of (now - delay), lerping between the
-    /// two snapshots that bracket the target time.
-    pub fn sample(&self, now_ms: u64) -> [Option<Player>; MAX_PLAYERS] {
-        let mut out: [Option<Player>; MAX_PLAYERS] = [None, None, None, None];
+    /// The slot player's current screen, from the freshest snapshot
+    /// (used to filter sound cues client-side).
+    pub fn player_screen(&self, slot: u8) -> Option<(i32, i32)> {
+        self.snaps
+            .last()
+            .and_then(|(_, s)| s.players.iter().find(|p| p.slot == slot))
+            .map(|p| (p.sx, p.sy))
+    }
+
+    /// Reconstruct players + entities as of (now - delay), lerping between
+    /// the two snapshots that bracket the target time.
+    pub fn sample(&self, now_ms: u64) -> ([Option<Player>; MAX_PLAYERS], Vec<Entity>) {
+        let mut players: [Option<Player>; MAX_PLAYERS] = [None, None, None, None];
         let (Some(first), Some(last)) = (self.snaps.first(), self.snaps.last()) else {
-            return out;
+            return (players, Vec::new());
         };
 
         let target = now_ms.saturating_sub(RENDER_DELAY_MS).clamp(first.0, last.0);
@@ -54,7 +64,7 @@ impl ClientView {
         let (t1, b) = self.snaps.get(idx + 1).map_or((t0, a), |(t, s)| (t, s));
 
         let span = t1.saturating_sub(*t0);
-        let frac_num = target.saturating_sub(*t0).min(span);
+        let num = target.saturating_sub(*t0).min(span);
 
         for pb in &b.players {
             let slot = pb.slot as usize;
@@ -62,9 +72,19 @@ impl ClientView {
                 continue;
             }
             let pa = a.players.iter().find(|p| p.slot == pb.slot);
-            out[slot] = Some(lerp_player(pa, pb, frac_num, span));
+            players[slot] = Some(lerp_player(pa, pb, num, span));
         }
-        out
+
+        let entities = b
+            .entities
+            .iter()
+            .map(|eb| {
+                let ea = a.entities.iter().find(|e| e.id == eb.id);
+                lerp_entity(ea, eb, num, span)
+            })
+            .collect();
+
+        (players, entities)
     }
 }
 
@@ -110,6 +130,46 @@ fn lerp_player(pa: Option<&PlayerSnap>, pb: &PlayerSnap, num: u64, den: u64) -> 
         walking: pb.walking,
         anim: pb.anim,
         buttons: 0,
+        prev_buttons: 0,
         transition,
+        hp: pb.hp,
+        max_hp: pb.max_hp,
+        shells: pb.shells,
+        materials: Vec::new(),
+        attack_t: pb.attack_t,
+        iframes: pb.iframes,
+        kvx: 0,
+        kvy: 0,
+        dead_t: u32::from(pb.dead),
+    }
+}
+
+fn lerp_entity(ea: Option<&EntitySnap>, eb: &EntitySnap, num: u64, den: u64) -> Entity {
+    let (x, y) = match ea {
+        Some(ea) if ea.sx == eb.sx && ea.sy == eb.sy => (
+            lerp_i32(ea.x, eb.x, num, den),
+            lerp_i32(ea.y, eb.y, num, den),
+        ),
+        _ => (eb.x, eb.y),
+    };
+    Entity {
+        id: eb.id,
+        etype: eb.etype,
+        def: eb.def,
+        data: eb.data,
+        sx: eb.sx,
+        sy: eb.sy,
+        x,
+        y,
+        vx: 0,
+        vy: 0,
+        hp: 1,
+        facing: eb.facing,
+        state: 0,
+        state_t: 0,
+        anim: eb.anim,
+        iframes: u8::from(eb.flash),
+        home: (eb.sx, eb.sy),
+        alive: true,
     }
 }

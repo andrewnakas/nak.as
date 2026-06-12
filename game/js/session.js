@@ -8,10 +8,11 @@ const SNAPSHOT_EVERY = 3; // host ticks between snapshots (60/3 = 20 Hz)
 const INPUT_KEEPALIVE_MS = 100;
 
 class BaseSession {
-  constructor({ game, input, renderer, debugEl }) {
+  constructor({ game, input, renderer, audio, debugEl }) {
     this.game = game;
     this.input = input;
     this.renderer = renderer;
+    this.audio = audio;
     this.debugEl = debugEl;
     this.slot = 0;
     this.stopped = false;
@@ -24,6 +25,7 @@ class BaseSession {
       if (this.stopped) return;
       this._advance(now, MAX_CATCHUP_TICKS);
       this.renderer.draw(this.game.render_frame(this.slot, now));
+      this.audio?.playAll(this.game.drain_audio(this.slot));
       if (this.debugEl && this.game.tick_count() % 30 === 0) {
         this.debugEl.textContent =
           `tick ${this.game.tick_count()}\n` +
@@ -87,6 +89,7 @@ export class HostSession extends BaseSession {
   }
 
   _handleReliable(peer, text) {
+    if (typeof text !== 'string') return; // clients only send JSON here
     let msg;
     try {
       msg = JSON.parse(text);
@@ -146,6 +149,12 @@ export class HostSession extends BaseSession {
         for (const peer of this.peers.values()) {
           if (peer.slot >= 0) peer.link.sendU(snap);
         }
+        const events = this.game.drain_events_bytes();
+        if (events.length) {
+          for (const peer of this.peers.values()) {
+            if (peer.slot >= 0) peer.link.sendRBytes(events);
+          }
+        }
       }
     }
     return acc >= TICK_MS ? 0 : acc;
@@ -195,6 +204,13 @@ export class ClientSession extends BaseSession {
         contentHash: this.game.content_hash().toString(16),
       });
     });
+
+    // Post-handshake, the reliable channel carries binary game events.
+    this.link.onR = (data) => {
+      if (typeof data !== 'string') {
+        this.game.apply_host_msg(new Uint8Array(data), performance.now());
+      }
+    };
 
     this.slot = slot;
     // Mesh is up; the client no longer needs the signaling socket.

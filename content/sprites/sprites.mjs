@@ -2,6 +2,24 @@
 // '.' = transparent. Order defines the sprite id; append only.
 // Side-facing sprites face LEFT; the sim sets flip-x for right.
 
+function grid(fn) {
+  return Array.from({ length: 16 }, (_, y) =>
+    Array.from({ length: 16 }, (_, x) => String(fn(x, y))).join(''),
+  );
+}
+
+// Small blob helper: ellipse with outline, light from upper-left.
+function blob(cx, cy, rx, ry, { hi = 3, mid = 2 } = {}) {
+  return (x, y) => {
+    const dx = (x - cx) / rx;
+    const dy = (y - cy) / ry;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d > 1) return '.';
+    if (d > 0.82) return 0;
+    return dx + dy < -0.5 ? hi : mid;
+  };
+}
+
 export const SPRITES = [
   {
     name: 'player_down_0',
@@ -134,5 +152,334 @@ export const SPRITES = [
       '....00000000....',
       '................',
     ],
+  },
+
+  // ---- weapons ----
+  {
+    name: 'sword_down',
+    palette: 'stone',
+    grid: [
+      '......0110......',
+      '......0220......',
+      '......0220......',
+      '......0220......',
+      '......0220......',
+      '......0330......',
+      '......0330......',
+      '......0330......',
+      '....00033000....',
+      '....01133110....',
+      '....00033000....',
+      '......0110......',
+      '......0110......',
+      '......0000......',
+      '................',
+      '................',
+    ],
+  },
+  {
+    name: 'sword_up',
+    palette: 'stone',
+    grid: [
+      '................',
+      '................',
+      '......0000......',
+      '......0110......',
+      '......0110......',
+      '....00033000....',
+      '....01133110....',
+      '....00033000....',
+      '......0330......',
+      '......0330......',
+      '......0330......',
+      '......0220......',
+      '......0220......',
+      '......0220......',
+      '......0220......',
+      '......0110......',
+    ],
+  },
+  {
+    name: 'sword_side',
+    palette: 'stone',
+    grid: [
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
+      '......00........',
+      '......010.......',
+      '.000003110......',
+      '0122333333000...',
+      '.000003110......',
+      '......010.......',
+      '......00........',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+  },
+
+  // ---- enemies (2 frames each) ----
+  {
+    name: 'thornling_0',
+    palette: 'grass',
+    grid: grid((x, y) => {
+      const spikes = [[7, 1], [2, 5], [13, 5], [3, 12], [12, 12]];
+      for (const [sx, sy] of spikes) {
+        if (Math.abs(x - sx) <= 0 && Math.abs(y - sy) <= 1) return 0;
+      }
+      const b = blob(7.5, 8, 5.5, 5)(x, y);
+      if (b === '.') return '.';
+      // face
+      if (y === 7 && (x === 5 || x === 10)) return 0;
+      if (y === 10 && x >= 6 && x <= 9) return 0;
+      return b;
+    }),
+  },
+  {
+    name: 'thornling_1',
+    palette: 'grass',
+    grid: grid((x, y) => {
+      const spikes = [[4, 1], [11, 1], [1, 8], [14, 8], [7, 13]];
+      for (const [sx, sy] of spikes) {
+        if (Math.abs(x - sx) <= 0 && Math.abs(y - sy) <= 1) return 0;
+      }
+      const b = blob(7.5, 8, 5.5, 5)(x, y);
+      if (b === '.') return '.';
+      if (y === 8 && (x === 5 || x === 10)) return 0;
+      if (y === 11 && x >= 6 && x <= 9) return 0;
+      return b;
+    }),
+  },
+  {
+    name: 'snapcrab_0',
+    palette: 'sand',
+    grid: grid((x, y) => {
+      // claws
+      if ((y === 4 || y === 5) && (x <= 2 || x >= 13)) return 1;
+      // legs
+      if (y >= 12 && y <= 13 && (x === 2 || x === 5 || x === 10 || x === 13)) return 0;
+      const b = blob(7.5, 8.5, 5.5, 4)(x, y);
+      if (b === '.') return '.';
+      if (y === 7 && (x === 5 || x === 10)) return 0; // eyes
+      return b;
+    }),
+  },
+  {
+    name: 'snapcrab_1',
+    palette: 'sand',
+    grid: grid((x, y) => {
+      if ((y === 3 || y === 4) && (x <= 2 || x >= 13)) return 1;
+      if (y >= 12 && y <= 13 && (x === 3 || x === 6 || x === 9 || x === 12)) return 0;
+      const b = blob(7.5, 8.5, 5.5, 4)(x, y);
+      if (b === '.') return '.';
+      if (y === 7 && (x === 5 || x === 10)) return 0;
+      return b;
+    }),
+  },
+  {
+    name: 'gel_0',
+    palette: 'water',
+    grid: grid((x, y) => {
+      const b = blob(7.5, 9.5, 5, 4.2)(x, y);
+      if (b === '.') return '.';
+      if (y === 9 && (x === 5 || x === 10)) return 0;
+      return b;
+    }),
+  },
+  {
+    name: 'gel_1',
+    palette: 'water',
+    grid: grid((x, y) => {
+      const b = blob(7.5, 8, 4.2, 5.2)(x, y);
+      if (b === '.') return '.';
+      if (y === 8 && (x === 5 || x === 10)) return 0;
+      return b;
+    }),
+  },
+  {
+    name: 'wasp_0',
+    palette: 'sand',
+    grid: grid((x, y) => {
+      // wings up
+      if ((y === 2 || y === 3) && (x >= 3 && x <= 5)) return 3;
+      if ((y === 2 || y === 3) && (x >= 10 && x <= 12)) return 3;
+      // stripes on body
+      const b = blob(7.5, 8.5, 4, 4.5)(x, y);
+      if (b === '.') {
+        // stinger
+        if (y >= 13 && y <= 14 && x === 7) return 0;
+        return '.';
+      }
+      if (y === 7 && (x === 5 || x === 10)) return 0;
+      if (b !== 0 && (y === 9 || y === 11)) return 1;
+      return b;
+    }),
+  },
+  {
+    name: 'wasp_1',
+    palette: 'sand',
+    grid: grid((x, y) => {
+      if (y === 5 && (x === 2 || x === 13)) return 3;
+      if (y === 6 && (x >= 1 && x <= 3)) return 3;
+      if (y === 6 && (x >= 12 && x <= 14)) return 3;
+      const b = blob(7.5, 8.5, 4, 4.5)(x, y);
+      if (b === '.') {
+        if (y >= 13 && y <= 14 && x === 7) return 0;
+        return '.';
+      }
+      if (y === 7 && (x === 5 || x === 10)) return 0;
+      if (b !== 0 && (y === 9 || y === 11)) return 1;
+      return b;
+    }),
+  },
+  {
+    name: 'snatcher_0',
+    palette: 'wood',
+    grid: grid((x, y) => {
+      // ears
+      if (y >= 2 && y <= 4 && (x === 4 || x === 10)) return 1;
+      // tail
+      if (y === 10 && x >= 13) return 1;
+      const b = blob(7, 9, 4.5, 4)(x, y);
+      if (b === '.') {
+        if (y >= 13 && (x === 4 || x === 9)) return 0; // feet
+        return '.';
+      }
+      if (y === 8 && (x === 5 || x === 9)) return 0;
+      if (y === 10 && x === 7) return 0; // snout
+      return b;
+    }),
+  },
+  {
+    name: 'snatcher_1',
+    palette: 'wood',
+    grid: grid((x, y) => {
+      if (y >= 2 && y <= 4 && (x === 5 || x === 11)) return 1;
+      if (y === 9 && x >= 13) return 1;
+      const b = blob(7, 9, 4.5, 4)(x, y);
+      if (b === '.') {
+        if (y >= 13 && (x === 5 || x === 10)) return 0;
+        return '.';
+      }
+      if (y === 8 && (x === 5 || x === 9)) return 0;
+      if (y === 10 && x === 7) return 0;
+      return b;
+    }),
+  },
+
+  // ---- projectiles & pickups ----
+  {
+    name: 'seed',
+    palette: 'grass',
+    grid: grid((x, y) => {
+      const d = Math.hypot(x - 7.5, y - 7.5);
+      if (d > 3) return '.';
+      if (d > 2.2) return 0;
+      return x + y < 14 ? 3 : 2;
+    }),
+  },
+  {
+    name: 'heart_drop',
+    palette: 'hero',
+    grid: [
+      '................',
+      '................',
+      '................',
+      '....00...00.....',
+      '...0220.0220....',
+      '..022220222200..',
+      '..022222222220..',
+      '..023222222220..',
+      '..023222222220..',
+      '...0222222220...',
+      '....02222220....',
+      '.....022220.....',
+      '......0220......',
+      '.......00.......',
+      '................',
+      '................',
+    ],
+  },
+  {
+    name: 'shell_drop',
+    palette: 'sand',
+    grid: [
+      '................',
+      '................',
+      '................',
+      '......0000......',
+      '....00333300....',
+      '...0332233230...',
+      '..033223322330..',
+      '..032233223230..',
+      '..033223322330..',
+      '...0332233230...',
+      '....00333300....',
+      '......0000......',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+  },
+
+  // ---- materials (drops; inventory icons in Phase 4) ----
+  {
+    name: 'mat_claw',
+    palette: 'sand',
+    grid: grid((x, y) => {
+      // curved pincer shape
+      const d = Math.hypot(x - 8, y - 9);
+      if (d < 5 && d > 2.5 && x <= 9 && y <= 12) return d > 4.2 ? 0 : 3;
+      if (y >= 9 && y <= 11 && x >= 8 && x <= 12) return y === 10 ? 2 : 0;
+      return '.';
+    }),
+  },
+  {
+    name: 'mat_stinger',
+    palette: 'stone',
+    grid: grid((x, y) => {
+      if (x >= 6 && x <= 9 && y >= 3 && y <= 6 && Math.abs(x - 7.5) < (y - 2) / 1.5) {
+        return 1;
+      }
+      if (y > 6 && y <= 13 && Math.abs(x - 7.5) < (14 - y) / 2) return y < 10 ? 3 : 2;
+      return '.';
+    }),
+  },
+  {
+    name: 'mat_gelcore',
+    palette: 'water',
+    grid: grid((x, y) => {
+      const d = Math.hypot(x - 7.5, y - 8);
+      if (d > 4.5) return '.';
+      if (d > 3.6) return 0;
+      if (d < 1.8) return 3;
+      return 2;
+    }),
+  },
+  {
+    name: 'mat_wood',
+    palette: 'wood',
+    grid: grid((x, y) => {
+      if (y < 5 || y > 11) return '.';
+      if (x < 2 || x > 13) return '.';
+      if (y === 5 || y === 11) return 0;
+      if (x === 2 || x === 13) return 0;
+      return (x + y) % 5 === 0 ? 1 : 2;
+    }),
+  },
+  {
+    name: 'mat_pelt',
+    palette: 'wood',
+    grid: grid((x, y) => {
+      const b = blob(7.5, 8, 5, 4.5)(x, y);
+      if (b === '.') return '.';
+      if (b === 0) return 0;
+      return (x * 3 + y) % 4 === 0 ? 3 : 2;
+    }),
   },
 ];

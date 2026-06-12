@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { PALETTES } from '../content/sprites/palettes.mjs';
 import { TILES } from '../content/sprites/tiles.mjs';
 import { SPRITES } from '../content/sprites/sprites.mjs';
+import { CHARSET, glyphRows } from '../content/sprites/font.mjs';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(REPO, 'game', 'assets', 'sprites');
@@ -105,7 +106,39 @@ function buildSheet(defs, { allowTransparent }) {
   return encodePng(w, h, rgba);
 }
 
+// Font sheet: 8x8 glyphs, 16 per row, two stacked color blocks
+// (block 0 = dark for light backgrounds, block 1 = light for dark ones).
+function buildFontSheet() {
+  const GLYPH_COLS = 16;
+  const rows = Math.ceil(CHARSET.length / GLYPH_COLS);
+  const w = GLYPH_COLS * 8;
+  const blockH = rows * 8;
+  const rgba = Buffer.alloc(w * blockH * 2 * 4);
+  const colors = [hexToRgb('#0f380f'), hexToRgb('#e8f0d8')];
+
+  colors.forEach(([r, g, b], block) => {
+    [...CHARSET].forEach((c, index) => {
+      const ox = (index % GLYPH_COLS) * 8;
+      const oy = block * blockH + Math.floor(index / GLYPH_COLS) * 8;
+      glyphRows(c).forEach((row, y) => {
+        for (let x = 0; x < 8; x++) {
+          if (row[x] !== 'X') continue;
+          const off = ((oy + y) * w + ox + x) * 4;
+          rgba[off] = r;
+          rgba[off + 1] = g;
+          rgba[off + 2] = b;
+          rgba[off + 3] = 255;
+        }
+      });
+    });
+  });
+  return encodePng(w, blockH * 2, rgba);
+}
+
 mkdirSync(OUT, { recursive: true });
 writeFileSync(join(OUT, 'tiles0.png'), buildSheet(TILES, { allowTransparent: false }));
 writeFileSync(join(OUT, 'sprites0.png'), buildSheet(SPRITES, { allowTransparent: true }));
-console.log(`tiles0.png: ${TILES.length} tiles; sprites0.png: ${SPRITES.length} sprites`);
+writeFileSync(join(OUT, 'font0.png'), buildFontSheet());
+console.log(
+  `tiles0.png: ${TILES.length} tiles; sprites0.png: ${SPRITES.length} sprites; font0.png: ${CHARSET.length} glyphs`,
+);

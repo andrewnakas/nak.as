@@ -1,5 +1,6 @@
-//! Static world data: screens of tiles, collision, spawn point.
-//! Loaded once from world.json (built by tools/build-maps.mjs).
+//! Static world data: screens of tiles, collision, enemy spawn points,
+//! font charset, spawn point. Loaded once from the content bundle
+//! (world part built by tools/build-maps.mjs).
 
 use crate::draw::HUD_H;
 use serde::Deserialize;
@@ -9,32 +10,49 @@ pub const SCREEN_COLS: i32 = 10;
 pub const SCREEN_ROWS: i32 = 8;
 
 #[derive(Deserialize)]
-struct WorldJson {
-    tile_solid: Vec<bool>,
-    sprite_names: Vec<String>,
-    screens: Vec<ScreenJson>,
-    spawn: SpawnJson,
+pub struct WorldJson {
+    pub tile_solid: Vec<bool>,
+    pub sprite_names: Vec<String>,
+    pub font_chars: String,
+    pub screens: Vec<ScreenJson>,
+    pub spawn: SpawnJson,
 }
 
 #[derive(Deserialize)]
-struct ScreenJson {
+pub struct ScreenJson {
     x: i32,
     y: i32,
     tiles: Vec<u16>,
+    #[serde(default)]
+    entities: Vec<EntitySpawnJson>,
 }
 
 #[derive(Deserialize)]
-struct SpawnJson {
+struct EntitySpawnJson {
+    t: String,
+    tx: i32,
+    ty: i32,
+}
+
+#[derive(Deserialize)]
+pub struct SpawnJson {
     sx: i32,
     sy: i32,
     x: i32,
     y: i32,
 }
 
+pub struct EnemySpawn {
+    pub enemy: u8, // index into Defs::enemies, resolved by Sim::new
+    pub x: i32,    // pixel position, screen space
+    pub y: i32,
+}
+
 pub struct Screen {
     pub x: i32,
     pub y: i32,
     pub tiles: Vec<u16>,
+    pub spawns: Vec<EnemySpawn>,
 }
 
 #[derive(Clone, Copy)]
@@ -45,11 +63,17 @@ pub struct Spawn {
     pub y: i32,
 }
 
-/// Sprite-sheet indices the sim references by name at load time.
+/// Sprite-sheet indices the sim looks up by name at load time.
 pub struct SpriteIds {
     pub player_down: u16,
     pub player_up: u16,
     pub player_side: u16,
+    pub sword_down: u16,
+    pub sword_up: u16,
+    pub sword_side: u16,
+    pub seed: u16,
+    pub heart_drop: u16,
+    pub shell_drop: u16,
 }
 
 pub struct World {
@@ -58,24 +82,37 @@ pub struct World {
     index: BTreeMap<(i32, i32), usize>,
     pub spawn: Spawn,
     pub sprites: SpriteIds,
+    font: BTreeMap<char, u16>,
 }
 
 impl World {
-    pub fn from_json(json: &str) -> Result<World, String> {
-        let raw: WorldJson = serde_json::from_str(json).map_err(|e| e.to_string())?;
-
+    /// Builds the world; `resolve_enemy` maps map-file enemy names to def
+    /// indexes (the defs are parsed before the world).
+    pub fn build(
+        raw: WorldJson,
+        resolve_enemy: &dyn Fn(&str) -> Result<u8, String>,
+    ) -> Result<World, String> {
         let find = |name: &str| -> Result<u16, String> {
-            raw.sprite_names
-                .iter()
-                .position(|n| n == name)
-                .map(|i| i as u16)
-                .ok_or_else(|| format!("world.json missing sprite '{name}'"))
+            sprite_index(&raw.sprite_names, name)
         };
         let sprites = SpriteIds {
             player_down: find("player_down_0")?,
             player_up: find("player_up_0")?,
             player_side: find("player_side_0")?,
+            sword_down: find("sword_down")?,
+            sword_up: find("sword_up")?,
+            sword_side: find("sword_side")?,
+            seed: find("seed")?,
+            heart_drop: find("heart_drop")?,
+            shell_drop: find("shell_drop")?,
         };
+
+        let font = raw
+            .font_chars
+            .chars()
+            .enumerate()
+            .map(|(i, c)| (c, i as u16))
+            .collect();
 
         let mut screens = Vec::with_capacity(raw.screens.len());
         let mut index = BTreeMap::new();
@@ -83,11 +120,23 @@ impl World {
             if s.tiles.len() != (SCREEN_COLS * SCREEN_ROWS) as usize {
                 return Err(format!("screen {},{} has {} tiles", s.x, s.y, s.tiles.len()));
             }
+            let spawns = s
+                .entities
+                .iter()
+                .map(|e| {
+                    Ok(EnemySpawn {
+                        enemy: resolve_enemy(&e.t)?,
+                        x: e.tx * 16,
+                        y: HUD_H + e.ty * 16,
+                    })
+                })
+                .collect::<Result<Vec<_>, String>>()?;
             index.insert((s.x, s.y), screens.len());
             screens.push(Screen {
                 x: s.x,
                 y: s.y,
                 tiles: s.tiles,
+                spawns,
             });
         }
 
@@ -102,11 +151,16 @@ impl World {
                 y: raw.spawn.y,
             },
             sprites,
+            font,
         })
     }
 
     pub fn screen_at(&self, sx: i32, sy: i32) -> Option<&Screen> {
         self.index.get(&(sx, sy)).map(|&i| &self.screens[i])
+    }
+
+    pub fn glyph(&self, c: char) -> Option<u16> {
+        self.font.get(&c.to_ascii_uppercase()).copied()
     }
 
     /// Solidity of the pixel (screen space; playfield starts at y=HUD_H).
@@ -121,4 +175,12 @@ impl World {
         let tile = screen.tiles[(ty * SCREEN_COLS + tx) as usize] as usize;
         self.tile_solid.get(tile).copied().unwrap_or(true)
     }
+}
+
+pub fn sprite_index(names: &[String], name: &str) -> Result<u16, String> {
+    names
+        .iter()
+        .position(|n| n == name)
+        .map(|i| i as u16)
+        .ok_or_else(|| format!("unknown sprite '{name}'"))
 }

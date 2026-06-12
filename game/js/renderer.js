@@ -9,6 +9,7 @@ const COORD_BIAS = 512;
 const KIND_TILE = 1;
 const KIND_SPRITE = 2;
 const KIND_RECT = 3;
+const KIND_GLYPH = 4;
 const FLAG_FLIP_X = 1;
 const FLAG_FLIP_Y = 2;
 
@@ -80,11 +81,15 @@ export class Renderer {
       const d = list[i + 4];
       const e = list[i + 5];
 
-      if (kind === KIND_RECT) {
-        // Rects escape the playfield clip (HUD uses them).
+      if (kind === KIND_RECT || kind === KIND_GLYPH) {
+        // Rects and glyphs escape the playfield clip (the HUD uses them).
         ctx.restore();
-        ctx.fillStyle = SHADES[a & 3];
-        ctx.fillRect(x, y, d, e);
+        if (kind === KIND_RECT) {
+          ctx.fillStyle = SHADES[a & 3];
+          ctx.fillRect(x, y, d, e);
+        } else {
+          this.drawGlyph(a, x, y, d);
+        }
         ctx.save();
         ctx.beginPath();
         ctx.rect(0, 16, LOGICAL_W, LOGICAL_H - 16);
@@ -97,6 +102,18 @@ export class Renderer {
 
     this.outCtx.imageSmoothingEnabled = false;
     this.outCtx.drawImage(this.off, 0, 0, this.canvas.width, this.canvas.height);
+  }
+
+  /// 8x8 glyphs from font0; variant 0 = dark block (bottom half of the
+  /// sheet is generated as a second color block), 1 = light.
+  drawGlyph(index, x, y, variant) {
+    const sheet = this.sheets.get('font0');
+    if (!sheet) return;
+    const cols = sheet.width >> 3;
+    const blockH = sheet.height / 2;
+    const sx = (index % cols) * 8;
+    const sy = Math.floor(index / cols) * 8 + (variant === 1 ? blockH : 0);
+    this.ctx.drawImage(sheet, sx, sy, 8, 8, x, y, 8, 8);
   }
 
   drawSheetTile(kind, index, x, y, palette, flags) {

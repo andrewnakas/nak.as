@@ -6,6 +6,7 @@ import init, { Game } from '../pkg/naks_awakening.js';
 import { CONFIG } from './config.js';
 import { Input } from './input.js';
 import { Renderer } from './renderer.js';
+import { Audio } from './audio.js';
 import { HostSession, ClientSession } from './session.js';
 import { Signaling } from './net/signaling.js';
 import { createParty } from './api.js';
@@ -14,26 +15,36 @@ import { showMenu, setStatus, showPartyCode, showPartyList } from './ui.js';
 const ROLE_HOST = 0;
 const ROLE_CLIENT = 1;
 
+const CONTENT_FILES = ['world', 'items', 'enemies', 'drops'];
+
 async function boot() {
-  const [, worldJson] = await Promise.all([
+  const [, ...parts] = await Promise.all([
     init(),
-    fetch('assets/content/world.json').then((r) => {
-      if (!r.ok) throw new Error(`world.json: HTTP ${r.status}`);
-      return r.text();
-    }),
+    ...CONTENT_FILES.map((name) =>
+      fetch(`assets/content/${name}.json`).then((r) => {
+        if (!r.ok) throw new Error(`${name}.json: HTTP ${r.status}`);
+        return r.json();
+      }),
+    ),
   ]);
+  // One canonical bundle string — its hash must match across all peers.
+  const worldJson = JSON.stringify(
+    Object.fromEntries(CONTENT_FILES.map((name, i) => [name, parts[i]])),
+  );
 
   const input = new Input();
   const renderer = new Renderer(document.getElementById('screen'));
-  await renderer.loadSheets(['tiles0', 'sprites0']);
+  await renderer.loadSheets(['tiles0', 'sprites0', 'font0']);
+  const audio = new Audio();
 
   const debugEl = document.getElementById('debug');
   if (CONFIG.debug) debugEl.style.display = 'block';
 
   while (true) {
     const choice = await showMenu();
+    audio.unlock(); // menu click is the user gesture Web Audio needs
     try {
-      await startSession(choice, { worldJson, input, renderer, debugEl });
+      await startSession(choice, { worldJson, input, renderer, audio, debugEl });
       return;
     } catch (err) {
       console.error(err);
@@ -43,10 +54,10 @@ async function boot() {
   }
 }
 
-async function startSession({ mode, code, name }, { worldJson, input, renderer, debugEl }) {
+async function startSession({ mode, code, name }, { worldJson, input, renderer, audio, debugEl }) {
   if (mode === 'solo') {
     const game = new Game(worldJson, ROLE_HOST, randomSeed());
-    const session = new HostSession({ game, input, renderer, debugEl });
+    const session = new HostSession({ game, input, renderer, audio, debugEl });
     session.start();
     window.__naks = { session, mode };
     return;
@@ -61,7 +72,7 @@ async function startSession({ mode, code, name }, { worldJson, input, renderer, 
 
     const game = new Game(worldJson, ROLE_HOST, randomSeed());
     const session = new HostSession(
-      { game, input, renderer, debugEl },
+      { game, input, renderer, audio, debugEl },
       { onPartyChange: showPartyList },
     );
     session.attachSignaling(signaling);
@@ -80,7 +91,7 @@ async function startSession({ mode, code, name }, { worldJson, input, renderer, 
 
   const game = new Game(worldJson, ROLE_CLIENT, 0n);
   const session = new ClientSession(
-    { game, input, renderer, debugEl },
+    { game, input, renderer, audio, debugEl },
     {
       onDisconnect: () => {
         showPartyCode('');

@@ -1,0 +1,47 @@
+[
+  {
+    "name": "thornling",
+    "brain": "thornling",
+    "hp": 2,
+    "damage": 1,
+    "speed": 0,
+    "sprite": "thornling_0",
+    "drops": "thornling"
+  },
+  {
+    "name": "snapcrab",
+    "brain": "crab",
+    "hp": 3,
+    "damage": 1,
+    "speed": 128,
+    "sprite": "snapcrab_0",
+    "drops": "snapcrab"
+  },
+  {
+    "name": "marsh_gel",
+    "brain": "gel",
+    "hp": 2,
+    "damage": 1,
+    "speed": 160,
+    "sprite": "gel_0",
+    "drops": "marsh_gel"
+  },
+  {
+    "name": "dune_wasp",
+    "brain": "wasp",
+    "hp": 2,
+    "damage": 2,
+    "speed": 224,
+    "sprite": "wasp_0",
+    "drops": "dune_wasp"
+  },
+  {
+    "name": "shellsnatcher",
+    "brain": "snatcher",
+    "hp": 2,
+    "damage": 1,
+    "speed": 256,
+    "sprite": "snatcher_0",
+    "drops": "shellsnatcher"
+  }
+]
