@@ -4,6 +4,9 @@ node_modules/
 package.json
 package-lock.json
 
+# Rust build output (game/pkg/ holds the committed wasm artifacts)
+game-src/target/
+
 # Raw source assets (encoded versions in sounds/ and images/ are what we serve)
 andrew-nakas-3d-scan/
 nakasmotivation_soundboard/

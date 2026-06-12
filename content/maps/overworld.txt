@@ -1,0 +1,149 @@
+# Isle of Brack — overworld screens.
+# LEGEND maps one char -> tile name (from content/sprites/tiles.mjs).
+# Each SCREEN <col> <row> <name> is 8 rows of 10 chars (10x8 tiles of 16px).
+# Screens connect implicitly by walking off an edge to the neighbor.
+# SPAWN <col> <row> <px> <py> sets the new-character start point.
+
+LEGEND
+. grass
+, grass_tuft
+* flowers
+- path
+s sand
+w water
+W deep_water
+T tree
+P pine
+b bush
+r rock
+c cliff
+F fence
+H house_wall
+R house_roof
+D house_door
+o window
+! sign
+d dock
+g tall_grass
+
+SCREEN 0 0 bramble_west
+TTTTTTTTTT
+TTT,..,TTT
+TT..T...TT
+T..TT..,.T
+T...,..TTT
+TT.T..,.TT
+T,..--..,T
+TT..--..TT
+
+SCREEN 1 0 bramble_glade
+TTTTTTTTTT
+T,.gg.,.PT
+T.ggggg..T
+..ggggg...
+T.ggggg,.T
+T..,g....T
+T...--...T
+TT..--..TT
+
+SCREEN 2 0 bramble_east
+TTTTTTTTTT
+TP.,..r.PT
+T...,....T
+..r...,...
+T....r...T
+T.,....,.T
+T........T
+TTT....TTT
+
+SCREEN 3 0 cliff_overlook
+cccccccccc
+cP......Pc
+c..r..r..c
+.....,....
+c.P....P.c
+c...,....c
+c.,....,.c
+ccc....ccc
+
+SCREEN 0 1 west_fields
+TT..--..TT
+T...--..,T
+T.FFFF.F.T
+T.*..*...T
+T.**.**.,T
+T.F.FF.F.T
+T,......,T
+TT.s..s.TT
+
+SCREEN 1 1 driftwood_village
+TT..--..TT
+..RR--RR..
+..oD--Do..
+....--....
+.!--------
+....--....
+..,.--.,..
+.s..--..s.
+
+SCREEN 2 1 village_east
+TTT....TTT
+..RRRR...,
+..oDoo..r.
+...,......
+----------
+...,...,..
+.,...b....
+..s....s..
+
+SCREEN 3 1 greenreach
+ccc....ccc
+c,.,..gg.c
+c.ggg.gg.c
+..ggggg...
+c.gg.ggg.-
+c..ggg...c
+c.,...,..c
+cc.s...scc
+
+SCREEN 0 2 shellcomb_west
+TT.s..s.TT
+Ts.s...ssT
+ssssss.sss
+wsssssssss
+wwsssssssw
+wwwwsswwww
+WwwwwwwwwW
+WWWWwwWWWW
+
+SCREEN 1 2 shellcomb_dock
+.s..--..s.
+ss..--..ss
+ssss--ssss
+ssss--ssss
+wwww-dwwww
+wwww-dwwww
+WWww-dwwWW
+WWWWddWWWW
+
+SCREEN 2 2 shellcomb_east
+..s....s..
+s.ss..ss.s
+sssssssss.
+ssssssssss
+wsssswwssw
+wwsswwwwww
+WwwwwwwwwW
+WWWWwwWWWW
+
+SCREEN 3 2 tidepools
+cc.s...scc
+cssss.sssc
+sss.r..sss
+ssr...r.ss
+wwss.ssrww
+wwwsswwwww
+Wwwrwwwwwc
+WWWWwwWWWW
+
+SPAWN 1 1 72 80

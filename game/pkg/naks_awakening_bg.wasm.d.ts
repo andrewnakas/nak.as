@@ -1,0 +1,15 @@
+/* tslint:disable */
+/* eslint-disable */
+export const memory: WebAssembly.Memory;
+export const __wbg_game_free: (a: number, b: number) => void;
+export const game_add_player: (a: number, b: number) => void;
+export const game_new: (a: number, b: number, c: bigint) => number;
+export const game_render_frame: (a: number, b: number, c: number) => void;
+export const game_set_input: (a: number, b: number, c: number) => void;
+export const game_state_hash: (a: number) => bigint;
+export const game_tick: (a: number) => void;
+export const game_tick_count: (a: number) => number;
+export const __wbindgen_export: (a: number, b: number) => number;
+export const __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
+export const __wbindgen_add_to_stack_pointer: (a: number) => number;
+export const __wbindgen_export3: (a: number, b: number, c: number) => void;

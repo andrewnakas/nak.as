@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Nak's Awakening</title>
+<meta name="description" content="Nak's Awakening — a Game Boy-style co-op action RPG you can play with friends, right in the browser.">
+<style>
+  :root {
+    --gb-darkest: #0f380f;
+    --gb-dark: #306230;
+    --gb-light: #8bac0f;
+    --gb-lightest: #9bbc0e;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%;
+    background: #0a0a12;
+    color: #cfd8c2;
+    font-family: ui-monospace, Menlo, Monaco, monospace;
+    overflow: hidden;
+  }
+  #stage {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+  }
+  #screen {
+    image-rendering: pixelated;
+    background: var(--gb-darkest);
+    border-radius: 4px;
+    box-shadow: 0 0 0 6px #1a1a2e, 0 0 40px rgba(139, 172, 15, 0.15);
+  }
+  #hud-text {
+    font-size: 11px;
+    opacity: 0.55;
+    letter-spacing: 0.5px;
+    text-align: center;
+    line-height: 1.6;
+  }
+  #hud-text a { color: var(--gb-light); }
+  #debug {
+    position: fixed;
+    top: 6px;
+    left: 8px;
+    font-size: 10px;
+    opacity: 0.4;
+    white-space: pre;
+    display: none;
+  }
+</style>
+</head>
+<body>
+  <div id="stage">
+    <canvas id="screen" width="160" height="144"></canvas>
+    <div id="hud-text">
+      NAK'S AWAKENING — pre-alpha<br>
+      arrows/WASD move · <a href="/">nak.as</a>
+    </div>
+  </div>
+  <div id="debug"></div>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

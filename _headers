@@ -11,5 +11,17 @@
 /posts/*
   Cache-Control: public, max-age=60
 
+/game/pkg/*
+  Cache-Control: public, max-age=300
+
+/game/js/*
+  Cache-Control: public, max-age=300
+
+/game/assets/*
+  Cache-Control: public, max-age=3600
+
+/game/
+  Cache-Control: public, max-age=300
+
 /
   Cache-Control: public, max-age=300
