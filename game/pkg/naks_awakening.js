@@ -70,6 +70,27 @@ export class Game {
         }
     }
     /**
+     * Toast messages for the viewpoint player since the last call (JSON array).
+     * @param {number} viewpoint
+     * @returns {string}
+     */
+    drain_toasts(viewpoint) {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.game_drain_toasts(retptr, this.__wbg_ptr, viewpoint);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            deferred1_0 = r0;
+            deferred1_1 = r1;
+            return getStringFromWasm0(r0, r1);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+            wasm.__wbindgen_export2(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
      * @param {number} buttons
      * @returns {Uint8Array}
      */
@@ -82,6 +103,26 @@ export class Game {
             var v1 = getArrayU8FromWasm0(r0, r1).slice();
             wasm.__wbindgen_export2(r0, r1 * 1, 1);
             return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * Encode a UI action for sending to the host (client role).
+     * @param {string} json
+     * @returns {Uint8Array}
+     */
+    encode_ui_action(json) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passStringToWasm0(json, wasm.__wbindgen_export, wasm.__wbindgen_export3);
+            const len0 = WASM_VECTOR_LEN;
+            wasm.game_encode_ui_action(retptr, this.__wbg_ptr, ptr0, len0);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v2 = getArrayU8FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export2(r0, r1 * 1, 1);
+            return v2;
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
         }
@@ -143,6 +184,12 @@ export class Game {
         wasm.game_set_input(this.__wbg_ptr, slot, buttons);
     }
     /**
+     * @param {number} slot
+     */
+    set_local_slot(slot) {
+        wasm.game_set_local_slot(this.__wbg_ptr, slot);
+    }
+    /**
      * Serialized snapshot to broadcast.
      * @returns {Uint8Array}
      */
@@ -175,6 +222,37 @@ export class Game {
     tick_count() {
         const ret = wasm.game_tick_count(this.__wbg_ptr);
         return ret >>> 0;
+    }
+    /**
+     * Apply a UI action for a local (host-side) player.
+     * @param {number} slot
+     * @param {string} json
+     */
+    ui_action(slot, json) {
+        const ptr0 = passStringToWasm0(json, wasm.__wbindgen_export, wasm.__wbindgen_export3);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.game_ui_action(this.__wbg_ptr, slot, ptr0, len0);
+    }
+    /**
+     * Inventory/equipment JSON for the UI overlay (role-aware).
+     * @param {number} slot
+     * @returns {string}
+     */
+    ui_state(slot) {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.game_ui_state(retptr, this.__wbg_ptr, slot);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            deferred1_0 = r0;
+            deferred1_1 = r1;
+            return getStringFromWasm0(r0, r1);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+            wasm.__wbindgen_export2(deferred1_0, deferred1_1, 1);
+        }
     }
 }
 if (Symbol.dispose) Game.prototype[Symbol.dispose] = Game.prototype.free;

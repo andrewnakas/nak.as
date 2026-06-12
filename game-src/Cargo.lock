@@ -105,6 +105,7 @@ name = "naks-awakening"
 version = "0.1.0"
 dependencies = [
  "protocol",
+ "serde_json",
  "sim",
  "wasm-bindgen",
 ]

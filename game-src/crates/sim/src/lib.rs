@@ -17,12 +17,15 @@ pub mod input;
 pub mod rng;
 pub mod world;
 
-use defs::{Brain, Defs, DropItem};
+use defs::{Brain, Defs, DropItem, FuseEffect, ItemKind};
 use draw::{DrawList, FLAG_FLIP_X, HUD_H, SCREEN_H, SCREEN_W};
-use entity::{Entity, StepCtx, ET_ENEMY, ET_PICKUP, ET_PROJECTILE, PK_HEART, PK_ITEM, PK_SHELLS};
+use entity::{
+    Entity, StepCtx, BLAST_RADIUS, ET_BLAST, ET_BOMB, ET_ENEMY, ET_PICKUP, ET_PROJECTILE,
+    PJ_ARROW, PK_HEART, PK_ITEM, PK_SHELLS,
+};
 use fixed::{fx, to_px, Fx};
 use input::*;
-use protocol::{EntitySnap, GameEvent, PlayerSnap, SnapshotData};
+use protocol::{EntitySnap, GameEvent, ItemSnap, PlayerSnap, SnapshotData};
 use rng::Pcg32;
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -43,7 +46,14 @@ pub mod cues {
     pub const ITEM: u16 = 7;
     pub const DIE: u16 = 8;
     pub const SHOOT: u16 = 9;
+    pub const BREAK: u16 = 10;
+    pub const FUSE: u16 = 11;
+    pub const BOOM: u16 = 12;
+    pub const BLOCK: u16 = 13;
 }
+
+pub const INVENTORY_CAP: usize = 16;
+pub const STACK_CAP: u16 = 99;
 
 /// Player walk speed: 1.25 px/tick = 75 px/s, close to LA's feel.
 const WALK_SPEED: Fx = fx(1) + fx(1) / 4;
@@ -75,6 +85,17 @@ pub struct Transition {
     pub t: u32,
 }
 
+/// One inventory slot: weapons are unstacked instances with durability;
+/// bombs/arrows/materials stack in qty.
+#[derive(Clone, Copy)]
+pub struct ItemStack {
+    pub def: u8,
+    pub qty: u16,
+    pub durability: u16,
+    /// Material item def fused onto this weapon.
+    pub fused: Option<u8>,
+}
+
 #[derive(Clone)]
 pub struct Player {
     pub sx: i32,
@@ -90,13 +111,22 @@ pub struct Player {
     pub hp: i16,
     pub max_hp: i16,
     pub shells: u32,
-    /// Material counts indexed by item def (real inventory in Phase 4).
-    pub materials: Vec<u16>,
+    pub inventory: Vec<ItemStack>,
+    /// Indexes into inventory, or -1.
+    pub equip_a: i8,
+    pub equip_b: i8,
     pub attack_t: u8,
+    pub shielding: bool,
     pub iframes: u8,
     pub kvx: Fx,
     pub kvy: Fx,
     pub dead_t: u32,
+}
+
+impl Player {
+    pub fn equipped(&self, slot: i8) -> Option<&ItemStack> {
+        usize::try_from(slot).ok().and_then(|i| self.inventory.get(i))
+    }
 }
 
 #[derive(Deserialize)]
@@ -121,7 +151,56 @@ pub struct Sim {
     audio: Vec<(i32, i32, u16)>,
     /// Net events accumulated since the last drain (host broadcasts these).
     events: Vec<GameEvent>,
+    /// UI toasts for local players (slot, message).
+    toasts: Vec<(u8, String)>,
     pub content_hash: u64,
+}
+
+enum WearSlot {
+    A,
+    B,
+}
+
+/// Add `qty` of `def` to the inventory; weapons get their full durability.
+/// Returns false if there was no room.
+pub fn give_item(p: &mut Player, defs: &Defs, def: u8, qty: u16) -> bool {
+    let item = &defs.items[def as usize];
+    if item.stackable() {
+        if let Some(stack) = p.inventory.iter_mut().find(|s| s.def == def) {
+            stack.qty = (stack.qty + qty).min(STACK_CAP);
+            return true;
+        }
+    }
+    if p.inventory.len() >= INVENTORY_CAP {
+        return false;
+    }
+    p.inventory.push(ItemStack {
+        def,
+        qty: if item.stackable() { qty } else { 1 },
+        durability: item.durability,
+        fused: None,
+    });
+    true
+}
+
+fn consume_one(p: &mut Player, idx: usize) {
+    if let Some(stack) = p.inventory.get_mut(idx) {
+        stack.qty = stack.qty.saturating_sub(1);
+        if stack.qty == 0 {
+            p.inventory.remove(idx);
+            fix_equips_after_remove(p, idx);
+        }
+    }
+}
+
+fn fix_equips_after_remove(p: &mut Player, removed: usize) {
+    for e in [&mut p.equip_a, &mut p.equip_b] {
+        if *e == removed as i8 {
+            *e = -1;
+        } else if *e > removed as i8 {
+            *e -= 1;
+        }
+    }
 }
 
 impl Sim {
@@ -152,6 +231,7 @@ impl Sim {
             last_spawn: BTreeMap::new(),
             audio: Vec::new(),
             events: Vec::new(),
+            toasts: Vec::new(),
             content_hash: h.finish(),
         };
         for i in 0..sim.world.screens.len() {
@@ -186,7 +266,7 @@ impl Sim {
             return;
         }
         let sp = self.world.spawn;
-        self.players[slot] = Some(Player {
+        let mut p = Player {
             sx: sp.sx,
             sy: sp.sy,
             x: fx(sp.x + slot as i32 * 12).clamp(MIN_X, MAX_X),
@@ -200,13 +280,32 @@ impl Sim {
             hp: 6,
             max_hp: 6,
             shells: 0,
-            materials: vec![0; self.defs.items.len()],
+            inventory: Vec::new(),
+            equip_a: -1,
+            equip_b: -1,
             attack_t: 0,
+            shielding: false,
             iframes: 0,
             kvx: 0,
             kvy: 0,
             dead_t: 0,
-        });
+        };
+        // Starting kit (quest rewards will replace this hand-out later).
+        for (name, qty) in [
+            ("driftwood_sword", 1),
+            ("oak_bow", 1),
+            ("wooden_shield", 1),
+            ("arrow", 15),
+            ("bomb", 5),
+        ] {
+            if let Some(def) = self.defs.item_index(name) {
+                give_item(&mut p, &self.defs, def, qty);
+            }
+        }
+        if !p.inventory.is_empty() {
+            p.equip_a = 0;
+        }
+        self.players[slot] = Some(p);
     }
 
     pub fn remove_player(&mut self, slot: usize) {
@@ -224,6 +323,63 @@ impl Sim {
     fn emit_cue(&mut self, sx: i32, sy: i32, cue: u16) {
         self.audio.push((sx, sy, cue));
         self.events.push(GameEvent::Audio { sx, sy, cue });
+    }
+
+    fn emit_toast(&mut self, slot: usize, msg: &str) {
+        self.toasts.push((slot as u8, msg.to_string()));
+        self.events.push(GameEvent::Toast {
+            slot: slot as u8,
+            msg: msg.to_string(),
+        });
+    }
+
+    /// Toasts for one player since the last call (host-side UI path).
+    pub fn drain_toasts(&mut self, viewpoint: usize) -> Vec<String> {
+        let out = self
+            .toasts
+            .iter()
+            .filter(|(s, _)| *s as usize == viewpoint)
+            .map(|(_, m)| m.clone())
+            .collect();
+        self.toasts.retain(|(s, _)| *s as usize != viewpoint);
+        out
+    }
+
+    fn weapon_damage(&self, stack: &ItemStack) -> i32 {
+        let def = &self.defs.items[stack.def as usize];
+        let fuse = stack
+            .fused
+            .map_or(0, |m| self.defs.items[m as usize].fuse_damage);
+        (def.damage + fuse) as i32
+    }
+
+    fn weapon_poison(&self, stack: &ItemStack) -> bool {
+        stack
+            .fused
+            .is_some_and(|m| self.defs.items[m as usize].fuse_effect == FuseEffect::Poison)
+    }
+
+    /// Durability loss on a connect; breaks the item at 0 (removed from
+    /// inventory, equips fixed up, toast + cue emitted).
+    fn wear_weapon(&mut self, pl: &mut Player, slot: usize, which: WearSlot) {
+        let idx = match which {
+            WearSlot::A => pl.equip_a,
+            WearSlot::B => pl.equip_b,
+        };
+        let Ok(idx) = usize::try_from(idx) else {
+            return;
+        };
+        let Some(stack) = pl.inventory.get_mut(idx) else {
+            return;
+        };
+        stack.durability = stack.durability.saturating_sub(1);
+        if stack.durability == 0 {
+            let label = self.defs.items[stack.def as usize].label.clone();
+            pl.inventory.remove(idx);
+            fix_equips_after_remove(pl, idx);
+            self.emit_toast(slot, &format!("THE {label} BROKE!"));
+            self.emit_cue(pl.sx, pl.sy, cues::BREAK);
+        }
     }
 
     /// Local sound cues on the viewpoint player's screen; clears the queue.
@@ -325,7 +481,7 @@ impl Sim {
             return;
         }
 
-        // Sword swing: A edge starts; movement locked while swinging.
+        // Sword swing: A edge starts (requires a sword in A); movement locked.
         if pl.attack_t > 0 {
             pl.attack_t -= 1;
             pl.walking = false;
@@ -333,7 +489,10 @@ impl Sim {
             self.players[slot] = Some(pl);
             return;
         }
-        if pl.buttons & BTN_A != 0 && pl.prev_buttons & BTN_A == 0 {
+        let has_sword = pl
+            .equipped(pl.equip_a)
+            .is_some_and(|s| self.defs.items[s.def as usize].kind == ItemKind::Sword);
+        if pl.buttons & BTN_A != 0 && pl.prev_buttons & BTN_A == 0 && has_sword {
             pl.attack_t = ATTACK_TICKS;
             let (sx, sy) = (pl.sx, pl.sy);
             pl.prev_buttons = pl.buttons;
@@ -342,19 +501,66 @@ impl Sim {
             return;
         }
 
+        // B item: bow shoots, bomb places, shield blocks while held.
+        pl.shielding = false;
+        if let Some(stack) = pl.equipped(pl.equip_b).copied() {
+            let kind = self.defs.items[stack.def as usize].kind;
+            let pressed = pl.buttons & BTN_B != 0 && pl.prev_buttons & BTN_B == 0;
+            match kind {
+                ItemKind::Shield => pl.shielding = pl.buttons & BTN_B != 0,
+                ItemKind::Bow if pressed => {
+                    if let Some(arrows) = self
+                        .defs
+                        .item_index("arrow")
+                        .and_then(|a| pl.inventory.iter().position(|s| s.def == a && s.qty > 0))
+                    {
+                        let dmg = self.weapon_damage(&stack);
+                        consume_one(&mut pl, arrows);
+                        let mut arrow = entity::spawn_arrow(
+                            slot as u8, pl.sx, pl.sy, pl.x, pl.y, pl.facing, dmg,
+                        );
+                        arrow.id = self.next_id;
+                        self.next_id += 1;
+                        self.entities.push(arrow);
+                        self.emit_cue(pl.sx, pl.sy, cues::SHOOT);
+                        self.wear_weapon(&mut pl, slot, WearSlot::B);
+                    } else {
+                        self.emit_toast(slot, "OUT OF ARROWS!");
+                    }
+                }
+                ItemKind::Bomb if pressed => {
+                    let inv = pl.inventory.iter().position(|s| s.def == stack.def);
+                    if let Some(inv) = inv {
+                        consume_one(&mut pl, inv);
+                        let mut bomb = entity::spawn_bomb(slot as u8, pl.sx, pl.sy, pl.x, pl.y);
+                        bomb.id = self.next_id;
+                        self.next_id += 1;
+                        self.entities.push(bomb);
+                    }
+                }
+                _ => {}
+            }
+        }
+        // Shielding slows you down.
+        let speed = if pl.shielding {
+            WALK_SPEED / 2
+        } else {
+            WALK_SPEED
+        };
+
         let mut dx: Fx = 0;
         let mut dy: Fx = 0;
         if pl.buttons & BTN_LEFT != 0 {
-            dx -= WALK_SPEED;
+            dx -= speed;
         }
         if pl.buttons & BTN_RIGHT != 0 {
-            dx += WALK_SPEED;
+            dx += speed;
         }
         if pl.buttons & BTN_UP != 0 {
-            dy -= WALK_SPEED;
+            dy -= speed;
         }
         if pl.buttons & BTN_DOWN != 0 {
-            dy += WALK_SPEED;
+            dy += speed;
         }
         // Facing: vertical wins on diagonals (matches LA feel).
         if dy < 0 {
@@ -459,7 +665,33 @@ impl Sim {
                     }
                 }
                 ET_PROJECTILE => entity::step_projectile(&mut e, &self.world),
+                ET_BOMB => {
+                    if entity::step_bomb(&mut e) {
+                        e.alive = false;
+                        let mut blast = entity::blank(ET_BLAST, e.sx, e.sy, e.x, e.y);
+                        blast.id = self.next_id;
+                        blast.owner = e.owner;
+                        self.next_id += 1;
+                        let (sx, sy) = (blast.sx, blast.sy);
+                        new_entities.push(blast);
+                        self.emit_cue(sx, sy, cues::BOOM);
+                    }
+                }
+                ET_BLAST => entity::step_blast(&mut e),
                 _ => entity::step_pickup(&mut e),
+            }
+            // Poison: 1 damage per second while poisoned.
+            if e.etype == ET_ENEMY && e.poison_t > 0 {
+                e.poison_t -= 1;
+                if e.poison_t % 60 == 0 {
+                    e.hp -= 1;
+                    if e.hp <= 0 {
+                        e.alive = false;
+                        self.emit_cue(e.sx, e.sy, cues::ENEMY_DIE);
+                    } else {
+                        self.emit_cue(e.sx, e.sy, cues::HIT);
+                    }
+                }
             }
             self.entities[i] = e;
         }
@@ -469,14 +701,20 @@ impl Sim {
     fn resolve_combat(&mut self) {
         // 1. Sword hits enemies.
         for slot in 0..MAX_PLAYERS {
-            let Some(p) = self.players[slot].clone() else {
+            let Some(mut p) = self.players[slot].clone() else {
                 continue;
             };
             if p.dead_t > 0 || !HIT_WINDOW.contains(&p.attack_t) {
                 continue;
             }
+            let Some(weapon) = p.equipped(p.equip_a).copied() else {
+                continue;
+            };
+            let damage = self.weapon_damage(&weapon) as i16;
+            let poisons = self.weapon_poison(&weapon);
             let (hx0, hy0, hx1, hy1) = sword_box(&p);
             let mut cues_out = Vec::new();
+            let mut connected = false;
             for e in self.entities.iter_mut() {
                 if !e.alive || e.etype != ET_ENEMY || e.iframes > 0 {
                     continue;
@@ -486,8 +724,12 @@ impl Sim {
                 }
                 let (ex0, ey0, ex1, ey1) = e.feet_box();
                 if hx0 < ex1 && ex0 < hx1 && hy0 < ey1 && ey0 < hy1 {
-                    e.hp -= 1;
+                    e.hp -= damage;
                     e.iframes = ENEMY_IFRAMES;
+                    if poisons {
+                        e.poison_t = 180;
+                    }
+                    connected = true;
                     // Rooted enemies don't get knocked back.
                     if self.defs.enemies[e.def as usize].brain != Brain::Thornling {
                         e.vx = fx(3) * (e.x - p.x).signum();
@@ -502,6 +744,64 @@ impl Sim {
             for c in cues_out {
                 self.emit_cue(p.sx, p.sy, c);
             }
+            if connected {
+                // One wear per swing that lands, no matter how many it hit.
+                self.wear_weapon(&mut p, slot, WearSlot::A);
+                self.players[slot] = Some(p);
+            }
+        }
+
+        // 1b. Player arrows and bomb blasts hit enemies.
+        let mut arrow_cues = Vec::new();
+        for i in 0..self.entities.len() {
+            let proj = self.entities[i].clone();
+            if !proj.alive || proj.owner < 0 {
+                continue;
+            }
+            let is_arrow = proj.etype == ET_PROJECTILE && proj.def == PJ_ARROW;
+            let is_blast = proj.etype == ET_BLAST && proj.state_t <= 2;
+            if !is_arrow && !is_blast {
+                continue;
+            }
+            let mut connected = false;
+            for e in self.entities.iter_mut() {
+                if !e.alive || e.etype != ET_ENEMY || e.iframes > 0 {
+                    continue;
+                }
+                if e.sx != proj.sx || e.sy != proj.sy {
+                    continue;
+                }
+                let hit = if is_blast {
+                    fixed::dist2_px(e.x, e.y, proj.x, proj.y)
+                        <= (BLAST_RADIUS as i64) * (BLAST_RADIUS as i64)
+                } else {
+                    let (ex0, ey0, ex1, ey1) = e.feet_box();
+                    let cx = to_px(proj.x) + 8;
+                    let cy = to_px(proj.y) + 8;
+                    cx >= ex0 && cx <= ex1 && cy >= ey0 && cy <= ey1
+                };
+                if hit {
+                    let dmg = if is_blast { 4 } else { proj.data as i16 };
+                    e.hp -= dmg;
+                    e.iframes = ENEMY_IFRAMES;
+                    e.vx = fx(2) * (e.x - proj.x).signum();
+                    e.vy = fx(2) * (e.y - proj.y).signum();
+                    arrow_cues.push((e.sx, e.sy, if e.hp <= 0 { cues::ENEMY_DIE } else { cues::HIT }));
+                    connected = true;
+                    if e.hp <= 0 {
+                        e.alive = false;
+                    }
+                    if is_arrow {
+                        break; // arrows stop on the first enemy hit
+                    }
+                }
+            }
+            if is_arrow && connected {
+                self.entities[i].alive = false;
+            }
+        }
+        for (sx, sy, c) in arrow_cues {
+            self.emit_cue(sx, sy, c);
         }
 
         // 2. Enemies / projectiles hurt players; pickups collect.
@@ -529,57 +829,96 @@ impl Sim {
                 }
                 match e.etype {
                     ET_ENEMY if p.iframes == 0 => {
-                        let def = &self.defs.enemies[e.def as usize];
-                        p.hp -= def.damage;
-                        p.iframes = PLAYER_IFRAMES;
-                        p.kvx = fx(3) * (p.x - e.x).signum();
-                        p.kvy = fx(3) * (p.y - e.y).signum();
-                        if def.brain == Brain::Snatcher && p.shells > 0 {
-                            let steal = p.shells.min(3);
-                            p.shells -= steal;
-                            e.data += steal as i32;
-                            e.state = 3; // flee
-                            e.state_t = 0;
+                        if blocks(&self.defs, &p, e.x, e.y) {
+                            p.kvx = fx(2) * (p.x - e.x).signum();
+                            p.kvy = fx(2) * (p.y - e.y).signum();
+                            self.emit_cue(p.sx, p.sy, cues::BLOCK);
+                            self.wear_weapon(&mut p, slot, WearSlot::B);
+                            changed = true;
+                        } else {
+                            let def = &self.defs.enemies[e.def as usize];
+                            p.hp -= def.damage;
+                            p.iframes = PLAYER_IFRAMES;
+                            p.kvx = fx(3) * (p.x - e.x).signum();
+                            p.kvy = fx(3) * (p.y - e.y).signum();
+                            if def.brain == Brain::Snatcher && p.shells > 0 {
+                                let steal = p.shells.min(3);
+                                p.shells -= steal;
+                                e.data += steal as i32;
+                                e.state = 3; // flee
+                                e.state_t = 0;
+                            }
+                            self.emit_cue(p.sx, p.sy, cues::HURT);
+                            if p.hp <= 0 {
+                                p.dead_t = RESPAWN_TICKS;
+                                self.emit_cue(p.sx, p.sy, cues::DIE);
+                            }
+                            changed = true;
                         }
-                        self.emit_cue(p.sx, p.sy, cues::HURT);
-                        if p.hp <= 0 {
-                            p.dead_t = RESPAWN_TICKS;
-                            self.emit_cue(p.sx, p.sy, cues::DIE);
-                        }
-                        changed = true;
                     }
-                    ET_PROJECTILE if p.iframes == 0 => {
-                        p.hp -= e.data as i16;
-                        p.iframes = PLAYER_IFRAMES;
-                        p.kvx = e.vx * 2;
-                        p.kvy = e.vy * 2;
-                        e.alive = false;
-                        self.emit_cue(p.sx, p.sy, cues::HURT);
-                        if p.hp <= 0 {
-                            p.dead_t = RESPAWN_TICKS;
-                            self.emit_cue(p.sx, p.sy, cues::DIE);
+                    // Enemy projectiles only (players don't hit themselves
+                    // with arrows; blasts are handled separately below).
+                    ET_PROJECTILE if p.iframes == 0 && e.owner < 0 => {
+                        if blocks(&self.defs, &p, e.x, e.y) {
+                            e.alive = false;
+                            self.emit_cue(p.sx, p.sy, cues::BLOCK);
+                            self.wear_weapon(&mut p, slot, WearSlot::B);
+                            changed = true;
+                        } else {
+                            p.hp -= e.data as i16;
+                            p.iframes = PLAYER_IFRAMES;
+                            p.kvx = e.vx * 2;
+                            p.kvy = e.vy * 2;
+                            e.alive = false;
+                            self.emit_cue(p.sx, p.sy, cues::HURT);
+                            if p.hp <= 0 {
+                                p.dead_t = RESPAWN_TICKS;
+                                self.emit_cue(p.sx, p.sy, cues::DIE);
+                            }
+                            changed = true;
                         }
-                        changed = true;
+                    }
+                    ET_BLAST if p.iframes == 0 && e.state_t <= 2 => {
+                        // Bombs don't discriminate. Stand back.
+                        if fixed::dist2_px(p.x, p.y, e.x, e.y)
+                            <= (BLAST_RADIUS as i64) * (BLAST_RADIUS as i64)
+                        {
+                            p.hp -= 2;
+                            p.iframes = PLAYER_IFRAMES;
+                            p.kvx = fx(4) * (p.x - e.x).signum();
+                            p.kvy = fx(4) * (p.y - e.y).signum();
+                            self.emit_cue(p.sx, p.sy, cues::HURT);
+                            if p.hp <= 0 {
+                                p.dead_t = RESPAWN_TICKS;
+                                self.emit_cue(p.sx, p.sy, cues::DIE);
+                            }
+                            changed = true;
+                        }
                     }
                     ET_PICKUP => {
                         match e.def {
                             PK_HEART => {
                                 p.hp = (p.hp + 2).min(p.max_hp);
                                 self.emit_cue(p.sx, p.sy, cues::HEART);
+                                e.alive = false;
                             }
                             PK_SHELLS => {
                                 p.shells += e.data as u32;
                                 self.emit_cue(p.sx, p.sy, cues::SHELL);
+                                e.alive = false;
                             }
                             _ => {
-                                let idx = e.data as usize;
-                                if idx < p.materials.len() {
-                                    p.materials[idx] += 1;
+                                let def = e.data as u8;
+                                if give_item(&mut p, &self.defs, def, 1) {
+                                    let label =
+                                        self.defs.items[def as usize].label.clone();
+                                    self.emit_toast(slot, &format!("GOT {label}"));
+                                    self.emit_cue(p.sx, p.sy, cues::ITEM);
+                                    e.alive = false;
                                 }
-                                self.emit_cue(p.sx, p.sy, cues::ITEM);
+                                // Inventory full: leave it on the ground.
                             }
                         }
-                        e.alive = false;
                         changed = true;
                     }
                     _ => {}
@@ -652,6 +991,8 @@ impl Sim {
                     iframes: 0,
                     home: e.home,
                     alive: true,
+                    owner: -1,
+                    poison_t: 0,
                 });
             }
             // Snatchers spill stolen shells on death.
@@ -675,6 +1016,8 @@ impl Sim {
                     iframes: 0,
                     home: e.home,
                     alive: true,
+                    owner: -1,
+                    poison_t: 0,
                 });
             }
         }
@@ -721,6 +1064,79 @@ impl Sim {
             || self.world.is_solid(screen, px + FEET_X1, py + FEET_Y1))
     }
 
+    // ---- ui actions (host applies; clients send C2H::UiAction) ----
+
+    pub fn ui_action(&mut self, slot: usize, json: &str) {
+        #[derive(Deserialize)]
+        struct Action {
+            action: String,
+            #[serde(default)]
+            a: i32,
+            #[serde(default)]
+            b: i32,
+        }
+        let Ok(act) = serde_json::from_str::<Action>(json) else {
+            return;
+        };
+        let Some(mut p) = self.players[slot.min(MAX_PLAYERS - 1)].clone() else {
+            return;
+        };
+
+        match act.action.as_str() {
+            "equip_a" => {
+                let idx = act.a as usize;
+                if p.inventory.get(idx).is_some_and(|s| {
+                    self.defs.items[s.def as usize].kind == ItemKind::Sword
+                }) {
+                    p.equip_a = idx as i8;
+                }
+            }
+            "equip_b" => {
+                let idx = act.a as usize;
+                if p.inventory.get(idx).is_some_and(|s| {
+                    matches!(
+                        self.defs.items[s.def as usize].kind,
+                        ItemKind::Bow | ItemKind::Shield | ItemKind::Bomb
+                    )
+                }) {
+                    p.equip_b = idx as i8;
+                }
+            }
+            "fuse" => {
+                let (wi, mi) = (act.a as usize, act.b as usize);
+                if wi == mi || wi >= p.inventory.len() || mi >= p.inventory.len() {
+                    return;
+                }
+                let weapon = p.inventory[wi];
+                let material = p.inventory[mi];
+                let w_ok = self.defs.items[weapon.def as usize].is_weapon()
+                    && weapon.fused.is_none();
+                let m_ok = self.defs.items[material.def as usize].kind == ItemKind::Material;
+                if !w_ok || !m_ok {
+                    return;
+                }
+                let w_label = self.defs.items[weapon.def as usize].label.clone();
+                let m_label = self.defs.items[material.def as usize].label.clone();
+                p.inventory[wi].fused = Some(material.def);
+                // Fusing reinforces the weapon as well as empowering it.
+                p.inventory[wi].durability += 10;
+                consume_one(&mut p, mi);
+                self.emit_toast(slot, &format!("FUSED {m_label} TO {w_label}"));
+                self.emit_cue(p.sx, p.sy, cues::FUSE);
+            }
+            _ => {}
+        }
+        self.players[slot] = Some(p);
+    }
+
+    /// Inventory/equipment JSON for the UI overlay.
+    pub fn ui_state(&self, slot: usize) -> String {
+        match &self.players[slot.min(MAX_PLAYERS - 1)] {
+            Some(p) => ui_state_json(&self.defs, &p.inventory, p.equip_a, p.equip_b),
+            None => "null".to_string(),
+        }
+    }
+
     // ---- snapshots ----
 
     pub fn snapshot(&self) -> SnapshotData {
@@ -745,6 +1161,19 @@ impl Sim {
                     attack_t: p.attack_t,
                     iframes: p.iframes,
                     dead: p.dead_t > 0,
+                    shielding: p.shielding,
+                    inventory: p
+                        .inventory
+                        .iter()
+                        .map(|s| ItemSnap {
+                            def: s.def,
+                            qty: s.qty,
+                            durability: s.durability,
+                            fused: s.fused.map_or(-1, |f| f as i16),
+                        })
+                        .collect(),
+                    equip_a: p.equip_a,
+                    equip_b: p.equip_b,
                 })
             })
             .collect();
@@ -830,8 +1259,14 @@ impl Sim {
                     h.u32(p.dead_t);
                     h.i32(p.kvx);
                     h.i32(p.kvy);
-                    for m in &p.materials {
-                        h.u32(*m as u32);
+                    h.u32(p.shielding as u32);
+                    h.i32(p.equip_a as i32);
+                    h.i32(p.equip_b as i32);
+                    for s in &p.inventory {
+                        h.u32(s.def as u32);
+                        h.u32(s.qty as u32);
+                        h.u32(s.durability as u32);
+                        h.i32(s.fused.map_or(-1, |f| f as i32));
                     }
                     match p.transition {
                         None => h.u32(0),
@@ -857,9 +1292,64 @@ impl Sim {
             h.u32(e.state_t);
             h.i32(e.vx);
             h.i32(e.vy);
+            h.i32(e.owner as i32);
+            h.u32(e.poison_t);
         }
         h.finish()
     }
+}
+
+fn kind_str(kind: ItemKind) -> &'static str {
+    match kind {
+        ItemKind::Sword => "sword",
+        ItemKind::Bow => "bow",
+        ItemKind::Shield => "shield",
+        ItemKind::Bomb => "bomb",
+        ItemKind::Arrow => "arrow",
+        ItemKind::Material => "material",
+    }
+}
+
+/// Shared by the host (live inventory) and clients (snapshot inventory).
+pub fn ui_state_json(defs: &Defs, inventory: &[ItemStack], equip_a: i8, equip_b: i8) -> String {
+    #[derive(serde::Serialize)]
+    struct UiItem {
+        i: usize,
+        label: String,
+        kind: &'static str,
+        qty: u16,
+        dur: u16,
+        max_dur: u16,
+        fused: Option<String>,
+    }
+    #[derive(serde::Serialize)]
+    struct UiState {
+        inventory: Vec<UiItem>,
+        equip_a: i8,
+        equip_b: i8,
+    }
+    let state = UiState {
+        inventory: inventory
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                let def = &defs.items[s.def as usize];
+                UiItem {
+                    i,
+                    label: def.label.clone(),
+                    kind: kind_str(def.kind),
+                    qty: s.qty,
+                    dur: s.durability,
+                    max_dur: def.durability
+                        + if s.fused.is_some() { 10 } else { 0 },
+                    fused: s.fused.map(|f| defs.items[f as usize].label.clone()),
+                }
+            })
+            .collect(),
+        equip_a,
+        equip_b,
+    };
+    serde_json::to_string(&state).unwrap_or_else(|_| "null".to_string())
 }
 
 /// Render the world + players + entities as seen from `viewpoint`'s screen.
@@ -962,6 +1452,7 @@ fn draw_entities_on(
         if e.sx != sx || e.sy != sy {
             continue;
         }
+        let (px, py) = (to_px(e.x) + ox, to_px(e.y) + oy);
         match e.etype {
             ET_ENEMY => {
                 // Hit flash: skip frames while invulnerable.
@@ -971,10 +1462,35 @@ fn draw_entities_on(
                 let def = &defs.enemies[e.def as usize];
                 let frame = ((e.anim >> 4) & 1) as u16;
                 let flags = if e.facing == 3 { FLAG_FLIP_X } else { 0 };
-                out.sprite(def.sprite + frame, to_px(e.x) + ox, to_px(e.y) + oy, 0, flags);
+                out.sprite(def.sprite + frame, px, py, 0, flags);
             }
-            ET_PROJECTILE => {
-                out.sprite(world.sprites.seed, to_px(e.x) + ox, to_px(e.y) + oy, 0, 0);
+            ET_PROJECTILE => match e.def {
+                PJ_ARROW => {
+                    let (sprite, flags) = match e.facing {
+                        1 => (world.sprites.arrow_v, 0),
+                        0 => (world.sprites.arrow_v, draw::FLAG_FLIP_Y),
+                        2 => (world.sprites.arrow_h, 0),
+                        _ => (world.sprites.arrow_h, FLAG_FLIP_X),
+                    };
+                    out.sprite(sprite, px, py, 0, flags);
+                }
+                _ => out.sprite(world.sprites.seed, px, py, 0, 0),
+            },
+            ET_BOMB => {
+                // Blink faster as the fuse runs down (anim == ticks alive,
+                // which survives the snapshot path; state_t does not).
+                let rate = if e.anim > entity::BOMB_FUSE - 30 { 2 } else { 4 };
+                if (e.anim >> rate) & 1 == 0 {
+                    out.sprite(world.sprites.bomb, px, py, 0, 0);
+                }
+            }
+            ET_BLAST => {
+                let frame = ((e.anim / 5).min(1)) as u16;
+                let s = world.sprites.blast + frame;
+                out.sprite(s, px, py, 0, 0);
+                for (dx, dy) in [(-12, 0), (12, 0), (0, -12), (0, 12)] {
+                    out.sprite(s, px + dx, py + dy, 0, 0);
+                }
             }
             _ => {}
         }
@@ -1114,6 +1630,27 @@ impl Default for Fnv {
     }
 }
 
+/// True if the player is actively shielding toward the attacker.
+fn blocks(defs: &Defs, p: &Player, ax: Fx, ay: Fx) -> bool {
+    if !p.shielding {
+        return false;
+    }
+    if !p
+        .equipped(p.equip_b)
+        .is_some_and(|s| defs.items[s.def as usize].kind == ItemKind::Shield)
+    {
+        return false;
+    }
+    let dx = ax - p.x;
+    let dy = ay - p.y;
+    match p.facing {
+        1 => dy < 0 && dy.abs() >= dx.abs(),
+        0 => dy > 0 && dy.abs() >= dx.abs(),
+        2 => dx < 0 && dx.abs() >= dy.abs(),
+        _ => dx > 0 && dx.abs() >= dy.abs(),
+    }
+}
+
 fn sword_box(p: &Player) -> (i32, i32, i32, i32) {
     let px = to_px(p.x);
     let py = to_px(p.y);
@@ -1167,13 +1704,26 @@ mod tests {
             "thornling_0",
             "gel_0",
             "claw",
+            "itm_bomb",
+            "blast_0",
+            "arrow_h",
+            "arrow_v",
+            "itm_bow",
+            "itm_shield",
         ];
         let sprite_names = sprites.map(|s| format!("\"{s}\"")).join(",");
         format!(
             r#"{{"world":{{"tile_names":["floor","wall"],"tile_solid":[false,true],
 "sprite_names":[{sprite_names}],"font_chars":"0123456789#%&$",
 "screens":[{}],"spawn":{{"sx":0,"sy":0,"x":72,"y":64}}}},
-"items":[{{"name":"crab_claw","sprite":"claw"}}],
+"items":[
+ {{"name":"driftwood_sword","label":"DRIFTWOOD SWORD","sprite":"sword_down","kind":"sword","damage":1,"durability":40}},
+ {{"name":"oak_bow","label":"OAK BOW","sprite":"itm_bow","kind":"bow","damage":1,"durability":30}},
+ {{"name":"wooden_shield","label":"WOODEN SHIELD","sprite":"itm_shield","kind":"shield","durability":20}},
+ {{"name":"bomb","label":"BOMB","sprite":"itm_bomb","kind":"bomb"}},
+ {{"name":"arrow","label":"ARROW","sprite":"arrow_h","kind":"arrow"}},
+ {{"name":"crab_claw","label":"CRAB CLAW","sprite":"claw","kind":"material","fuse_damage":1}},
+ {{"name":"wasp_stinger","label":"WASP STINGER","sprite":"claw","kind":"material","fuse_effect":"poison"}}],
 "enemies":[
  {{"name":"thornling","brain":"thornling","hp":2,"damage":1,"speed":0,"sprite":"thornling_0","drops":"basic"}},
  {{"name":"gel","brain":"gel","hp":2,"damage":1,"speed":128,"sprite":"gel_0","drops":"basic"}}],
@@ -1291,6 +1841,77 @@ mod tests {
             }
         }
         assert!(hurt, "gel should reach and hurt the player");
+    }
+
+    #[test]
+    fn fusion_boosts_damage_and_consumes_material() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 3).unwrap();
+        sim.add_player(0);
+        let claw = sim.defs.item_index("crab_claw").unwrap();
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            give_item(p, &sim.defs, claw, 2);
+        }
+        let p = sim.players[0].as_ref().unwrap();
+        let sword_idx = p
+            .inventory
+            .iter()
+            .position(|s| sim.defs.items[s.def as usize].kind == ItemKind::Sword)
+            .unwrap();
+        let mat_idx = p.inventory.iter().position(|s| s.def == claw).unwrap();
+        let dur_before = p.inventory[sword_idx].durability;
+        let dmg_before = sim.weapon_damage(&p.inventory[sword_idx]);
+
+        sim.ui_action(0, &format!(r#"{{"action":"fuse","a":{sword_idx},"b":{mat_idx}}}"#));
+
+        let p = sim.players[0].as_ref().unwrap();
+        let sword = &p.inventory[sword_idx];
+        assert_eq!(sword.fused, Some(claw));
+        assert_eq!(sim.weapon_damage(sword), dmg_before + 1);
+        assert_eq!(sword.durability, dur_before + 10);
+        assert_eq!(p.inventory.iter().find(|s| s.def == claw).unwrap().qty, 1);
+        // Can't fuse twice.
+        let mat_idx = p.inventory.iter().position(|s| s.def == claw).unwrap();
+        sim.ui_action(0, &format!(r#"{{"action":"fuse","a":{sword_idx},"b":{mat_idx}}}"#));
+        let p = sim.players[0].as_ref().unwrap();
+        assert_eq!(p.inventory.iter().find(|s| s.def == claw).unwrap().qty, 1);
+    }
+
+    #[test]
+    fn durability_wears_and_weapon_breaks() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 11).unwrap();
+        sim.add_player(0);
+        // Shrink the sword to 2 durability so the test is quick.
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.inventory[0].durability = 2;
+            p.x = fx(32);
+            p.y = fx(48 + 18);
+            p.facing = 1;
+        }
+        // Swing until it breaks (thornling respawn keeps targets coming).
+        for _ in 0..12 {
+            sim.set_input(0, BTN_A);
+            for _ in 0..20 {
+                sim.step();
+            }
+            sim.set_input(0, 0);
+            for _ in 0..40 {
+                sim.step();
+            }
+            let p = sim.players[0].as_ref().unwrap();
+            let has_sword = p
+                .inventory
+                .iter()
+                .any(|s| sim.defs.items[s.def as usize].kind == ItemKind::Sword);
+            if !has_sword {
+                assert_eq!(p.equip_a, -1, "equip slot should clear on break");
+                return;
+            }
+        }
+        panic!("sword never broke");
     }
 
     #[test]

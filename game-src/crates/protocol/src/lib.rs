@@ -9,9 +9,19 @@ use serde::{Deserialize, Serialize};
 pub const PROTOCOL_VERSION: u16 = 1;
 pub const SAVE_SCHEMA_VERSION: u32 = 1;
 
+/// One inventory slot inside a snapshot.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+pub struct ItemSnap {
+    pub def: u8,
+    pub qty: u16,
+    pub durability: u16,
+    /// Fused material item def, or -1.
+    pub fused: i16,
+}
+
 /// One player's state inside a snapshot. Positions are fixed-point
 /// (1/256 px) exactly as the sim stores them.
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PlayerSnap {
     pub slot: u8,
     pub sx: i32,
@@ -29,6 +39,10 @@ pub struct PlayerSnap {
     pub attack_t: u8,
     pub iframes: u8,
     pub dead: bool,
+    pub shielding: bool,
+    pub inventory: Vec<ItemSnap>,
+    pub equip_a: i8,
+    pub equip_b: i8,
 }
 
 /// Entity type tags inside EntitySnap.
@@ -65,6 +79,8 @@ pub struct SnapshotData {
 pub enum GameEvent {
     /// Sound cue scoped to a screen so each client plays only local sounds.
     Audio { sx: i32, sy: i32, cue: u16 },
+    /// Short UI message for one player ("THE SWORD BROKE!").
+    Toast { slot: u8, msg: String },
 }
 
 /// Client → host.

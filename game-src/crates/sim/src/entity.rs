@@ -9,6 +9,16 @@ use crate::Player;
 pub const ET_ENEMY: u8 = 0;
 pub const ET_PROJECTILE: u8 = 1;
 pub const ET_PICKUP: u8 = 2;
+pub const ET_BOMB: u8 = 3;
+pub const ET_BLAST: u8 = 4;
+
+/// Projectile kinds (EntitySnap.def for ET_PROJECTILE).
+pub const PJ_SEED: u8 = 0;
+pub const PJ_ARROW: u8 = 1;
+
+pub const BOMB_FUSE: u32 = 90;
+pub const BLAST_TTL: u32 = 14;
+pub const BLAST_RADIUS: i32 = 26;
 
 /// Pickup kinds (EntitySnap.def for ET_PICKUP; item index in data).
 pub const PK_HEART: u8 = 0;
@@ -38,6 +48,10 @@ pub struct Entity {
     pub iframes: u8,
     pub home: (i32, i32), // spawn screen, for respawn bookkeeping
     pub alive: bool,
+    /// Player slot that owns this projectile/bomb, or -1 for enemies.
+    pub owner: i8,
+    /// Poison ticks remaining (enemies; damages every 60 ticks).
+    pub poison_t: u32,
 }
 
 impl Entity {
@@ -61,6 +75,8 @@ impl Entity {
             iframes: 0,
             home: (sx, sy),
             alive: true,
+            owner: -1,
+            poison_t: 0,
         }
     }
 
@@ -198,28 +214,82 @@ pub fn step_enemy(
     }
 }
 
-fn spawn_seed(e: &Entity, ctx: &StepCtx, px: Fx, py: Fx) -> Entity {
-    let def = &ctx.defs.enemies[e.def as usize];
-    let (vx, vy) = step_toward(e.x, e.y, px, py, fx(1) + fx(1) / 2);
+/// Bare entity with everything zeroed; callers set what they need.
+pub fn blank(etype: u8, sx: i32, sy: i32, x: Fx, y: Fx) -> Entity {
     Entity {
         id: 0, // assigned by caller
-        etype: ET_PROJECTILE,
+        etype,
         def: 0,
-        data: def.damage as i32,
-        sx: e.sx,
-        sy: e.sy,
-        x: e.x,
-        y: e.y,
-        vx,
-        vy,
+        data: 0,
+        sx,
+        sy,
+        x,
+        y,
+        vx: 0,
+        vy: 0,
         hp: 1,
-        facing: e.facing,
+        facing: 0,
         state: 0,
         state_t: 0,
         anim: 0,
         iframes: 0,
-        home: e.home,
+        home: (sx, sy),
         alive: true,
+        owner: -1,
+        poison_t: 0,
+    }
+}
+
+fn spawn_seed(e: &Entity, ctx: &StepCtx, px: Fx, py: Fx) -> Entity {
+    let def = &ctx.defs.enemies[e.def as usize];
+    let (vx, vy) = step_toward(e.x, e.y, px, py, fx(1) + fx(1) / 2);
+    let mut p = blank(ET_PROJECTILE, e.sx, e.sy, e.x, e.y);
+    p.def = PJ_SEED;
+    p.data = def.damage as i32;
+    p.vx = vx;
+    p.vy = vy;
+    p.facing = e.facing;
+    p.home = e.home;
+    p
+}
+
+/// Arrow fired by a player.
+pub fn spawn_arrow(slot: u8, sx: i32, sy: i32, x: Fx, y: Fx, facing: u8, damage: i32) -> Entity {
+    let speed = fx(3);
+    let (vx, vy) = match facing {
+        1 => (0, -speed),
+        2 => (-speed, 0),
+        3 => (speed, 0),
+        _ => (0, speed),
+    };
+    let mut p = blank(ET_PROJECTILE, sx, sy, x, y);
+    p.def = PJ_ARROW;
+    p.data = damage;
+    p.vx = vx;
+    p.vy = vy;
+    p.facing = facing;
+    p.owner = slot as i8;
+    p
+}
+
+/// Bomb placed by a player; explodes into a blast after BOMB_FUSE ticks.
+pub fn spawn_bomb(slot: u8, sx: i32, sy: i32, x: Fx, y: Fx) -> Entity {
+    let mut b = blank(ET_BOMB, sx, sy, x, y);
+    b.owner = slot as i8;
+    b
+}
+
+pub fn step_bomb(e: &mut Entity) -> bool {
+    e.anim = e.anim.wrapping_add(1);
+    e.state_t = e.state_t.wrapping_add(1);
+    e.state_t >= BOMB_FUSE
+}
+
+pub fn step_blast(e: &mut Entity) {
+    e.anim = e.anim.wrapping_add(1);
+    e.state_t = e.state_t.wrapping_add(1);
+    if e.state_t > BLAST_TTL {
+        e.alive = false;
     }
 }
 

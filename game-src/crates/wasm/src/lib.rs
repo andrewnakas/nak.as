@@ -21,6 +21,10 @@ pub struct Game {
     input_seq: u32,
     /// Sound cues received over the network (client role).
     client_audio: Vec<(i32, i32, u16)>,
+    /// Toasts received over the network for the local player (client role).
+    client_toasts: Vec<String>,
+    /// Slot of the local player on a client (set by the JS shell post-welcome).
+    local_slot: u8,
 }
 
 #[wasm_bindgen]
@@ -35,7 +39,13 @@ impl Game {
             view: ClientView::new(),
             input_seq: 0,
             client_audio: Vec::new(),
+            client_toasts: Vec::new(),
+            local_slot: 0,
         }
+    }
+
+    pub fn set_local_slot(&mut self, slot: u8) {
+        self.local_slot = slot;
     }
 
     pub fn content_hash(&self) -> u64 {
@@ -60,9 +70,43 @@ impl Game {
     pub fn handle_client_msg(&mut self, slot: u8, bytes: &[u8]) {
         match protocol::decode::<C2H>(bytes) {
             Some(C2H::Input { buttons, .. }) => self.sim.set_input(slot as usize, buttons),
-            Some(C2H::UiAction { .. }) => {} // arrives with menus/fusion
+            Some(C2H::UiAction { json }) => self.sim.ui_action(slot as usize, &json),
             Some(C2H::Bye) | None => {}
         }
+    }
+
+    /// Apply a UI action for a local (host-side) player.
+    pub fn ui_action(&mut self, slot: u8, json: &str) {
+        self.sim.ui_action(slot as usize, json);
+    }
+
+    /// Encode a UI action for sending to the host (client role).
+    pub fn encode_ui_action(&self, json: &str) -> Vec<u8> {
+        protocol::encode(&C2H::UiAction {
+            json: json.to_string(),
+        })
+    }
+
+    /// Inventory/equipment JSON for the UI overlay (role-aware).
+    pub fn ui_state(&self, slot: u8) -> String {
+        if self.role == ROLE_CLIENT {
+            match self.view.player_items(slot) {
+                Some((items, a, b)) => sim::ui_state_json(&self.sim.defs, &items, a, b),
+                None => "null".to_string(),
+            }
+        } else {
+            self.sim.ui_state(slot as usize)
+        }
+    }
+
+    /// Toast messages for the viewpoint player since the last call (JSON array).
+    pub fn drain_toasts(&mut self, viewpoint: u8) -> String {
+        let toasts: Vec<String> = if self.role == ROLE_CLIENT {
+            self.client_toasts.drain(..).collect()
+        } else {
+            self.sim.drain_toasts(viewpoint as usize)
+        };
+        serde_json::to_string(&toasts).unwrap_or_else(|_| "[]".to_string())
     }
 
     pub fn tick(&mut self) {
@@ -103,8 +147,16 @@ impl Game {
             Some(H2C::Event { payload, .. }) => {
                 if let Some(events) = protocol::decode::<Vec<GameEvent>>(&payload) {
                     for ev in events {
-                        let GameEvent::Audio { sx, sy, cue } = ev;
-                        self.client_audio.push((sx, sy, cue));
+                        match ev {
+                            GameEvent::Audio { sx, sy, cue } => {
+                                self.client_audio.push((sx, sy, cue));
+                            }
+                            GameEvent::Toast { slot, msg } => {
+                                if slot == self.local_slot {
+                                    self.client_toasts.push(msg);
+                                }
+                            }
+                        }
                     }
                 }
             }

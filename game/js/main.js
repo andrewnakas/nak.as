@@ -10,7 +10,7 @@ import { Audio } from './audio.js';
 import { HostSession, ClientSession } from './session.js';
 import { Signaling } from './net/signaling.js';
 import { createParty } from './api.js';
-import { showMenu, setStatus, showPartyCode, showPartyList } from './ui.js';
+import { showMenu, setStatus, showPartyCode, showPartyList, InventoryUI } from './ui.js';
 
 const ROLE_HOST = 0;
 const ROLE_CLIENT = 1;
@@ -59,6 +59,7 @@ async function startSession({ mode, code, name }, { worldJson, input, renderer, 
     const game = new Game(worldJson, ROLE_HOST, randomSeed());
     const session = new HostSession({ game, input, renderer, audio, debugEl });
     session.start();
+    new InventoryUI(session);
     window.__naks = { session, mode };
     return;
   }
@@ -77,6 +78,7 @@ async function startSession({ mode, code, name }, { worldJson, input, renderer, 
     );
     session.attachSignaling(signaling);
     session.start();
+    new InventoryUI(session);
     showPartyCode(partyCode);
     setStatus('');
     window.__naks = { session, mode };
@@ -101,8 +103,10 @@ async function startSession({ mode, code, name }, { worldJson, input, renderer, 
     },
   );
   setStatus('connecting to host…');
-  await session.connect(signaling, joined.host_id, name);
+  const slot = await session.connect(signaling, joined.host_id, name);
+  game.set_local_slot(slot);
   session.start();
+  new InventoryUI(session);
   showPartyCode(code);
   setStatus('');
   window.__naks = { session, mode };

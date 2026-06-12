@@ -427,6 +427,90 @@ export const SPRITES = [
     ],
   },
 
+  // ---- player gear ----
+  {
+    name: 'itm_bow',
+    palette: 'wood',
+    grid: grid((x, y) => {
+      // curved bow facing left, string on the right
+      const d = Math.hypot(x - 11, y - 7.5);
+      if (d > 5.2 && d < 7 && x < 11) return d > 6.2 ? 0 : 2;
+      if (x === 11 && y >= 2 && y <= 13) return 3; // string
+      return '.';
+    }),
+  },
+  {
+    name: 'itm_shield',
+    palette: 'wood',
+    grid: grid((x, y) => {
+      const w = y < 9 ? 5 : Math.max(1, 5 - (y - 9));
+      const dx = Math.abs(x - 7.5);
+      if (y >= 2 && y <= 13 && dx < w) {
+        if (dx > w - 1.2 || y === 2) return 0;
+        if (dx < 1 && y >= 4 && y <= 9) return 3; // boss stripe
+        return y % 2 ? 2 : 1;
+      }
+      return '.';
+    }),
+  },
+  {
+    name: 'itm_bomb',
+    palette: 'stone',
+    grid: grid((x, y) => {
+      // fuse
+      if (y <= 3 && x === 9 - y) return y === 0 ? 3 : 1;
+      const d = Math.hypot(x - 7.5, y - 9.5);
+      if (d > 4.8) return '.';
+      if (d > 3.9) return 0;
+      return x + y < 15 ? 2 : 1;
+    }),
+  },
+  {
+    name: 'arrow_h',
+    palette: 'wood',
+    grid: grid((x, y) => {
+      // points LEFT
+      if (y === 7 && x >= 2 && x <= 13) return x < 5 ? 3 : 2;
+      if ((y === 6 || y === 8) && x >= 2 && x <= 4) return 3;
+      if ((y === 6 || y === 8) && x >= 12) return 1; // fletching
+      if ((y === 5 || y === 9) && x >= 13) return 1;
+      return '.';
+    }),
+  },
+  {
+    name: 'arrow_v',
+    palette: 'wood',
+    grid: grid((x, y) => {
+      // points UP
+      if (x === 7 && y >= 2 && y <= 13) return y < 5 ? 3 : 2;
+      if ((x === 6 || x === 8) && y >= 2 && y <= 4) return 3;
+      if ((x === 6 || x === 8) && y >= 12) return 1;
+      if ((x === 5 || x === 9) && y >= 13) return 1;
+      return '.';
+    }),
+  },
+  {
+    name: 'blast_0',
+    palette: 'sand',
+    grid: grid((x, y) => {
+      const d = Math.hypot(x - 7.5, y - 7.5);
+      if (d > 6) return '.';
+      if (d > 4.5) return (x + y) % 2 ? 3 : '.';
+      return d < 2.5 ? 3 : 2;
+    }),
+  },
+  {
+    name: 'blast_1',
+    palette: 'sand',
+    grid: grid((x, y) => {
+      const d = Math.hypot(x - 7.5, y - 7.5);
+      if (d > 7.4) return '.';
+      if (d > 5.5) return (x * 3 + y) % 3 ? '.' : 3;
+      if (d > 3) return (x + y) % 2 ? 2 : 1;
+      return '.'; // hollow center as it dissipates
+    }),
+  },
+
   // ---- materials (drops; inventory icons in Phase 4) ----
   {
     name: 'mat_claw',

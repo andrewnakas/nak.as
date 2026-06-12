@@ -74,6 +74,10 @@ pub struct SpriteIds {
     pub seed: u16,
     pub heart_drop: u16,
     pub shell_drop: u16,
+    pub bomb: u16,
+    pub blast: u16,
+    pub arrow_h: u16,
+    pub arrow_v: u16,
 }
 
 pub struct World {
@@ -105,6 +109,10 @@ impl World {
             seed: find("seed")?,
             heart_drop: find("heart_drop")?,
             shell_drop: find("shell_drop")?,
+            bomb: find("itm_bomb")?,
+            blast: find("blast_0")?,
+            arrow_h: find("arrow_h")?,
+            arrow_v: find("arrow_v")?,
         };
 
         let font = raw

@@ -4,7 +4,7 @@
 //! 20 Hz snapshots. Integer math throughout (times are whole milliseconds).
 
 use crate::entity::Entity;
-use crate::{Player, Transition, MAX_PLAYERS};
+use crate::{ItemStack, Player, Transition, MAX_PLAYERS};
 use protocol::{EntitySnap, PlayerSnap, SnapshotData};
 
 /// How far behind the freshest snapshot we render.
@@ -45,6 +45,14 @@ impl ClientView {
             .last()
             .and_then(|(_, s)| s.players.iter().find(|p| p.slot == slot))
             .map(|p| (p.sx, p.sy))
+    }
+
+    /// Latest known inventory + equips for the slot player (for the UI).
+    pub fn player_items(&self, slot: u8) -> Option<(Vec<ItemStack>, i8, i8)> {
+        self.snaps
+            .last()
+            .and_then(|(_, s)| s.players.iter().find(|p| p.slot == slot))
+            .map(|p| (items_from_snaps(&p.inventory), p.equip_a, p.equip_b))
     }
 
     /// Reconstruct players + entities as of (now - delay), lerping between
@@ -135,13 +143,28 @@ fn lerp_player(pa: Option<&PlayerSnap>, pb: &PlayerSnap, num: u64, den: u64) -> 
         hp: pb.hp,
         max_hp: pb.max_hp,
         shells: pb.shells,
-        materials: Vec::new(),
+        inventory: items_from_snaps(&pb.inventory),
+        equip_a: pb.equip_a,
+        equip_b: pb.equip_b,
         attack_t: pb.attack_t,
+        shielding: pb.shielding,
         iframes: pb.iframes,
         kvx: 0,
         kvy: 0,
         dead_t: u32::from(pb.dead),
     }
+}
+
+fn items_from_snaps(snaps: &[protocol::ItemSnap]) -> Vec<ItemStack> {
+    snaps
+        .iter()
+        .map(|s| ItemStack {
+            def: s.def,
+            qty: s.qty,
+            durability: s.durability,
+            fused: u8::try_from(s.fused).ok(),
+        })
+        .collect()
 }
 
 fn lerp_entity(ea: Option<&EntitySnap>, eb: &EntitySnap, num: u64, den: u64) -> Entity {
@@ -171,5 +194,7 @@ fn lerp_entity(ea: Option<&EntitySnap>, eb: &EntitySnap, num: u64, den: u64) -> 
         iframes: u8::from(eb.flash),
         home: (eb.sx, eb.sy),
         alive: true,
+        owner: -1,
+        poison_t: 0,
     }
 }

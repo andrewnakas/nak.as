@@ -1,7 +1,80 @@
 [
-  { "name": "crab_claw", "sprite": "mat_claw" },
-  { "name": "wasp_stinger", "sprite": "mat_stinger" },
-  { "name": "gel_core", "sprite": "mat_gelcore" },
-  { "name": "hardwood", "sprite": "mat_wood" },
-  { "name": "stag_pelt", "sprite": "mat_pelt" }
+  {
+    "name": "driftwood_sword",
+    "label": "DRIFTWOOD SWORD",
+    "sprite": "sword_down",
+    "kind": "sword",
+    "damage": 1,
+    "durability": 40
+  },
+  {
+    "name": "iron_sword",
+    "label": "IRON SWORD",
+    "sprite": "sword_down",
+    "kind": "sword",
+    "damage": 2,
+    "durability": 60
+  },
+  {
+    "name": "oak_bow",
+    "label": "OAK BOW",
+    "sprite": "itm_bow",
+    "kind": "bow",
+    "damage": 1,
+    "durability": 30
+  },
+  {
+    "name": "wooden_shield",
+    "label": "WOODEN SHIELD",
+    "sprite": "itm_shield",
+    "kind": "shield",
+    "durability": 20
+  },
+  {
+    "name": "bomb",
+    "label": "BOMB",
+    "sprite": "itm_bomb",
+    "kind": "bomb"
+  },
+  {
+    "name": "arrow",
+    "label": "ARROW",
+    "sprite": "arrow_h",
+    "kind": "arrow"
+  },
+  {
+    "name": "crab_claw",
+    "label": "CRAB CLAW",
+    "sprite": "mat_claw",
+    "kind": "material",
+    "fuse_damage": 1
+  },
+  {
+    "name": "wasp_stinger",
+    "label": "WASP STINGER",
+    "sprite": "mat_stinger",
+    "kind": "material",
+    "fuse_effect": "poison"
+  },
+  {
+    "name": "gel_core",
+    "label": "GEL CORE",
+    "sprite": "mat_gelcore",
+    "kind": "material",
+    "fuse_damage": 1
+  },
+  {
+    "name": "hardwood",
+    "label": "HARDWOOD",
+    "sprite": "mat_wood",
+    "kind": "material",
+    "fuse_damage": 1
+  },
+  {
+    "name": "stag_pelt",
+    "label": "STAG PELT",
+    "sprite": "mat_pelt",
+    "kind": "material",
+    "fuse_damage": 1
+  }
 ]

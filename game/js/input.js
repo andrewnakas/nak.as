@@ -25,6 +25,8 @@ const KEY_MAP = {
 export class Input {
   constructor() {
     this.buttons = 0;
+    /// While true (inventory open), the game reads 0 buttons.
+    this.suppressed = false;
     window.addEventListener('keydown', (e) => {
       const bit = KEY_MAP[e.code];
       if (bit) {
@@ -42,5 +44,9 @@ export class Input {
     window.addEventListener('blur', () => {
       this.buttons = 0;
     });
+  }
+
+  read() {
+    return this.suppressed ? 0 : this.buttons;
   }
 }

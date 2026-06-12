@@ -3,6 +3,7 @@
 
 import { TICK_MS, MAX_CATCHUP_TICKS } from './config.js';
 import { PeerLink } from './net/rtc.js';
+import { toast } from './ui.js';
 
 const SNAPSHOT_EVERY = 3; // host ticks between snapshots (60/3 = 20 Hz)
 const INPUT_KEEPALIVE_MS = 100;
@@ -26,6 +27,7 @@ class BaseSession {
       this._advance(now, MAX_CATCHUP_TICKS);
       this.renderer.draw(this.game.render_frame(this.slot, now));
       this.audio?.playAll(this.game.drain_audio(this.slot));
+      for (const msg of JSON.parse(this.game.drain_toasts(this.slot))) toast(msg);
       if (this.debugEl && this.game.tick_count() % 30 === 0) {
         this.debugEl.textContent =
           `tick ${this.game.tick_count()}\n` +
@@ -89,7 +91,11 @@ export class HostSession extends BaseSession {
   }
 
   _handleReliable(peer, text) {
-    if (typeof text !== 'string') return; // clients only send JSON here
+    if (typeof text !== 'string') {
+      // Binary = postcard C2H (UiActions ride the reliable channel).
+      if (peer.slot >= 0) this.game.handle_client_msg(peer.slot, new Uint8Array(text));
+      return;
+    }
     let msg;
     try {
       msg = JSON.parse(text);
@@ -137,10 +143,14 @@ export class HostSession extends BaseSession {
     );
   }
 
+  sendUiAction(json) {
+    this.game.ui_action(0, json);
+  }
+
   update(now, acc, maxTicks) {
     let ticks = 0;
     while (acc >= TICK_MS && ticks < maxTicks) {
-      this.game.set_input(0, this.input.buttons);
+      this.game.set_input(0, this.input.read());
       this.game.tick();
       acc -= TICK_MS;
       ticks++;
@@ -225,11 +235,16 @@ export class ClientSession extends BaseSession {
     }
   }
 
+  sendUiAction(json) {
+    this.link.sendRBytes(this.game.encode_ui_action(json));
+  }
+
   update(now) {
-    const changed = this.input.buttons !== this.lastButtons;
+    const buttons = this.input.read();
+    const changed = buttons !== this.lastButtons;
     if (changed || now - this.lastInputSent > INPUT_KEEPALIVE_MS) {
-      this.link.sendU(this.game.encode_input(this.input.buttons));
-      this.lastButtons = this.input.buttons;
+      this.link.sendU(this.game.encode_input(buttons));
+      this.lastButtons = buttons;
       this.lastInputSent = now;
     }
     return 0; // clients don't tick; they render interpolated snapshots

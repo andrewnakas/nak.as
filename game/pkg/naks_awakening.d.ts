@@ -16,7 +16,15 @@ export class Game {
      * Empty result means nothing to send.
      */
     drain_events_bytes(): Uint8Array;
+    /**
+     * Toast messages for the viewpoint player since the last call (JSON array).
+     */
+    drain_toasts(viewpoint: number): string;
     encode_input(buttons: number): Uint8Array;
+    /**
+     * Encode a UI action for sending to the host (client role).
+     */
+    encode_ui_action(json: string): Uint8Array;
     /**
      * Decode and apply one message from the client in `slot`.
      */
@@ -29,6 +37,7 @@ export class Game {
     remove_player(slot: number): void;
     render_frame(viewpoint: number, now_ms: number): Uint16Array;
     set_input(slot: number, buttons: number): void;
+    set_local_slot(slot: number): void;
     /**
      * Serialized snapshot to broadcast.
      */
@@ -36,6 +45,14 @@ export class Game {
     state_hash(): bigint;
     tick(): void;
     tick_count(): number;
+    /**
+     * Apply a UI action for a local (host-side) player.
+     */
+    ui_action(slot: number, json: string): void;
+    /**
+     * Inventory/equipment JSON for the UI overlay (role-aware).
+     */
+    ui_state(slot: number): string;
 }
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
@@ -48,16 +65,21 @@ export interface InitOutput {
     readonly game_content_hash: (a: number) => bigint;
     readonly game_drain_audio: (a: number, b: number, c: number) => void;
     readonly game_drain_events_bytes: (a: number, b: number) => void;
+    readonly game_drain_toasts: (a: number, b: number, c: number) => void;
     readonly game_encode_input: (a: number, b: number, c: number) => void;
+    readonly game_encode_ui_action: (a: number, b: number, c: number, d: number) => void;
     readonly game_handle_client_msg: (a: number, b: number, c: number, d: number) => void;
     readonly game_new: (a: number, b: number, c: number, d: bigint) => number;
     readonly game_remove_player: (a: number, b: number) => void;
     readonly game_render_frame: (a: number, b: number, c: number, d: number) => void;
     readonly game_set_input: (a: number, b: number, c: number) => void;
+    readonly game_set_local_slot: (a: number, b: number) => void;
     readonly game_snapshot_bytes: (a: number, b: number) => void;
     readonly game_state_hash: (a: number) => bigint;
     readonly game_tick: (a: number) => void;
     readonly game_tick_count: (a: number) => number;
+    readonly game_ui_action: (a: number, b: number, c: number, d: number) => void;
+    readonly game_ui_state: (a: number, b: number, c: number) => void;
     readonly __wbindgen_export: (a: number, b: number) => number;
     readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
     readonly __wbindgen_export2: (a: number, b: number, c: number) => void;

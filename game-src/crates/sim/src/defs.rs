@@ -9,7 +9,18 @@ use std::collections::BTreeMap;
 #[derive(Deserialize)]
 pub struct ItemJson {
     pub name: String,
+    /// Display name in the inventory UI (uppercase GBC style).
+    pub label: String,
     pub sprite: String,
+    pub kind: String,
+    #[serde(default)]
+    pub damage: i16,
+    #[serde(default)]
+    pub durability: u16,
+    #[serde(default)]
+    pub fuse_damage: i16,
+    #[serde(default)]
+    pub fuse_effect: String,
 }
 
 #[derive(Deserialize)]
@@ -47,9 +58,41 @@ pub enum Brain {
     Snatcher,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ItemKind {
+    Sword,
+    Bow,
+    Shield,
+    Bomb,
+    Arrow,
+    Material,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum FuseEffect {
+    None,
+    Poison,
+}
+
 pub struct ItemDef {
     pub name: String,
+    pub label: String,
     pub sprite: u16,
+    pub kind: ItemKind,
+    pub damage: i16,
+    pub durability: u16,
+    pub fuse_damage: i16,
+    pub fuse_effect: FuseEffect,
+}
+
+impl ItemDef {
+    pub fn is_weapon(&self) -> bool {
+        matches!(self.kind, ItemKind::Sword | ItemKind::Bow | ItemKind::Shield)
+    }
+
+    pub fn stackable(&self) -> bool {
+        matches!(self.kind, ItemKind::Bomb | ItemKind::Arrow | ItemKind::Material)
+    }
 }
 
 pub struct EnemyDef {
@@ -154,8 +197,28 @@ impl Defs {
         let items = items
             .into_iter()
             .map(|it| {
+                let kind = match it.kind.as_str() {
+                    "sword" => ItemKind::Sword,
+                    "bow" => ItemKind::Bow,
+                    "shield" => ItemKind::Shield,
+                    "bomb" => ItemKind::Bomb,
+                    "arrow" => ItemKind::Arrow,
+                    "material" => ItemKind::Material,
+                    other => return Err(format!("item '{}': unknown kind '{other}'", it.name)),
+                };
+                let fuse_effect = match it.fuse_effect.as_str() {
+                    "" | "none" => FuseEffect::None,
+                    "poison" => FuseEffect::Poison,
+                    other => return Err(format!("item '{}': unknown effect '{other}'", it.name)),
+                };
                 Ok(ItemDef {
                     sprite: sprite_index(&it.sprite)?,
+                    kind,
+                    damage: it.damage,
+                    durability: it.durability,
+                    fuse_damage: it.fuse_damage,
+                    fuse_effect,
+                    label: it.label,
                     name: it.name,
                 })
             })
@@ -172,6 +235,13 @@ impl Defs {
         self.enemies
             .iter()
             .position(|e| e.name == name)
+            .map(|i| i as u8)
+    }
+
+    pub fn item_index(&self, name: &str) -> Option<u8> {
+        self.items
+            .iter()
+            .position(|i| i.name == name)
             .map(|i| i as u8)
     }
 }

@@ -52,3 +52,124 @@ export function showPartyList(members) {
     ? members.map((m) => m.name).join(' · ')
     : '';
 }
+
+export function toast(msg) {
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = msg;
+  $('#toasts').appendChild(el);
+  setTimeout(() => el.remove(), 2700);
+}
+
+/// Inventory overlay. `session` provides ui_state/ui_action via the wasm
+/// Game (host applies directly; client sends C2H::UiAction to the host).
+export class InventoryUI {
+  constructor(session) {
+    this.session = session;
+    this.open = false;
+    this.fuseFrom = null; // weapon index awaiting a material pick
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'KeyI' || (e.code === 'Escape' && this.open)) {
+        e.preventDefault();
+        this.toggle();
+      }
+    });
+  }
+
+  toggle() {
+    this.open = !this.open;
+    this.fuseFrom = null;
+    $('#inv').style.display = this.open ? 'flex' : 'none';
+    this.session.input.suppressed = this.open;
+    if (this.open) this.render();
+  }
+
+  render() {
+    const state = JSON.parse(this.session.game.ui_state(this.session.slot));
+    const list = $('#inv-list');
+    list.textContent = '';
+    if (!state || !state.inventory.length) {
+      list.textContent = 'your pack is empty.';
+      return;
+    }
+    for (const item of state.inventory) {
+      const row = document.createElement('div');
+      row.className = 'inv-row';
+
+      const name = document.createElement('span');
+      name.className = 'inv-name';
+      name.textContent = item.label;
+      if (item.fused) {
+        const f = document.createElement('span');
+        f.className = 'fused';
+        f.textContent = ` +${item.fused}`;
+        name.appendChild(f);
+      }
+      row.appendChild(name);
+
+      const meta = document.createElement('span');
+      meta.className = 'inv-meta';
+      meta.textContent =
+        item.kind === 'sword' || item.kind === 'bow' || item.kind === 'shield'
+          ? `${item.dur}/${item.max_dur}`
+          : `x${item.qty}`;
+      row.appendChild(meta);
+
+      if (this.fuseFrom !== null) {
+        if (item.kind === 'material') {
+          row.appendChild(
+            this.button('FUSE THIS', false, () => {
+              this.action({ action: 'fuse', a: this.fuseFrom, b: item.i });
+              this.fuseFrom = null;
+            }),
+          );
+        }
+      } else {
+        if (item.kind === 'sword') {
+          row.appendChild(
+            this.button('A', state.equip_a === item.i, () =>
+              this.action({ action: 'equip_a', a: item.i }),
+            ),
+          );
+        }
+        if (['bow', 'shield', 'bomb'].includes(item.kind)) {
+          row.appendChild(
+            this.button('B', state.equip_b === item.i, () =>
+              this.action({ action: 'equip_b', a: item.i }),
+            ),
+          );
+        }
+        if (['sword', 'bow', 'shield'].includes(item.kind) && !item.fused) {
+          row.appendChild(this.button('FUSE', false, () => {
+            this.fuseFrom = item.i;
+            this.render();
+          }));
+        }
+      }
+      list.appendChild(row);
+    }
+    if (this.fuseFrom !== null) {
+      const hint = document.createElement('div');
+      hint.className = 'inv-row';
+      hint.textContent = 'pick a material to fuse →';
+      list.prepend(hint);
+    }
+  }
+
+  button(label, active, onClick) {
+    const b = document.createElement('button');
+    b.textContent = label;
+    if (active) b.className = 'active';
+    b.onclick = () => {
+      onClick();
+      // Re-render after the action lands: immediate for host, a beat
+      // later for clients (round trip through the host).
+      setTimeout(() => this.open && this.render(), 120);
+    };
+    return b;
+  }
+
+  action(obj) {
+    this.session.sendUiAction(JSON.stringify(obj));
+  }
+}
