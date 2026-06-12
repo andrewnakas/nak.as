@@ -8,6 +8,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod client;
 pub mod draw;
 pub mod fixed;
 pub mod input;
@@ -17,6 +18,7 @@ pub mod world;
 use draw::{DrawList, FLAG_FLIP_X, HUD_H, SCREEN_H, SCREEN_W};
 use fixed::{fx, to_px, Fx};
 use input::*;
+use protocol::{PlayerSnap, SnapshotData};
 use rng::Pcg32;
 use world::World;
 
@@ -65,16 +67,24 @@ pub struct Sim {
     rng: Pcg32,
     pub world: World,
     pub players: [Option<Player>; 4],
+    /// FNV of the content JSON; exchanged in the multiplayer handshake so
+    /// mismatched clients are rejected before play.
+    pub content_hash: u64,
 }
 
 impl Sim {
     pub fn new(content_json: &str, seed: u64) -> Result<Self, String> {
+        let mut h = Fnv::new();
+        for b in content_json.as_bytes() {
+            h.byte(*b);
+        }
         Ok(Sim {
             tick: 0,
             seed,
             rng: Pcg32::new(seed, 1),
             world: World::from_json(content_json)?,
             players: [None, None, None, None],
+            content_hash: h.finish(),
         })
     }
 
@@ -96,9 +106,41 @@ impl Sim {
         });
     }
 
+    pub fn remove_player(&mut self, slot: usize) {
+        if slot < MAX_PLAYERS {
+            self.players[slot] = None;
+        }
+    }
+
     pub fn set_input(&mut self, slot: usize, buttons: u16) {
         if let Some(Some(p)) = self.players.get_mut(slot) {
             p.buttons = buttons;
+        }
+    }
+
+    /// Full player snapshot (per-screen interest filtering arrives with
+    /// enemies; four players is small enough to send whole).
+    pub fn snapshot(&self) -> SnapshotData {
+        SnapshotData {
+            tick: self.tick,
+            players: self
+                .players
+                .iter()
+                .enumerate()
+                .filter_map(|(slot, p)| {
+                    p.as_ref().map(|p| PlayerSnap {
+                        slot: slot as u8,
+                        sx: p.sx,
+                        sy: p.sy,
+                        x: p.x,
+                        y: p.y,
+                        facing: p.facing,
+                        walking: p.walking,
+                        anim: p.anim,
+                        transition: p.transition.map(|t| (t.dir, t.t)),
+                    })
+                })
+                .collect(),
         }
     }
 
@@ -222,80 +264,9 @@ impl Sim {
 
     // ---- rendering ----
 
-    /// Emit the draw list as seen by `viewpoint`'s player (each client renders
-    /// its own player's screen). Paint order: tiles, sprites, HUD.
+    /// Emit the draw list as seen by `viewpoint`'s player.
     pub fn render(&self, viewpoint: usize, out: &mut DrawList) {
-        let Some(Some(vp)) = self.players.get(viewpoint) else {
-            out.rect(0, 0, 0, SCREEN_W as u16, SCREEN_H as u16);
-            return;
-        };
-
-        match vp.transition {
-            None => {
-                self.draw_screen(vp.sx, vp.sy, 0, 0, out);
-                self.draw_players_on(vp.sx, vp.sy, 0, 0, out);
-            }
-            Some(tr) => {
-                // vp is already on the NEW screen; the old screen is behind it.
-                let (dx, dy) = match tr.dir {
-                    0 => (0, 1),
-                    1 => (0, -1),
-                    2 => (-1, 0),
-                    _ => (1, 0),
-                };
-                let (osx, osy) = (vp.sx - dx, vp.sy - dy);
-                let shift_x = (tr.t as i32 * SCREEN_W) / TRANSITION_TICKS as i32;
-                let shift_y = (tr.t as i32 * (SCREEN_H - HUD_H)) / TRANSITION_TICKS as i32;
-                let (new_ox, new_oy) = (
-                    dx * (SCREEN_W - shift_x),
-                    dy * ((SCREEN_H - HUD_H) - shift_y),
-                );
-                let (old_ox, old_oy) = (-dx * shift_x, -dy * shift_y);
-                self.draw_screen(osx, osy, old_ox, old_oy, out);
-                self.draw_screen(vp.sx, vp.sy, new_ox, new_oy, out);
-                self.draw_players_on(osx, osy, old_ox, old_oy, out);
-                self.draw_players_on(vp.sx, vp.sy, new_ox, new_oy, out);
-            }
-        }
-
-        // HUD bar (hearts etc. come with combat).
-        out.rect(0, 0, 0, SCREEN_W as u16, HUD_H as u16);
-    }
-
-    fn draw_screen(&self, sx: i32, sy: i32, ox: i32, oy: i32, out: &mut DrawList) {
-        let Some(screen) = self.world.screen_at(sx, sy) else {
-            return;
-        };
-        for ty in 0..world::SCREEN_ROWS {
-            for tx in 0..world::SCREEN_COLS {
-                let tile = screen.tiles[(ty * world::SCREEN_COLS + tx) as usize];
-                out.tile(tile, tx * 16 + ox, HUD_H + ty * 16 + oy, 0);
-            }
-        }
-    }
-
-    fn draw_players_on(&self, sx: i32, sy: i32, ox: i32, oy: i32, out: &mut DrawList) {
-        // Draw in y order so southern players overlap northern ones.
-        let mut order: Vec<usize> = (0..MAX_PLAYERS)
-            .filter(|&i| {
-                self.players[i]
-                    .as_ref()
-                    .is_some_and(|p| p.sx == sx && p.sy == sy)
-            })
-            .collect();
-        order.sort_by_key(|&i| self.players[i].as_ref().unwrap().y);
-
-        for i in order {
-            let p = self.players[i].as_ref().unwrap();
-            let frame = if p.walking { (p.anim >> 3) & 1 } else { 0 } as u16;
-            let (base, flags) = match p.facing {
-                1 => (self.world.sprites.player_up, 0),
-                2 => (self.world.sprites.player_side, 0),
-                3 => (self.world.sprites.player_side, FLAG_FLIP_X),
-                _ => (self.world.sprites.player_down, 0),
-            };
-            out.sprite(base + frame, to_px(p.x) + ox, to_px(p.y) + oy, 0, flags);
-        }
+        render_view(&self.world, &self.players, viewpoint, out);
     }
 
     /// FNV-1a over the canonical state; used by determinism tests and the
@@ -326,6 +297,97 @@ impl Sim {
             }
         }
         h.finish()
+    }
+}
+
+/// Render the world + players as seen from `viewpoint`'s screen. Free
+/// function so the host (live sim state) and clients (interpolated
+/// snapshot state) share one code path. Paint order: tiles, sprites, HUD.
+pub fn render_view(
+    world: &World,
+    players: &[Option<Player>; MAX_PLAYERS],
+    viewpoint: usize,
+    out: &mut DrawList,
+) {
+    let Some(Some(vp)) = players.get(viewpoint) else {
+        out.rect(0, 0, 0, SCREEN_W as u16, SCREEN_H as u16);
+        return;
+    };
+
+    match vp.transition {
+        None => {
+            draw_screen(world, vp.sx, vp.sy, 0, 0, out);
+            draw_players_on(world, players, vp.sx, vp.sy, 0, 0, out);
+        }
+        Some(tr) => {
+            // vp is already on the NEW screen; the old screen scrolls away.
+            let (dx, dy) = match tr.dir {
+                0 => (0, 1),
+                1 => (0, -1),
+                2 => (-1, 0),
+                _ => (1, 0),
+            };
+            let (osx, osy) = (vp.sx - dx, vp.sy - dy);
+            let t = tr.t.min(TRANSITION_TICKS) as i32;
+            let shift_x = (t * SCREEN_W) / TRANSITION_TICKS as i32;
+            let shift_y = (t * (SCREEN_H - HUD_H)) / TRANSITION_TICKS as i32;
+            let (new_ox, new_oy) = (
+                dx * (SCREEN_W - shift_x),
+                dy * ((SCREEN_H - HUD_H) - shift_y),
+            );
+            let (old_ox, old_oy) = (-dx * shift_x, -dy * shift_y);
+            draw_screen(world, osx, osy, old_ox, old_oy, out);
+            draw_screen(world, vp.sx, vp.sy, new_ox, new_oy, out);
+            draw_players_on(world, players, osx, osy, old_ox, old_oy, out);
+            draw_players_on(world, players, vp.sx, vp.sy, new_ox, new_oy, out);
+        }
+    }
+
+    // HUD bar (hearts etc. come with combat).
+    out.rect(0, 0, 0, SCREEN_W as u16, HUD_H as u16);
+}
+
+fn draw_screen(world: &World, sx: i32, sy: i32, ox: i32, oy: i32, out: &mut DrawList) {
+    let Some(screen) = world.screen_at(sx, sy) else {
+        return;
+    };
+    for ty in 0..world::SCREEN_ROWS {
+        for tx in 0..world::SCREEN_COLS {
+            let tile = screen.tiles[(ty * world::SCREEN_COLS + tx) as usize];
+            out.tile(tile, tx * 16 + ox, HUD_H + ty * 16 + oy, 0);
+        }
+    }
+}
+
+fn draw_players_on(
+    world: &World,
+    players: &[Option<Player>; MAX_PLAYERS],
+    sx: i32,
+    sy: i32,
+    ox: i32,
+    oy: i32,
+    out: &mut DrawList,
+) {
+    // Draw in y order so southern players overlap northern ones.
+    let mut order: Vec<usize> = (0..MAX_PLAYERS)
+        .filter(|&i| {
+            players[i]
+                .as_ref()
+                .is_some_and(|p| p.sx == sx && p.sy == sy)
+        })
+        .collect();
+    order.sort_by_key(|&i| players[i].as_ref().unwrap().y);
+
+    for i in order {
+        let p = players[i].as_ref().unwrap();
+        let frame = if p.walking { (p.anim >> 3) & 1 } else { 0 } as u16;
+        let (base, flags) = match p.facing {
+            1 => (world.sprites.player_up, 0),
+            2 => (world.sprites.player_side, 0),
+            3 => (world.sprites.player_side, FLAG_FLIP_X),
+            _ => (world.sprites.player_down, 0),
+        };
+        out.sprite(base + frame, to_px(p.x) + ox, to_px(p.y) + oy, 0, flags);
     }
 }
 
@@ -437,6 +499,36 @@ mod tests {
         let p = sim.players[0].as_ref().unwrap();
         assert_eq!(p.sy, 0);
         assert!(to_px(p.y) >= HUD_H + 16 - FEET_Y0);
+    }
+
+    #[test]
+    fn snapshot_roundtrip_and_interpolation() {
+        let world = test_world();
+        let mut sim = Sim::new(&world, 7).unwrap();
+        sim.add_player(0);
+        sim.set_input(0, BTN_RIGHT);
+
+        let mut view = client::ClientView::new();
+        // Two snapshots 50ms apart, 3 ticks of movement between them.
+        let bytes0 = protocol::encode(&protocol::H2C::Snapshot(sim.snapshot()));
+        for _ in 0..3 {
+            sim.step();
+        }
+        let snap1 = sim.snapshot();
+
+        let Some(protocol::H2C::Snapshot(snap0)) = protocol::decode(&bytes0) else {
+            panic!("snapshot did not round-trip");
+        };
+        let x0 = snap0.players[0].x;
+        let x1 = snap1.players[0].x;
+        assert!(x1 > x0);
+
+        view.push(1000, snap0);
+        view.push(1050, snap1);
+        // Sample so the render target (now - delay) lands midway between them.
+        let players = view.sample(1145);
+        let xs = players[0].as_ref().unwrap().x;
+        assert!(xs > x0 && xs < x1, "expected {x0} < {xs} < {x1}");
     }
 
     #[test]

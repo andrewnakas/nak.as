@@ -18,31 +18,82 @@ export class Game {
         wasm.game_add_player(this.__wbg_ptr, slot);
     }
     /**
+     * @param {Uint8Array} bytes
+     * @param {number} now_ms
+     */
+    apply_host_msg(bytes, now_ms) {
+        const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_export);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.game_apply_host_msg(this.__wbg_ptr, ptr0, len0, now_ms);
+    }
+    /**
+     * @returns {bigint}
+     */
+    content_hash() {
+        const ret = wasm.game_content_hash(this.__wbg_ptr);
+        return BigInt.asUintN(64, ret);
+    }
+    /**
+     * @param {number} buttons
+     * @returns {Uint8Array}
+     */
+    encode_input(buttons) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.game_encode_input(retptr, this.__wbg_ptr, buttons);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayU8FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export2(r0, r1 * 1, 1);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * Decode and apply one message from the client in `slot`.
+     * @param {number} slot
+     * @param {Uint8Array} bytes
+     */
+    handle_client_msg(slot, bytes) {
+        const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_export);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.game_handle_client_msg(this.__wbg_ptr, slot, ptr0, len0);
+    }
+    /**
      * Panics on malformed content; world.json is validated at build time
      * by tools/build-maps.mjs.
      * @param {string} content_json
+     * @param {number} role
      * @param {bigint} seed
      */
-    constructor(content_json, seed) {
-        const ptr0 = passStringToWasm0(content_json, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+    constructor(content_json, role, seed) {
+        const ptr0 = passStringToWasm0(content_json, wasm.__wbindgen_export, wasm.__wbindgen_export3);
         const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.game_new(ptr0, len0, seed);
+        const ret = wasm.game_new(ptr0, len0, role, seed);
         this.__wbg_ptr = ret;
         GameFinalization.register(this, this.__wbg_ptr, this);
         return this;
     }
     /**
+     * @param {number} slot
+     */
+    remove_player(slot) {
+        wasm.game_remove_player(this.__wbg_ptr, slot);
+    }
+    /**
      * @param {number} viewpoint
+     * @param {number} now_ms
      * @returns {Uint16Array}
      */
-    render_frame(viewpoint) {
+    render_frame(viewpoint, now_ms) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.game_render_frame(retptr, this.__wbg_ptr, viewpoint);
+            wasm.game_render_frame(retptr, this.__wbg_ptr, viewpoint, now_ms);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var v1 = getArrayU16FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export3(r0, r1 * 2, 2);
+            wasm.__wbindgen_export2(r0, r1 * 2, 2);
             return v1;
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
@@ -54,6 +105,24 @@ export class Game {
      */
     set_input(slot, buttons) {
         wasm.game_set_input(this.__wbg_ptr, slot, buttons);
+    }
+    /**
+     * Serialized snapshot to broadcast (same for every slot until
+     * per-screen interest filtering lands with enemies).
+     * @returns {Uint8Array}
+     */
+    snapshot_bytes() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.game_snapshot_bytes(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayU8FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export2(r0, r1 * 1, 1);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
     }
     /**
      * @returns {bigint}
@@ -96,6 +165,11 @@ function getArrayU16FromWasm0(ptr, len) {
     return getUint16ArrayMemory0().subarray(ptr / 2, ptr / 2 + len);
 }
 
+function getArrayU8FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getUint8ArrayMemory0().subarray(ptr / 1, ptr / 1 + len);
+}
+
 let cachedDataViewMemory0 = null;
 function getDataViewMemory0() {
     if (cachedDataViewMemory0 === null || cachedDataViewMemory0.buffer.detached === true || (cachedDataViewMemory0.buffer.detached === undefined && cachedDataViewMemory0.buffer !== wasm.memory.buffer)) {
@@ -122,6 +196,13 @@ function getUint8ArrayMemory0() {
         cachedUint8ArrayMemory0 = new Uint8Array(wasm.memory.buffer);
     }
     return cachedUint8ArrayMemory0;
+}
+
+function passArray8ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 1, 1) >>> 0;
+    getUint8ArrayMemory0().set(arg, ptr / 1);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
 }
 
 function passStringToWasm0(arg, malloc, realloc) {

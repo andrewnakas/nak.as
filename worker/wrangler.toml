@@ -1,0 +1,17 @@
+name = "naks-awakening-api"
+main = "src/index.js"
+compatibility_date = "2026-06-01"
+
+# Custom domain (added in the Cloudflare dash or via `wrangler deploy`):
+# api.nak.as -> this worker. Local dev runs on http://localhost:8787.
+routes = [
+  { pattern = "api.nak.as", custom_domain = true }
+]
+
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "RoomDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RoomDO"]

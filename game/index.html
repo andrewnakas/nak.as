@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <title>Nak's Awakening</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%230f380f'/><rect x='4' y='4' width='8' height='8' fill='%239bbc0e'/></svg>">
 <meta name="description" content="Nak's Awakening — a Game Boy-style co-op action RPG you can play with friends, right in the browser.">
 <style>
   :root {
@@ -51,15 +52,73 @@
     white-space: pre;
     display: none;
   }
+  #menu {
+    position: fixed;
+    inset: 0;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    background: rgba(10, 10, 18, 0.92);
+    z-index: 10;
+  }
+  #menu h1 {
+    color: var(--gb-lightest);
+    font-size: 22px;
+    letter-spacing: 3px;
+    text-shadow: 0 0 18px rgba(139, 172, 15, 0.4);
+  }
+  #menu button {
+    font: inherit;
+    font-size: 14px;
+    letter-spacing: 2px;
+    color: var(--gb-lightest);
+    background: var(--gb-darkest);
+    border: 2px solid var(--gb-dark);
+    border-radius: 3px;
+    padding: 10px 26px;
+    min-width: 220px;
+    cursor: pointer;
+  }
+  #menu button:hover { border-color: var(--gb-light); }
+  #menu input {
+    font: inherit;
+    font-size: 13px;
+    color: var(--gb-lightest);
+    background: #11111c;
+    border: 2px solid var(--gb-dark);
+    border-radius: 3px;
+    padding: 8px 10px;
+    width: 216px;
+    text-align: center;
+  }
+  #menu input::placeholder { color: #4c5c4c; }
+  .join-row { display: flex; gap: 6px; }
+  .join-row input { width: 110px; text-transform: uppercase; }
+  .join-row button { min-width: 96px; }
+  #status { font-size: 12px; color: var(--gb-light); min-height: 16px; }
+  #party-code { color: var(--gb-lightest); }
 </style>
 </head>
 <body>
   <div id="stage">
     <canvas id="screen" width="160" height="144"></canvas>
     <div id="hud-text">
-      NAK'S AWAKENING — pre-alpha<br>
-      arrows/WASD move · <a href="/">nak.as</a>
+      <span id="party-code"></span> <span id="party-list"></span><br>
+      NAK'S AWAKENING — pre-alpha · arrows/WASD move · <a href="/">nak.as</a>
     </div>
+  </div>
+  <div id="menu">
+    <h1>NAK'S AWAKENING</h1>
+    <input id="menu-name" maxlength="16" placeholder="your name">
+    <button id="menu-solo">PLAY SOLO</button>
+    <button id="menu-host">HOST A PARTY</button>
+    <div class="join-row">
+      <input id="menu-code" maxlength="5" placeholder="CODE">
+      <button id="menu-join">JOIN</button>
+    </div>
+    <div id="status"></div>
   </div>
   <div id="debug"></div>
   <script type="module" src="js/main.js"></script>
