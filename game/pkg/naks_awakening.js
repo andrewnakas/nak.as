@@ -315,6 +315,16 @@ export class Game {
         }
     }
     /**
+     * Fingerprint of a screen's snapshot CONTENT (tick excluded) so the host
+     * can skip resending an unchanged static screen between keyframes.
+     * @param {number} slot
+     * @returns {bigint}
+     */
+    snapshot_content_hash(slot) {
+        const ret = wasm.game_snapshot_content_hash(this.__wbg_ptr, slot);
+        return BigInt.asUintN(64, ret);
+    }
+    /**
      * Key for sharing one serialized per-viewpoint snapshot across all clients
      * that would receive identical bytes (same screen, same transition state).
      * The host groups peers by this to serialize once per screen, not per peer.

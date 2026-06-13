@@ -2070,6 +2070,24 @@ impl Sim {
         (sx << 32) | (sy << 8) | tr
     }
 
+    /// A fingerprint of `snapshot_for(slot)`'s CONTENT, ignoring the tick field.
+    /// Two consecutive ticks with the same visible players/entities produce the
+    /// same value, letting the host suppress redundant snapshots to a static
+    /// screen (the tick alone changes every tick and would otherwise defeat any
+    /// byte comparison). Determinism-safe: pure function of the filtered data.
+    pub fn snapshot_content_hash(&self, slot: usize) -> u64 {
+        let mut snap = self.snapshot_for(slot);
+        snap.tick = 0; // exclude the ever-incrementing tick from the fingerprint
+        let bytes = protocol::encode(&protocol::H2C::Snapshot(snap));
+        // FNV-1a 64-bit.
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for b in &bytes {
+            h ^= *b as u64;
+            h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        h
+    }
+
     /// The set of screens the viewpoint player can see (their screen plus the
     /// one they're scrolling from), used as the interest region.
     fn interest_screens(&self, viewpoint: Option<usize>) -> Vec<(i32, i32)> {
@@ -3748,6 +3766,33 @@ mod tests {
 
         // Absent player => sentinel key (never shared).
         assert_eq!(sim.snapshot_key(9), i64::MIN);
+    }
+
+    #[test]
+    fn snapshot_content_hash_ignores_tick_but_tracks_change() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 7).unwrap();
+        sim.add_player(0);
+
+        // Ticking with no input advances sim.tick but, if nothing on the screen
+        // moved, the content hash must stay equal (so the host can suppress).
+        // (Enemies on the starting screen may animate, so park the player on an
+        // empty far screen first to isolate the player-only case.)
+        sim.players[0].as_mut().unwrap().sx = 9;
+        sim.players[0].as_mut().unwrap().sy = 9;
+        let h_before = sim.snapshot_content_hash(0);
+        let tick_before = sim.snapshot_for(0).tick;
+        sim.step();
+        sim.step();
+        let h_after = sim.snapshot_content_hash(0);
+        let tick_after = sim.snapshot_for(0).tick;
+        assert!(tick_after > tick_before, "tick advanced");
+        assert_eq!(h_before, h_after, "static screen => unchanged content hash");
+
+        // Moving the player changes the content hash. Nudge x directly so the
+        // test doesn't depend on the (9,9) screen being walkable.
+        sim.players[0].as_mut().unwrap().x += 8 * 256; // 8 px in 1/256 units
+        assert_ne!(h_after, sim.snapshot_content_hash(0), "movement changes the hash");
     }
 
     #[test]

@@ -64,6 +64,11 @@ export class Game {
      */
     snapshot_bytes_for(slot: number): Uint8Array;
     /**
+     * Fingerprint of a screen's snapshot CONTENT (tick excluded) so the host
+     * can skip resending an unchanged static screen between keyframes.
+     */
+    snapshot_content_hash(slot: number): bigint;
+    /**
      * Key for sharing one serialized per-viewpoint snapshot across all clients
      * that would receive identical bytes (same screen, same transition state).
      * The host groups peers by this to serialize once per screen, not per peer.
@@ -117,6 +122,7 @@ export interface InitOutput {
     readonly game_shop_json: (a: number, b: number, c: number, d: number) => void;
     readonly game_snapshot_bytes: (a: number, b: number) => void;
     readonly game_snapshot_bytes_for: (a: number, b: number, c: number) => void;
+    readonly game_snapshot_content_hash: (a: number, b: number) => bigint;
     readonly game_snapshot_key: (a: number, b: number) => bigint;
     readonly game_state_hash: (a: number) => bigint;
     readonly game_take_pending_save: (a: number, b: number) => void;

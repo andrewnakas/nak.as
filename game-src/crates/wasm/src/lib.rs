@@ -186,6 +186,12 @@ impl Game {
         self.sim.snapshot_key(slot as usize)
     }
 
+    /// Fingerprint of a screen's snapshot CONTENT (tick excluded) so the host
+    /// can skip resending an unchanged static screen between keyframes.
+    pub fn snapshot_content_hash(&self, slot: u8) -> u64 {
+        self.sim.snapshot_content_hash(slot as usize)
+    }
+
     /// Net events since the last call, wrapped for the reliable channel.
     /// Empty result means nothing to send.
     pub fn drain_events_bytes(&mut self) -> Vec<u8> {

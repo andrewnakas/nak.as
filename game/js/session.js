@@ -11,6 +11,7 @@ const INPUT_KEEPALIVE_MS = 100; // direct (lossy WebRTC): resend input often
 const RELAY_HEARTBEAT_MS = 2000; // relay (reliable WS): only a rare liveness ping
 const RELAY_PING_MS = 3000; // relay RTT probe cadence (ping/pong through the DO)
 const RELAY_STALE_MS = 8000; // host drops a relay peer silent this long (> ping+heartbeat)
+const KEYFRAME_MS = 500; // max gap between relay snapshots for a static screen
 const AUTOSAVE_TICKS = 900; // 15s
 const MAX_SLOTS = 32; // must match sim MAX_PLAYERS
 // Above this many peers, switch from one broadcast snapshot to per-client
@@ -95,6 +96,10 @@ export class HostSession extends BaseSession {
     this.pendingNames = new Map();
     this.signaling = null;
     this.onPartyChange = onPartyChange;
+    // Per snapshot_key suppression memory: skip resending a screen's snapshot
+    // when its bytes are unchanged since last tick, with a periodic keyframe so
+    // a just-joined or packet-dropped client always recovers within KEYFRAME_MS.
+    this._snapHist = new Map(); // key -> { hash, lastFullAt }
     // Save the local character when the tab closes (cloud write may not
     // finish, but localStorage always does).
     window.addEventListener('beforeunload', () => {
@@ -312,7 +317,7 @@ export class HostSession extends BaseSession {
         // Relay peers ALWAYS take a filtered snapshot (the overflow tier is
         // bandwidth-bounded), even in a small party where direct peers get the
         // cheap broadcast.
-        const cache = new Map(); // snapshot_key -> {snap, b64, ids[]}
+        const cache = new Map(); // snapshot_key -> {snap, b64, ids[], suppress}
         for (const peer of this.peers.values()) {
           if (peer.slot < 0) continue;
           if (broadcast && !peer.relay) {
@@ -322,21 +327,44 @@ export class HostSession extends BaseSession {
           const key = this.game.snapshot_key(peer.slot);
           let entry = cache.get(key);
           if (entry === undefined) {
-            entry = { snap: this.game.snapshot_bytes_for(peer.slot), b64: null, ids: null };
+            entry = {
+              snap: this.game.snapshot_bytes_for(peer.slot),
+              b64: null,
+              ids: null,
+              slot0: peer.slot,
+            };
             cache.set(key, entry);
           }
           if (peer.relay) {
-            if (entry.b64 === null) entry.b64 = b64encode(entry.snap);
             (entry.ids ??= []).push(peer.id);
           } else {
+            // Direct clients ride the lossy WebRTC channel; always send so a
+            // dropped change-frame can't strand them between keyframes.
             peer.link.sendU(entry.snap);
           }
         }
-        // Flush relay groups: one frame per distinct screen-state, carrying the
-        // payload once plus the recipient list. The edge fans it out.
-        {
-          for (const entry of cache.values()) {
-            if (entry.ids) this._sendRelayGroup(entry.ids, entry.b64);
+        // Flush relay groups. The relay channel is reliable+ordered, so a
+        // screen whose bytes are unchanged since last tick can be SUPPRESSED —
+        // the client's view simply holds (it already drops tick<=last). A
+        // keyframe every KEYFRAME_MS guarantees a just-joined client recovers.
+        // This is encoded once per surviving group (relay-multicast) so a static
+        // crowded screen costs the host's uplink nothing between keyframes.
+        for (const [key, entry] of cache.entries()) {
+          if (!entry.ids) continue;
+          // Fingerprint the CONTENT (tick excluded) so a static screen hashes
+          // identically tick-to-tick; entry.slot0 is any peer's slot on this key.
+          const hash = this.game.snapshot_content_hash(entry.slot0);
+          const hist = this._snapHist.get(key);
+          const fresh = hist && hist.hash === hash && now - hist.lastFullAt < KEYFRAME_MS;
+          if (fresh) continue; // unchanged + within keyframe window -> skip
+          this._snapHist.set(key, { hash, lastFullAt: now });
+          entry.b64 = b64encode(entry.snap);
+          this._sendRelayGroup(entry.ids, entry.b64);
+        }
+        // Evict suppression memory for screen-keys nobody is on anymore.
+        if (this._snapHist.size > cache.size + 16) {
+          for (const key of this._snapHist.keys()) {
+            if (!cache.has(key)) this._snapHist.delete(key);
           }
         }
         const events = this.game.drain_events_bytes();
