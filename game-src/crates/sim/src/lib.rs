@@ -33,7 +33,9 @@ use std::collections::BTreeMap;
 use world::{World, WorldJson};
 
 pub const TICKS_PER_SEC: u32 = 60;
-pub const MAX_PLAYERS: usize = 4;
+/// Max players one host's sim tracks in a shared world. The lobby caps real
+/// occupancy (CONNECT_CAP) below this; this is the array bound.
+pub const MAX_PLAYERS: usize = 32;
 pub const TRANSITION_TICKS: u32 = 40;
 /// Screen columns >= this are the instanced tutorial beach (not the shared
 /// mainland). Spawn point for the intro vs. town is chosen by the JS shell.
@@ -234,7 +236,7 @@ pub struct Sim {
     rng: Pcg32,
     pub world: World,
     pub defs: Defs,
-    pub players: [Option<Player>; 4],
+    pub players: [Option<Player>; MAX_PLAYERS],
     pub entities: Vec<Entity>,
     next_id: u32,
     last_spawn: BTreeMap<(i32, i32), u32>,
@@ -345,7 +347,7 @@ impl Sim {
             rng: Pcg32::new(seed, 1),
             world,
             defs,
-            players: [None, None, None, None],
+            players: std::array::from_fn(|_| None),
             entities: Vec::new(),
             next_id: 1,
             last_spawn: BTreeMap::new(),

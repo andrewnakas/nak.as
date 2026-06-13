@@ -4,7 +4,7 @@ use crate::defs::{Brain, Defs};
 use crate::fixed::{fx, to_px, Fx};
 use crate::rng::Pcg32;
 use crate::world::{Screen, World};
-use crate::Player;
+use crate::{Player, MAX_PLAYERS};
 
 pub const ET_ENEMY: u8 = 0;
 pub const ET_PROJECTILE: u8 = 1;
@@ -111,7 +111,7 @@ pub struct StepCtx<'a> {
 pub fn step_enemy(
     e: &mut Entity,
     ctx: &StepCtx,
-    players: &[Option<Player>; 4],
+    players: &[Option<Player>; MAX_PLAYERS],
     rng: &mut Pcg32,
 ) -> Vec<Entity> {
     e.anim = e.anim.wrapping_add(1);
@@ -510,7 +510,7 @@ fn step_toward(x: Fx, y: Fx, tx: Fx, ty: Fx, speed: Fx) -> (Fx, Fx) {
 }
 
 fn nearest_player_on(
-    players: &[Option<Player>; 4],
+    players: &[Option<Player>; MAX_PLAYERS],
     sx: i32,
     sy: i32,
     x: Fx,

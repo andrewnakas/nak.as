@@ -11,17 +11,20 @@
 /posts/*
   Cache-Control: public, max-age=60
 
+# The game updates as a unit — wasm, JS, and content must agree across peers.
+# Revalidate on every load so a deploy reaches everyone fast (no stale tab
+# sharing a world with a fresh one). no-cache = use cache only after a 304.
 /game/pkg/*
-  Cache-Control: public, max-age=300
+  Cache-Control: no-cache
 
 /game/js/*
-  Cache-Control: public, max-age=300
+  Cache-Control: no-cache
 
 /game/assets/*
-  Cache-Control: public, max-age=3600
+  Cache-Control: no-cache
 
 /game/
-  Cache-Control: public, max-age=300
+  Cache-Control: no-cache
 
 /
   Cache-Control: public, max-age=300

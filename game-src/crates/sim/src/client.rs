@@ -102,7 +102,7 @@ impl ClientView {
     /// Reconstruct players + entities as of (now - delay), lerping between
     /// the two snapshots that bracket the target time.
     pub fn sample(&self, now_ms: u64) -> ([Option<Player>; MAX_PLAYERS], Vec<Entity>) {
-        let mut players: [Option<Player>; MAX_PLAYERS] = [None, None, None, None];
+        let mut players: [Option<Player>; MAX_PLAYERS] = std::array::from_fn(|_| None);
         let (Some(first), Some(last)) = (self.snaps.first(), self.snaps.last()) else {
             return (players, Vec::new());
         };

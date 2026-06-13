@@ -9,6 +9,7 @@ import { persist } from './saves.js';
 const SNAPSHOT_EVERY = 3; // host ticks between snapshots (60/3 = 20 Hz)
 const INPUT_KEEPALIVE_MS = 100;
 const AUTOSAVE_TICKS = 900; // 15s
+const MAX_SLOTS = 32; // must match sim MAX_PLAYERS
 
 class BaseSession {
   constructor({ game, input, renderer, audio, debugEl }) {
@@ -151,7 +152,9 @@ export class HostSession extends BaseSession {
 
   _freeSlot() {
     const used = new Set([0, ...[...this.peers.values()].map((p) => p.slot)]);
-    for (let s = 1; s < 4; s++) if (!used.has(s)) return s;
+    // Slots are the sim's player array index; the sim supports many players
+    // in a shared world (the lobby caps real occupancy, not this).
+    for (let s = 1; s < MAX_SLOTS; s++) if (!used.has(s)) return s;
     return -1;
   }
 

@@ -57,10 +57,37 @@ export class World {
     if (reply.t === 'host') {
       await this._startHost();
     } else {
-      await this._startClient(reply.host_id);
+      try {
+        await this._startClient(reply.host_id);
+      } catch (err) {
+        if (/version mismatch/i.test(err.message)) {
+          return this._handleVersionMismatch();
+        }
+        throw err;
+      }
     }
     setStatus('');
     showWorld(this.code, reply.t === 'host');
+  }
+
+  /// Host runs a different build than us. Reload once to pull fresh assets
+  /// (fixes the common case where our tab is stale); if that doesn't help,
+  /// host our own fresh world so the player still gets in.
+  async _handleVersionMismatch() {
+    const KEY = 'naks_reloaded_for_version';
+    if (!sessionStorage.getItem(KEY)) {
+      sessionStorage.setItem(KEY, '1');
+      setStatus('updating to the latest version…');
+      // Cache-bust reload so the CDN gives us the newest files.
+      location.reload();
+      return;
+    }
+    // Already reloaded once and still mismatched — the host is the stale one.
+    // Start our own fresh world rather than dead-end on a black screen.
+    sessionStorage.removeItem(KEY);
+    setStatus('starting a fresh world on this version…');
+    await this._startHost();
+    showWorld(this.code, true);
   }
 
   async _save() {
@@ -102,6 +129,9 @@ export class World {
     session.start();
     this.session = session;
     this._installInventory();
+    // Connected cleanly — clear the one-shot reload guard so a future deploy
+    // can trigger a refresh again.
+    sessionStorage.removeItem('naks_reloaded_for_version');
 
     // Watchdog: if no snapshot has advanced the tick within a few seconds,
     // the WebRTC path silently failed (strict NAT). Hide the black screen
