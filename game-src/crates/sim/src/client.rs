@@ -191,6 +191,8 @@ fn lerp_player(pa: Option<&PlayerSnap>, pb: &PlayerSnap, num: u64, den: u64) -> 
         equip_a: pb.equip_a,
         equip_b: pb.equip_b,
         attack_t: pb.attack_t,
+        unarmed: pb.unarmed,
+        harvest_t: 0,
         shielding: pb.shielding,
         iframes: pb.iframes,
         kvx: 0,

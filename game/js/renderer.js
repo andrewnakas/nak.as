@@ -30,6 +30,28 @@ export class Renderer {
     window.addEventListener('resize', () => this.resize());
   }
 
+  /// Crop one 16x16 sprite from the sprite sheet into a small data URL, for
+  /// use as an <img> icon in the DOM inventory. Cached by index.
+  spriteIcon(index, scale = 2) {
+    this._iconCache ??= new Map();
+    const key = `${index}@${scale}`;
+    if (this._iconCache.has(key)) return this._iconCache.get(key);
+    const sheet = this.sheets.get('sprites0');
+    if (!sheet) return '';
+    const cols = sheet.width >> 4;
+    const sx = (index % cols) * 16;
+    const sy = Math.floor(index / cols) * 16;
+    const c = document.createElement('canvas');
+    c.width = 16 * scale;
+    c.height = 16 * scale;
+    const cx = c.getContext('2d');
+    cx.imageSmoothingEnabled = false;
+    cx.drawImage(sheet, sx, sy, 16, 16, 0, 0, 16 * scale, 16 * scale);
+    const url = c.toDataURL();
+    this._iconCache.set(key, url);
+    return url;
+  }
+
   /// Load spritesheet PNGs; must resolve before the game loop starts.
   async loadSheets(names) {
     await Promise.all(

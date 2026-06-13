@@ -55,6 +55,7 @@ export const TILES = [
     name: 'tree',
     palette: 'grass',
     solid: true,
+    tree: true,
     grid: grid((x, y) => {
       // round canopy, light from upper-left, trunk at bottom on grass
       const dx = x - 7.5, dy = y - 6;
@@ -71,6 +72,7 @@ export const TILES = [
     name: 'pine',
     palette: 'grass',
     solid: true,
+    tree: true,
     grid: grid((x, y) => {
       // triangular silhouette
       const half = Math.floor((y + 3) / 2.2);
@@ -87,6 +89,7 @@ export const TILES = [
     name: 'bush',
     palette: 'grass',
     solid: true,
+    tree: true,
     grid: grid((x, y) => {
       const dx = (x - 7.5) / 1.3, dy = y - 9;
       const d = Math.sqrt(dx * dx + dy * dy);

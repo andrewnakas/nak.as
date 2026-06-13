@@ -17,7 +17,34 @@ const ROLE_HOST = 0;
 
 const CONTENT_FILES = ['world', 'items', 'enemies', 'drops', 'skills', 'recipes', 'npcs', 'quests'];
 
+/// iOS Safari ignores user-scalable=no, so block pinch + double-tap zoom
+/// explicitly. (A single tap still works; only multi-touch gestures and the
+/// rapid double-tap-to-zoom are suppressed.)
+function blockZoom() {
+  document.addEventListener('gesturestart', (e) => e.preventDefault(), { passive: false });
+  document.addEventListener('gesturechange', (e) => e.preventDefault(), { passive: false });
+  document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
+  document.addEventListener(
+    'touchmove',
+    (e) => {
+      if (e.touches.length > 1) e.preventDefault();
+    },
+    { passive: false },
+  );
+  let lastTouch = 0;
+  document.addEventListener(
+    'touchend',
+    (e) => {
+      const now = Date.now();
+      if (now - lastTouch <= 300) e.preventDefault();
+      lastTouch = now;
+    },
+    { passive: false },
+  );
+}
+
 async function boot() {
+  blockZoom();
   const [, ...parts] = await Promise.all([
     init(),
     ...CONTENT_FILES.map((name) =>

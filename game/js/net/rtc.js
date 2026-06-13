@@ -5,11 +5,21 @@
 //           'r' — reliable ordered (handshake JSON, events, saves).
 // The JOINING client is the offerer and creates both channels.
 
+// STUN first (direct/hole-punched when possible), then free public TURN
+// relays so cross-NAT pairs (phone on cellular ↔ home computer) still
+// connect. TURN is the fallback the browser uses only when STUN fails.
 const ICE_CONFIG = {
   iceServers: [
     { urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] },
-    // TURN slot reserved: add { urls, username, credential } if NAT failure
-    // rates ever justify it.
+    {
+      urls: [
+        'turn:openrelay.metered.ca:80',
+        'turn:openrelay.metered.ca:443',
+        'turn:openrelay.metered.ca:443?transport=tcp',
+      ],
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
   ],
 };
 

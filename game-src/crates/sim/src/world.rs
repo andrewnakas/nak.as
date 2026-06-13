@@ -16,6 +16,9 @@ pub struct WorldJson {
     pub tile_water: Vec<bool>,
     #[serde(default)]
     pub tile_fire: Vec<bool>,
+    /// Tiles you can knock a stick off of bare-handed (trees, bushes).
+    #[serde(default)]
+    pub tile_tree: Vec<bool>,
     /// Per tile: 0 = plain, 1 = small-key door, 2 = boss-key door,
     /// 3 = bramble (cleared by fire weapons / bombs).
     #[serde(default)]
@@ -139,6 +142,7 @@ pub struct World {
     pub tile_solid: Vec<bool>,
     pub tile_water: Vec<bool>,
     pub tile_fire: Vec<bool>,
+    pub tile_tree: Vec<bool>,
     pub tile_gate: Vec<u8>,
     pub tile_cleared: Vec<i32>,
     pub screens: Vec<Screen>,
@@ -251,6 +255,7 @@ impl World {
             tile_solid: raw.tile_solid,
             tile_water: raw.tile_water,
             tile_fire: raw.tile_fire,
+            tile_tree: raw.tile_tree,
             tile_gate: raw.tile_gate,
             tile_cleared: raw.tile_cleared,
             screens,
@@ -287,6 +292,10 @@ impl World {
 
     pub fn is_fire(&self, screen: &Screen, px: i32, py: i32) -> bool {
         self.tile_flag(&self.tile_fire, screen, px, py)
+    }
+
+    pub fn is_tree(&self, screen: &Screen, px: i32, py: i32) -> bool {
+        self.tile_flag(&self.tile_tree, screen, px, py)
     }
 
     /// Out-of-playfield pixels report false for every flag.

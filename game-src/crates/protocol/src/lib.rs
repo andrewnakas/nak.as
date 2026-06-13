@@ -37,6 +37,7 @@ pub struct PlayerSnap {
     pub max_hp: i16,
     pub shells: u32,
     pub attack_t: u8,
+    pub unarmed: bool,
     pub iframes: u8,
     pub dead: bool,
     pub shielding: bool,

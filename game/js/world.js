@@ -13,7 +13,7 @@ import { Signaling } from './net/signaling.js';
 import { findWorld } from './api.js';
 import { HostSession, ClientSession } from './session.js';
 import { loadStartingSave } from './saves.js';
-import { setStatus, showWorld } from './ui.js';
+import { setStatus, showWorld, showConnecting, hideConnecting } from './ui.js';
 
 const ROLE_HOST = 0;
 const ROLE_CLIENT = 1;
@@ -96,11 +96,41 @@ export class World {
       },
     );
     setStatus('connecting to the world host…');
+    showConnecting('connecting to the world…');
     const slot = await session.connect(this.signaling, hostId, this.name);
     game.set_local_slot(slot);
     session.start();
     this.session = session;
     this._installInventory();
+
+    // Watchdog: if no snapshot has advanced the tick within a few seconds,
+    // the WebRTC path silently failed (strict NAT). Hide the black screen
+    // behind a clear message and re-find a world rather than sit there.
+    this._snapshotWatch(session);
+  }
+
+  _snapshotWatch(session) {
+    clearInterval(this._watch);
+    let waited = 0;
+    this._watch = setInterval(() => {
+      if (this.session !== session || session.stopped) {
+        clearInterval(this._watch);
+        return;
+      }
+      const t = session.game.tick_count();
+      if (t > 0) {
+        hideConnecting();
+        clearInterval(this._watch);
+        return;
+      }
+      waited += 1;
+      if (waited === 4) showConnecting('still connecting… (strict network?)');
+      if (waited >= 9) {
+        clearInterval(this._watch);
+        setStatus('could not reach the world host — finding another…', true);
+        this._refind();
+      }
+    }, 1000);
   }
 
   _installInventory() {

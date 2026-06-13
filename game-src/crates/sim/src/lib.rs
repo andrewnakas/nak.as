@@ -65,8 +65,13 @@ pub const STACK_CAP: u16 = 99;
 const WALK_SPEED: Fx = fx(1) + fx(1) / 4;
 
 const ATTACK_TICKS: u8 = 16;
+/// Bare-handed punch/kick: faster but shorter reach and weaker.
+const UNARMED_TICKS: u8 = 10;
 /// Sword connects during this window of attack_t (counting down).
 const HIT_WINDOW: std::ops::RangeInclusive<u8> = 4..=12;
+const UNARMED_WINDOW: std::ops::RangeInclusive<u8> = 3..=8;
+/// Bare-handed damage.
+const UNARMED_DAMAGE: i16 = 1;
 const PLAYER_IFRAMES: u8 = 60;
 const ENEMY_IFRAMES: u8 = 10;
 const RESPAWN_TICKS: u32 = 120;
@@ -158,6 +163,10 @@ pub struct Player {
     pub equip_a: i8,
     pub equip_b: i8,
     pub attack_t: u8,
+    /// The current attack is a bare-handed punch/kick (no weapon equipped).
+    pub unarmed: bool,
+    /// Cooldown ticks before bare hands can knock another stick off a tree.
+    pub harvest_t: u32,
     pub shielding: bool,
     pub iframes: u8,
     pub kvx: Fx,
@@ -430,6 +439,8 @@ impl Sim {
             equip_a: -1,
             equip_b: -1,
             attack_t: 0,
+            unarmed: false,
+            harvest_t: 0,
             shielding: false,
             iframes: 0,
             kvx: 0,
@@ -509,6 +520,44 @@ impl Sim {
             .collect();
         self.toasts.retain(|(s, _)| *s as usize != viewpoint);
         out
+    }
+
+    /// A bare-handed swing at a tree/bush knocks a stick loose. Rate-limited
+    /// so you get one every ~1.5s, not a swarm. Returns true if it harvested.
+    fn try_harvest_stick(&mut self, pl: &mut Player, slot: usize) -> bool {
+        if pl.harvest_t > 0 {
+            return false;
+        }
+        let (fx_, fy_) = facing_tile_center(pl);
+        let near_tree = self
+            .world
+            .screen_at(pl.sx, pl.sy)
+            .is_some_and(|s| self.world.is_tree(s, fx_, fy_));
+        if !near_tree {
+            return false;
+        }
+        let Some(stick) = self.defs.item_index("stick") else {
+            return false;
+        };
+        if give_item(pl, &self.defs, stick, 1) {
+            // Auto-equip if the sword hand is empty (you just disarmed).
+            if pl.equip_a < 0 {
+                if let Some(idx) = pl
+                    .inventory
+                    .iter()
+                    .position(|s| s.def == stick)
+                {
+                    pl.equip_a = idx as i8;
+                }
+            }
+            pl.harvest_t = 90;
+            self.emit_toast(slot, "GOT A STICK");
+            self.emit_cue(pl.sx, pl.sy, cues::ITEM);
+            true
+        } else {
+            self.emit_toast(slot, "PACK IS FULL");
+            false
+        }
     }
 
     /// Roll the catch table at the player's fishing level.
@@ -705,6 +754,9 @@ impl Sim {
         if pl.iframes > 0 {
             pl.iframes -= 1;
         }
+        if pl.harvest_t > 0 {
+            pl.harvest_t -= 1;
+        }
 
         if pl.dead_t > 0 {
             pl.dead_t -= 1;
@@ -785,7 +837,8 @@ impl Sim {
             }
         }
 
-        // Sword swing: A edge starts (requires a sword in A); movement locked.
+        // Attack: A edge starts a swing (sword) or a punch/kick (unarmed);
+        // movement is locked during the wind-up. Unarmed is shorter/weaker.
         if pl.attack_t > 0 {
             pl.attack_t -= 1;
             pl.walking = false;
@@ -796,8 +849,9 @@ impl Sim {
         let has_sword = pl
             .equipped(pl.equip_a)
             .is_some_and(|s| self.defs.items[s.def as usize].kind == ItemKind::Sword);
-        if pl.buttons & BTN_A != 0 && pl.prev_buttons & BTN_A == 0 && has_sword {
-            pl.attack_t = ATTACK_TICKS;
+        if pl.buttons & BTN_A != 0 && pl.prev_buttons & BTN_A == 0 {
+            pl.attack_t = if has_sword { ATTACK_TICKS } else { UNARMED_TICKS };
+            pl.unarmed = !has_sword;
             let (sx, sy) = (pl.sx, pl.sy);
             pl.prev_buttons = pl.buttons;
             self.players[slot] = Some(pl);
@@ -1120,6 +1174,7 @@ impl Sim {
         struct ShopItem {
             i: usize,
             label: String,
+            sprite: u16,
             price: u32,
             qty: u16,
             affordable: bool,
@@ -1142,6 +1197,7 @@ impl Sim {
                 .map(|(i, e)| ShopItem {
                     i,
                     label: self.defs.items[e.item as usize].label.clone(),
+                    sprite: self.defs.items[e.item as usize].sprite,
                     price: e.price,
                     qty: e.qty,
                     affordable: p.shells >= e.price,
@@ -1387,20 +1443,30 @@ impl Sim {
     }
 
     fn resolve_combat(&mut self) {
-        // 1. Sword hits enemies.
+        // 1. Melee: sword swings and bare-handed punches/kicks hit enemies.
         for slot in 0..MAX_PLAYERS {
             let Some(mut p) = self.players[slot].clone() else {
                 continue;
             };
-            if p.dead_t > 0 || !HIT_WINDOW.contains(&p.attack_t) {
+            let window = if p.unarmed { &UNARMED_WINDOW } else { &HIT_WINDOW };
+            if p.dead_t > 0 || !window.contains(&p.attack_t) {
                 continue;
             }
-            let Some(weapon) = p.equipped(p.equip_a).copied() else {
-                continue;
+            let weapon = p.equipped(p.equip_a).copied();
+            // Armed = a weapon in hand and we're not in a forced-unarmed
+            // attack (which happens when nothing is equipped).
+            let armed = weapon.is_some() && !p.unarmed;
+            let damage = if armed {
+                (self.weapon_damage(&weapon.unwrap()) as i16) + level_damage_bonus(p.level)
+            } else {
+                UNARMED_DAMAGE + level_damage_bonus(p.level)
             };
-            let damage = (self.weapon_damage(&weapon) as i16) + level_damage_bonus(p.level);
-            let poisons = self.weapon_poison(&weapon);
-            let (hx0, hy0, hx1, hy1) = sword_box(&p);
+            let poisons = armed && self.weapon_poison(&weapon.unwrap());
+            let (hx0, hy0, hx1, hy1) = if armed {
+                sword_box(&p)
+            } else {
+                fist_box(&p)
+            };
             let mut cues_out = Vec::new();
             let mut connected = false;
             let mut hunt_xp = 0u32;
@@ -1437,10 +1503,16 @@ impl Sim {
             for def in killed {
                 self.award_combat_xp(&mut p, slot, def);
             }
+            // Bare-handed swing at a tree breaks off a stick (so a broken
+            // weapon never leaves you defenceless).
+            if !armed && self.try_harvest_stick(&mut p, slot) {
+                connected = false; // harvesting consumes the swing; no wear/xp
+            }
             // Fire-fused weapons burn through bramble tiles in the swing arc.
-            if self
-                .weapon_effect(&weapon)
-                .is_some_and(|e| e == FuseEffect::Fire)
+            if armed
+                && self
+                    .weapon_effect(&weapon.unwrap())
+                    .is_some_and(|e| e == FuseEffect::Fire)
             {
                 let cleared = self.clear_gates_in_box(p.sx, p.sy, hx0, hy0, hx1, hy1);
                 if cleared {
@@ -1451,11 +1523,15 @@ impl Sim {
                 self.emit_cue(p.sx, p.sy, c);
             }
             if connected {
-                // One wear per swing that lands, no matter how many it hit.
-                self.wear_weapon(&mut p, slot, WearSlot::A);
+                // One wear per swing that lands (armed only).
+                if armed {
+                    self.wear_weapon(&mut p, slot, WearSlot::A);
+                }
                 if hunt_xp > 0 {
                     self.award_xp(&mut p, slot, defs::SKILL_HUNTING, hunt_xp);
                 }
+                self.players[slot] = Some(p);
+            } else {
                 self.players[slot] = Some(p);
             }
         }
@@ -1976,6 +2052,7 @@ impl Sim {
                     max_hp: p.max_hp,
                     shells: p.shells,
                     attack_t: p.attack_t,
+                    unarmed: p.unarmed,
                     iframes: p.iframes,
                     dead: p.dead_t > 0,
                     shielding: p.shielding,
@@ -2108,6 +2185,8 @@ impl Sim {
                     h.u32(p.level);
                     h.u32(p.xp);
                     h.u32(p.attack_t as u32);
+                    h.u32(p.unarmed as u32);
+                    h.u32(p.harvest_t);
                     h.u32(p.iframes as u32);
                     h.u32(p.dead_t);
                     h.i32(p.kvx);
@@ -2227,6 +2306,7 @@ pub fn ui_state_json(
         i: usize,
         label: String,
         kind: &'static str,
+        sprite: u16,
         qty: u16,
         dur: u16,
         max_dur: u16,
@@ -2244,6 +2324,7 @@ pub fn ui_state_json(
     struct UiRecipe {
         i: usize,
         label: String,
+        sprite: u16,
         inputs: Vec<String>,
         level: u32,
         can_make: bool,
@@ -2284,6 +2365,7 @@ pub fn ui_state_json(
                     i,
                     label: def.label.clone(),
                     kind: kind_str(def.kind),
+                    sprite: def.sprite,
                     qty: s.qty,
                     dur: s.durability,
                     max_dur: def.durability
@@ -2314,6 +2396,7 @@ pub fn ui_state_json(
             .map(|(i, r)| UiRecipe {
                 i,
                 label: defs.items[r.output as usize].label.clone(),
+                sprite: defs.items[r.output as usize].sprite,
                 inputs: r
                     .inputs
                     .iter()
@@ -2676,7 +2759,9 @@ fn draw_players_on(
         let py = to_px(p.y) + oy;
 
         // Sword: behind the player when facing up, in front otherwise.
-        let sword = (p.attack_t > 0).then(|| {
+        // Draw the sword only on an armed swing (bare-handed attacks show no
+        // weapon — the attack still connects via the fist hitbox).
+        let sword = (p.attack_t > 0 && !p.unarmed).then(|| {
             let (sprite, sxo, syo, flags) = match p.facing {
                 1 => (world.sprites.sword_up, 0, -14, 0),
                 2 => (world.sprites.sword_side, -14, 2, 0),
@@ -2882,6 +2967,18 @@ fn sword_box(p: &Player) -> (i32, i32, i32, i32) {
     }
 }
 
+/// Shorter reach for a bare-handed punch/kick.
+fn fist_box(p: &Player) -> (i32, i32, i32, i32) {
+    let px = to_px(p.x);
+    let py = to_px(p.y);
+    match p.facing {
+        1 => (px + 2, py - 8, px + 14, py + 4),
+        2 => (px - 8, py + 2, px + 4, py + 14),
+        3 => (px + 12, py + 2, px + 24, py + 14),
+        _ => (px + 2, py + 12, px + 14, py + 24),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2906,6 +3003,7 @@ mod tests {
             if sx == 1 {
                 tiles[3 * 10 + 5] = 2; // water
                 tiles[4 * 10 + 3] = 3; // campfire
+                tiles[2 * 10 + 6] = 4; // tree (harvestable)
             }
             let entities = if sx == 0 {
                 r#"[{"t":"thornling","tx":2,"ty":2},{"t":"gel","tx":7,"ty":5}]"#
@@ -2947,12 +3045,14 @@ mod tests {
         ];
         let sprite_names = sprites.map(|s| format!("\"{s}\"")).join(",");
         format!(
-            r#"{{"world":{{"tile_names":["floor","wall","water","fire"],
-"tile_solid":[false,true,true,true],"tile_water":[false,false,true,false],
-"tile_fire":[false,false,false,true],
+            r#"{{"world":{{"tile_names":["floor","wall","water","fire","tree"],
+"tile_solid":[false,true,true,true,true],"tile_water":[false,false,true,false,false],
+"tile_fire":[false,false,false,true,false],
+"tile_tree":[false,false,false,false,true],
 "sprite_names":[{sprite_names}],"font_chars":"0123456789#%&$",
 "screens":[{}],"spawn":{{"sx":0,"sy":0,"x":72,"y":64}}}},
 "items":[
+ {{"name":"stick","label":"STICK","sprite":"sword_down","kind":"sword","damage":1,"durability":18}},
  {{"name":"driftwood_sword","label":"DRIFTWOOD SWORD","sprite":"sword_down","kind":"sword","damage":1,"durability":40}},
  {{"name":"oak_bow","label":"OAK BOW","sprite":"itm_bow","kind":"bow","damage":1,"durability":30}},
  {{"name":"wooden_shield","label":"WOODEN SHIELD","sprite":"itm_shield","kind":"shield","durability":20}},
@@ -3058,6 +3158,63 @@ mod tests {
         }
         let p = sim.players[0].as_ref().unwrap();
         assert_eq!(p.sx, 1, "player should have crossed to screen 1");
+    }
+
+    #[test]
+    fn unarmed_attacks_and_harvests_sticks() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 3).unwrap();
+        sim.add_player(0);
+        // No starter kit -> empty-handed. Move to screen 1, face the tree at
+        // tile (6,2) -> px (96, HUD_H+32). Stand just below it, facing up.
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.sx = 1;
+            p.x = fx(96);
+            p.y = fx(HUD_H + 48);
+            p.facing = 1;
+            assert!(p.inventory.is_empty());
+            assert_eq!(p.equip_a, -1);
+        }
+        // Punch the tree: should harvest a stick and auto-equip it.
+        sim.set_input(0, BTN_A);
+        for _ in 0..12 {
+            sim.step();
+        }
+        sim.set_input(0, 0);
+        for _ in 0..4 {
+            sim.step();
+        }
+        let stick = sim.defs.item_index("stick").unwrap();
+        let p = sim.players[0].as_ref().unwrap();
+        assert!(p.inventory.iter().any(|s| s.def == stick), "got a stick");
+        assert!(p.equip_a >= 0, "stick auto-equipped");
+
+        // Now unequip and verify a bare hand still damages an enemy. Place a
+        // gel right in front and punch it.
+        let gel = sim.defs.enemy_index("gel").unwrap();
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.equip_a = -1;
+            p.x = fx(40);
+            p.y = fx(HUD_H + 48);
+            p.facing = 3; // right
+        }
+        let mut e = Entity::enemy(900, gel, 2, 1, 0, 56, HUD_H + 48);
+        sim.entities.push(e.clone());
+        let _ = &mut e;
+        let hp_before = sim.entities.last().unwrap().hp;
+        sim.set_input(0, BTN_A);
+        for _ in 0..12 {
+            sim.step();
+        }
+        let hit = sim
+            .entities
+            .iter()
+            .find(|x| x.id == 900)
+            .map(|x| x.hp < hp_before || !x.alive)
+            .unwrap_or(true); // gone = killed
+        assert!(hit, "bare hands should damage the gel");
     }
 
     #[test]

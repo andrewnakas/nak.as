@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Nak's Awakening</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%230f380f'/><rect x='4' y='4' width='8' height='8' fill='%239bbc0e'/></svg>">
 <meta name="description" content="Nak's Awakening — a Game Boy-style co-op action RPG you can play with friends, right in the browser.">
@@ -138,45 +138,93 @@
   #inv-panel {
     background: #11181c;
     border: 2px solid var(--gb-dark);
-    border-radius: 4px;
-    padding: 14px 16px;
-    width: min(420px, 92vw);
-    max-height: 80vh;
-    overflow-y: auto;
+    border-radius: 6px;
+    width: min(440px, 94vw);
+    max-height: 86vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
-  #inv-panel h2 {
+  #inv-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 8px 8px 10px;
+    border-bottom: 1px solid var(--gb-dark);
+    flex: 0 0 auto;
+  }
+  #inv-tabs { display: flex; gap: 4px; }
+  .inv-tab {
+    font: inherit;
+    font-size: 12px;
+    letter-spacing: 1px;
+    color: var(--gb-light);
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 6px 10px;
+    cursor: pointer;
+  }
+  .inv-tab.active { color: var(--gb-lightest); border-bottom-color: var(--gb-light); }
+  #inv-close {
+    font: inherit;
+    font-size: 16px;
+    line-height: 1;
     color: var(--gb-lightest);
-    font-size: 13px;
-    letter-spacing: 2px;
-    margin-bottom: 10px;
+    background: var(--gb-darkest);
+    border: 1px solid var(--gb-dark);
+    border-radius: 4px;
+    width: 34px; height: 34px;
+    cursor: pointer;
   }
+  #inv-list {
+    padding: 8px 10px 12px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .inv-section {
+    color: var(--gb-light);
+    font-size: 10px;
+    letter-spacing: 2px;
+    margin: 12px 2px 4px;
+    opacity: 0.85;
+  }
+  .inv-section:first-child { margin-top: 2px; }
   .inv-row {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 5px 6px;
-    border-radius: 3px;
+    padding: 6px;
+    border-radius: 4px;
     font-size: 12px;
+    min-height: 36px;
   }
   .inv-row:nth-child(odd) { background: rgba(139, 172, 15, 0.05); }
-  .inv-skills { color: var(--gb-light); font-size: 10px; letter-spacing: 1px; }
-  .inv-level { color: var(--gb-lightest); font-size: 11px; letter-spacing: 1px; font-weight: bold; }
+  .inv-icon {
+    width: 28px; height: 28px;
+    flex: 0 0 auto;
+    image-rendering: pixelated;
+    border-radius: 3px;
+    background: rgba(0,0,0,0.25);
+  }
+  .inv-skills { color: var(--gb-light); font-size: 11px; letter-spacing: 1px; line-height: 1.7; }
+  .inv-level { color: var(--gb-lightest); font-size: 13px; letter-spacing: 1px; font-weight: bold; }
   .inv-name { flex: 1; color: #cfd8c2; }
   .inv-name .fused { color: var(--gb-light); font-size: 10px; }
-  .inv-meta { color: #6c7c6c; font-size: 10px; min-width: 52px; text-align: right; }
+  .inv-meta { color: #8c9c84; font-size: 10px; min-width: 56px; text-align: right; }
   .inv-row button {
     font: inherit;
-    font-size: 10px;
-    padding: 3px 8px;
+    font-size: 11px;
+    padding: 6px 10px;
     color: var(--gb-lightest);
     background: var(--gb-darkest);
     border: 1px solid var(--gb-dark);
-    border-radius: 2px;
+    border-radius: 3px;
     cursor: pointer;
   }
   .inv-row button:hover { border-color: var(--gb-light); }
   .inv-row button.active { background: var(--gb-dark); border-color: var(--gb-light); }
-  #inv-hint { font-size: 10px; color: #6c7c6c; margin-top: 10px; }
+  .inv-empty { color: #6c7c6c; font-size: 12px; padding: 16px 4px; text-align: center; }
   #toasts {
     position: fixed;
     bottom: 84px;
@@ -320,11 +368,36 @@
     background: rgba(22, 24, 29, 0.6);
   }
   .face.pack.pressed { transform: translateX(-50%) scale(0.93); }
+
+  /* connecting overlay over the canvas (no bare black screen for clients) */
+  #screen-wrap { position: relative; line-height: 0; }
+  #connecting {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 16px;
+    font-size: 12px;
+    line-height: 1.5;
+    letter-spacing: 1px;
+    color: var(--gb-lightest);
+    background: var(--gb-darkest);
+    border-radius: 4px;
+  }
+
+  /* block iOS pinch / double-tap zoom on the play area */
+  html, body { touch-action: manipulation; overscroll-behavior: none; }
+  #stage, #touch-controls { touch-action: none; }
 </style>
 </head>
 <body>
   <div id="stage">
-    <canvas id="screen" width="160" height="144"></canvas>
+    <div id="screen-wrap">
+      <canvas id="screen" width="160" height="144"></canvas>
+      <div id="connecting">connecting to the world…</div>
+    </div>
     <div id="hud-text">
       <span id="party-code"></span> <span id="party-list"></span><br>
       NAK'S AWAKENING — pre-alpha · arrows/WASD move · <a href="/">nak.as</a>
@@ -360,9 +433,15 @@
   </div>
   <div id="inv">
     <div id="inv-panel">
-      <h2>PACK</h2>
+      <div id="inv-head">
+        <div id="inv-tabs">
+          <button class="inv-tab" data-tab="items">ITEMS</button>
+          <button class="inv-tab" data-tab="quests">QUESTS</button>
+          <button class="inv-tab" data-tab="skills">SKILLS</button>
+        </div>
+        <button id="inv-close" title="close">✕</button>
+      </div>
       <div id="inv-list"></div>
-      <div id="inv-hint">I or ESC to close · A = sword hand · B = item hand · FUSE a material onto a weapon</div>
     </div>
   </div>
   <div id="toasts"></div>
