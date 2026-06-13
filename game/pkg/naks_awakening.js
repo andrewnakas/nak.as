@@ -234,7 +234,7 @@ export class Game {
         wasm.game_ui_action(this.__wbg_ptr, slot, ptr0, len0);
     }
     /**
-     * Inventory/equipment/skills JSON for the UI overlay (role-aware).
+     * Inventory/equipment/skills/quests JSON for the UI overlay (role-aware).
      * @param {number} slot
      * @returns {string}
      */

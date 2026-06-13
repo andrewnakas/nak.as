@@ -47,25 +47,40 @@ impl ClientView {
             .map(|p| (p.sx, p.sy))
     }
 
-    /// Latest known inventory/equips/skills for the slot player (for the UI).
-    #[allow(clippy::type_complexity)]
-    pub fn player_ui(
-        &self,
-        slot: u8,
-    ) -> Option<(Vec<ItemStack>, i8, i8, [u32; 3], bool, Option<u8>)> {
+    /// Latest known player state for the UI overlay (uninterpolated).
+    pub fn latest_player(&self, slot: u8) -> Option<Player> {
         self.snaps
             .last()
             .and_then(|(_, s)| s.players.iter().find(|p| p.slot == slot))
-            .map(|p| {
-                (
-                    items_from_snaps(&p.inventory),
-                    p.equip_a,
-                    p.equip_b,
-                    p.skills,
-                    p.near_fire,
-                    p.fishing,
-                )
+            .map(|p| lerp_player(None, p, 0, 0))
+    }
+
+    /// near_fire from the freshest snapshot (not derivable from Player).
+    pub fn latest_near_fire(&self, slot: u8) -> bool {
+        self.snaps
+            .last()
+            .and_then(|(_, s)| s.players.iter().find(|p| p.slot == slot))
+            .is_some_and(|p| p.near_fire)
+    }
+
+    pub fn latest_fishing(&self, slot: u8) -> Option<u8> {
+        self.snaps
+            .last()
+            .and_then(|(_, s)| s.players.iter().find(|p| p.slot == slot))
+            .and_then(|p| p.fishing)
+    }
+
+    /// Tile overrides from the freshest snapshot, keyed for the renderer.
+    pub fn overrides(&self) -> std::collections::BTreeMap<(i32, i32, i32), u16> {
+        self.snaps
+            .last()
+            .map(|(_, s)| {
+                s.overrides
+                    .iter()
+                    .map(|&(sx, sy, idx, t)| ((sx, sy, idx), t))
+                    .collect()
             })
+            .unwrap_or_default()
     }
 
     /// Reconstruct players + entities as of (now - delay), lerping between
@@ -173,6 +188,25 @@ fn lerp_player(pa: Option<&PlayerSnap>, pb: &PlayerSnap, num: u64, den: u64) -> 
                 crate::FishPhase::Bite { t: 1 }
             }
         }),
+        dialogue: pb.dialogue.map(|(npc, kind, idx, page)| crate::Dialogue {
+            npc,
+            source: match kind {
+                1 => crate::DialogueSource::QuestOffer(idx),
+                2 => crate::DialogueSource::QuestIncomplete(idx),
+                3 => crate::DialogueSource::QuestComplete(idx),
+                _ => crate::DialogueSource::Idle(idx),
+            },
+            page,
+        }),
+        quests: pb
+            .quests
+            .iter()
+            .map(|q| crate::PlayerQuest {
+                quest: q.quest,
+                done: q.done,
+                progress: q.progress.clone(),
+            })
+            .collect(),
     }
 }
 
@@ -217,5 +251,6 @@ fn lerp_entity(ea: Option<&EntitySnap>, eb: &EntitySnap, num: u64, den: u64) -> 
         alive: true,
         owner: -1,
         poison_t: 0,
+        big: eb.big,
     }
 }

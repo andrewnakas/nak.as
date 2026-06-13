@@ -83,6 +83,19 @@
     "name": "ember_cap",
     "label": "EMBER CAP",
     "sprite": "itm_mushroom",
+    "kind": "material",
+    "fuse_effect": "fire"
+  },
+  {
+    "name": "small_key",
+    "label": "SMALL KEY",
+    "sprite": "itm_key",
+    "kind": "material"
+  },
+  {
+    "name": "boss_key",
+    "label": "BOSS KEY",
+    "sprite": "itm_bosskey",
     "kind": "material"
   },
   {

@@ -52,6 +52,8 @@ pub struct Entity {
     pub owner: i8,
     /// Poison ticks remaining (enemies; damages every 60 ticks).
     pub poison_t: u32,
+    /// 32x32 hitbox + 2x2 sprite rendering (boss).
+    pub big: bool,
 }
 
 impl Entity {
@@ -77,13 +79,18 @@ impl Entity {
             alive: true,
             owner: -1,
             poison_t: 0,
+            big: false,
         }
     }
 
     pub fn feet_box(&self) -> (i32, i32, i32, i32) {
         let px = to_px(self.x);
         let py = to_px(self.y);
-        (px + 2, py + 2, px + 13, py + 13)
+        if self.big {
+            (px + 2, py + 2, px + 29, py + 29)
+        } else {
+            (px + 2, py + 2, px + 13, py + 13)
+        }
     }
 }
 
@@ -99,41 +106,88 @@ pub struct StepCtx<'a> {
     pub tick: u32,
 }
 
-/// Advance one enemy by one tick. Returns an optional projectile to spawn
-/// (id is assigned by the caller).
+/// Advance one enemy by one tick. Returns entities to spawn (projectiles,
+/// summons); ids are assigned by the caller.
 pub fn step_enemy(
     e: &mut Entity,
     ctx: &StepCtx,
     players: &[Option<Player>; 4],
     rng: &mut Pcg32,
-) -> Option<Entity> {
+) -> Vec<Entity> {
     e.anim = e.anim.wrapping_add(1);
     e.state_t = e.state_t.wrapping_add(1);
     if e.iframes > 0 {
         e.iframes -= 1;
     }
 
-    // Knockback overrides the brain while active.
-    if e.vx != 0 || e.vy != 0 {
+    // Knockback overrides the brain while active (bosses shrug it off).
+    if (e.vx != 0 || e.vy != 0) && !e.big {
         try_move(e, ctx.world, e.vx, e.vy);
         e.vx = decay(e.vx);
         e.vy = decay(e.vy);
-        return None;
+        return Vec::new();
     }
+    e.vx = 0;
+    e.vy = 0;
 
     let def = &ctx.defs.enemies[e.def as usize];
     let target = nearest_player_on(players, e.sx, e.sy, e.x, e.y);
 
     match def.brain {
+        Brain::Boss => {
+            let mut spawned = Vec::new();
+            let enraged = e.hp <= def.hp / 2;
+            let speed = if enraged { def.speed * 2 } else { def.speed };
+            if let Some((px, py, _)) = target {
+                let (dx, dy) = step_toward(e.x, e.y, px, py, speed);
+                try_move(e, ctx.world, dx, dy);
+
+                // Seed attack: 3-spread normally, 8-ring enraged.
+                let period = if enraged { 160 } else { 240 };
+                if e.state_t % period == 0 {
+                    let cx = e.x + fx(8);
+                    let cy = e.y + fx(8);
+                    if enraged {
+                        for k in 0..8 {
+                            let (vx, vy) = RING_DIRS[k as usize];
+                            spawned.push(seed_at(e, cx, cy, vx, vy, def.damage as i32));
+                        }
+                    } else {
+                        let (vx, vy) = step_toward(cx, cy, px, py, fx(1) + fx(1) / 2);
+                        spawned.push(seed_at(e, cx, cy, vx, vy, def.damage as i32));
+                        spawned.push(seed_at(e, cx, cy, vx + vy / 2, vy - vx / 2, def.damage as i32));
+                        spawned.push(seed_at(e, cx, cy, vx - vy / 2, vy + vx / 2, def.damage as i32));
+                    }
+                }
+                // Summon adds (cap 3 living on screen).
+                if let Some(minion) = def.summons {
+                    if e.state_t % 480 == 120 {
+                        let mdef = &ctx.defs.enemies[minion as usize];
+                        let mut m = Entity::enemy(
+                            0,
+                            minion,
+                            mdef.hp,
+                            e.sx,
+                            e.sy,
+                            to_px(e.x) + 8,
+                            to_px(e.y) + 32,
+                        );
+                        m.home = e.home;
+                        spawned.push(m);
+                    }
+                }
+            }
+            spawned
+        }
         Brain::Thornling => {
             // Rooted; spits a seed at the nearest player every few seconds.
             if let Some((px, py, _)) = target {
                 if e.state_t > 150 + (rng.below(60)) {
                     e.state_t = 0;
-                    return Some(spawn_seed(e, ctx, px, py));
+                    return vec![spawn_seed(e, ctx, px, py)];
                 }
             }
-            None
+            Vec::new()
         }
         Brain::Crab => {
             match e.state {
@@ -157,7 +211,7 @@ pub fn step_enemy(
                     }
                 }
             }
-            None
+            Vec::new()
         }
         Brain::Gel => {
             // Hop toward the player in bursts.
@@ -173,7 +227,7 @@ pub fn step_enemy(
                 e.state = ST_MOVE;
                 e.state_t = 0;
             }
-            None
+            Vec::new()
         }
         Brain::Wasp => {
             // Weave toward the player, ignoring terrain (flies).
@@ -187,7 +241,7 @@ pub fn step_enemy(
                 wander_fly(e, rng);
             }
             clamp_to_playfield(e);
-            None
+            Vec::new()
         }
         Brain::Critter => {
             // Graze peacefully; bolt when anyone gets close.
@@ -196,11 +250,11 @@ pub fn step_enemy(
                     let (dx, dy) = step_toward(e.x, e.y, px, py, def.speed * 2);
                     try_move(e, ctx.world, -dx, -dy);
                     e.facing = if dx > 0 { 2 } else { 3 };
-                    return None;
+                    return Vec::new();
                 }
             }
             wander(e, ctx.world, def.speed / 2, rng, 90);
-            None
+            Vec::new()
         }
         Brain::Snatcher => {
             if e.state == ST_FLEE {
@@ -222,7 +276,7 @@ pub fn step_enemy(
                     wander(e, ctx.world, def.speed, rng, 45);
                 }
             }
-            None
+            Vec::new()
         }
     }
 }
@@ -250,7 +304,31 @@ pub fn blank(etype: u8, sx: i32, sy: i32, x: Fx, y: Fx) -> Entity {
         alive: true,
         owner: -1,
         poison_t: 0,
+        big: false,
     }
+}
+
+/// 8-direction unit-ish velocities for the boss ring attack (1.5 px/tick
+/// cardinals, ~1 px/tick diagonals).
+const RING_DIRS: [(Fx, Fx); 8] = [
+    (384, 0),
+    (256, 256),
+    (0, 384),
+    (-256, 256),
+    (-384, 0),
+    (-256, -256),
+    (0, -384),
+    (256, -256),
+];
+
+fn seed_at(e: &Entity, cx: Fx, cy: Fx, vx: Fx, vy: Fx, damage: i32) -> Entity {
+    let mut p = blank(ET_PROJECTILE, e.sx, e.sy, cx, cy);
+    p.def = PJ_SEED;
+    p.data = damage;
+    p.vx = vx;
+    p.vy = vy;
+    p.home = e.home;
+    p
 }
 
 fn spawn_seed(e: &Entity, ctx: &StepCtx, px: Fx, py: Fx) -> Entity {
@@ -324,7 +402,8 @@ pub fn step_projectile(e: &mut Entity, world: &World) {
 pub fn step_pickup(e: &mut Entity) {
     e.anim = e.anim.wrapping_add(1);
     e.state_t = e.state_t.wrapping_add(1);
-    if e.state_t > PICKUP_TTL {
+    // state 1 = persistent map item; never despawns on its own.
+    if e.state == 0 && e.state_t > PICKUP_TTL {
         e.alive = false;
     }
 }
@@ -340,12 +419,13 @@ fn try_move(e: &mut Entity, world: &World, dx: Fx, dy: Fx) -> bool {
     let Some(screen) = world.screen_at(e.sx, e.sy) else {
         return false;
     };
+    let far = if e.big { 29 } else { 13 };
     let mut moved = false;
-    if dx != 0 && box_clear(world, screen, e.x + dx, e.y) {
+    if dx != 0 && box_clear_sized(world, screen, e.x + dx, e.y, far) {
         e.x += dx;
         moved = true;
     }
-    if dy != 0 && box_clear(world, screen, e.x, e.y + dy) {
+    if dy != 0 && box_clear_sized(world, screen, e.x, e.y + dy, far) {
         e.y += dy;
         moved = true;
     }
@@ -355,17 +435,22 @@ fn try_move(e: &mut Entity, world: &World, dx: Fx, dy: Fx) -> bool {
 }
 
 fn box_clear(world: &World, screen: &Screen, x: Fx, y: Fx) -> bool {
+    box_clear_sized(world, screen, x, y, 13)
+}
+
+fn box_clear_sized(world: &World, screen: &Screen, x: Fx, y: Fx, far: i32) -> bool {
     let px = to_px(x);
     let py = to_px(y);
     !(world.is_solid(screen, px + 2, py + 2)
-        || world.is_solid(screen, px + 13, py + 2)
-        || world.is_solid(screen, px + 2, py + 13)
-        || world.is_solid(screen, px + 13, py + 13))
+        || world.is_solid(screen, px + far, py + 2)
+        || world.is_solid(screen, px + 2, py + far)
+        || world.is_solid(screen, px + far, py + far))
 }
 
 fn clamp_to_playfield(e: &mut Entity) -> bool {
-    let cx = e.x.clamp(fx(0), fx(144));
-    let cy = e.y.clamp(fx(16), fx(128));
+    let size = if e.big { 32 } else { 16 };
+    let cx = e.x.clamp(fx(0), fx(160 - size));
+    let cy = e.y.clamp(fx(16), fx(144 - size));
     let clamped = cx != e.x || cy != e.y;
     e.x = cx;
     e.y = cy;

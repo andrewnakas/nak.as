@@ -101,6 +101,29 @@ export class InventoryUI {
       .join(' · ');
     list.appendChild(skillsRow);
 
+    // Quest log.
+    const activeQuests = state.quests.filter((q) => !q.done);
+    if (activeQuests.length) {
+      const header = document.createElement('div');
+      header.className = 'inv-row';
+      header.textContent = '— QUESTS —';
+      list.appendChild(header);
+      for (const q of activeQuests) {
+        const row = document.createElement('div');
+        row.className = 'inv-row';
+        const name = document.createElement('span');
+        name.className = 'inv-name';
+        name.textContent = q.title;
+        row.appendChild(name);
+        const meta = document.createElement('span');
+        meta.className = 'inv-meta';
+        meta.textContent = q.objectives.join(' · ');
+        meta.style.minWidth = 'auto';
+        row.appendChild(meta);
+        list.appendChild(row);
+      }
+    }
+
     // Campfire cooking section.
     if (state.near_fire) {
       const header = document.createElement('div');

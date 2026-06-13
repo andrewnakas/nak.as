@@ -1,0 +1,91 @@
+[
+  {
+    "id": "ashes_and_embers",
+    "giver": "elder_maru",
+    "title": "ASHES AND EMBERS",
+    "offer": [
+      ["THORNLINGS CHOKE", "OUR WOODS. CULL", "THREE OF THEM."],
+      ["TAKE THIS TASK,", "AND MY OLD IRON", "BLADE IS YOURS."]
+    ],
+    "incomplete": [["THE THORNLINGS", "STILL HISS IN", "THE BRAMBLES..."]],
+    "complete": [
+      ["THE WOODS BREATHE", "EASIER. TAKE THE", "IRON SWORD."]
+    ],
+    "objectives": [{ "type": "kill", "target": "thornling", "count": 3 }],
+    "rewards": { "shells": 20, "items": [{ "item": "iron_sword", "qty": 1 }] }
+  },
+  {
+    "id": "three_perch_for_pike",
+    "giver": "pike",
+    "title": "THREE PERCH FOR PIKE",
+    "offer": [
+      ["MY BACK IS DONE", "FOR. CATCH ME", "THREE RAW PERCH?"]
+    ],
+    "incomplete": [["THE PERCH WONT", "CATCH THEMSELVES,", "FRIEND."]],
+    "complete": [
+      ["FAT ONES TOO!", "HERE, FOR YOUR", "TROUBLE."]
+    ],
+    "objectives": [{ "type": "collect", "target": "raw_perch", "count": 3 }],
+    "rewards": { "shells": 30, "items": [{ "item": "arrow", "qty": 10 }] }
+  },
+  {
+    "id": "a_proper_meal",
+    "giver": "wren",
+    "title": "A PROPER MEAL",
+    "offer": [
+      ["RAW FOOD DULLS", "THE SPIRIT. COOK", "TWO REAL MEALS."]
+    ],
+    "incomplete": [["THE FIRE IS LIT.", "THE POT WAITS."]],
+    "complete": [
+      ["NOW THAT IS", "COOKING! TAKE", "THESE HERBS."]
+    ],
+    "objectives": [{ "type": "cook", "count": 2 }],
+    "rewards": { "shells": 25, "items": [{ "item": "marsh_herb", "qty": 2 }] }
+  },
+  {
+    "id": "the_stag_of_greenreach",
+    "giver": "bramble",
+    "title": "THE STAG OF GREENREACH",
+    "offer": [
+      ["THE HOLLOW STAG.", "NONE HAVE TAKEN", "IT. CAN YOU?"]
+    ],
+    "incomplete": [["GREENREACH, EAST.", "MOVE QUIET, LOOSE", "ARROWS FAST."]],
+    "complete": [
+      ["BY THE ROOTS...", "YOU DID IT. THE", "HUNT HONORS YOU."]
+    ],
+    "objectives": [{ "type": "kill", "target": "hollow_stag", "count": 1 }],
+    "rewards": { "shells": 40, "items": [{ "item": "bomb", "qty": 5 }] }
+  },
+  {
+    "id": "sharper_than_it_looks",
+    "giver": "tink",
+    "title": "SHARPER THAN IT LOOKS",
+    "offer": [
+      ["YOU CARRY PARTS", "AND NO VISION!", "FUSE SOMETHING."]
+    ],
+    "incomplete": [["PACK. WEAPON.", "MATERIAL. FUSE.", "SIMPLE!"]],
+    "complete": [
+      ["HA! NOW YOU SEE.", "TAKE THIS STINGER", "FOR THE NEXT ONE."]
+    ],
+    "objectives": [{ "type": "fuse", "count": 1 }],
+    "rewards": { "shells": 15, "items": [{ "item": "wasp_stinger", "qty": 1 }] }
+  },
+  {
+    "id": "the_rootcellar",
+    "giver": "elder_maru",
+    "requires": "ashes_and_embers",
+    "title": "THE ROOTCELLAR",
+    "offer": [
+      ["THE STIRRING HAS", "A NAME. MOLDRA,", "THE ROOT-TYRANT."],
+      ["IT FESTERS IN THE", "ROOTCELLAR, UNDER", "THE OLD TERRACES."],
+      ["END IT, AND THE", "ISLE IS FREE.", "GO WELL, FRIEND."]
+    ],
+    "incomplete": [["MOLDRA GNAWS ON.", "THE CELLAR DOOR", "WAITS, NORTHEAST."]],
+    "complete": [
+      ["THE ROOTS REST.", "THE ISLE OWES YOU", "EVERYTHING."],
+      ["REST NOW, HERO", "OF BRACK. YOUR", "TALE IS TOLD."]
+    ],
+    "objectives": [{ "type": "kill", "target": "moldra", "count": 1 }],
+    "rewards": { "shells": 200, "items": [{ "item": "hearty_roast", "qty": 3 }] }
+  }
+]

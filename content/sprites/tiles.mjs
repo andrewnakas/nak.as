@@ -213,6 +213,93 @@ export const TILES = [
     }),
   },
   {
+    name: 'dungeon_floor',
+    palette: 'stone',
+    solid: false,
+    grid: grid((x, y) => {
+      if (x % 8 === 0 || y % 8 === 0) return 0;
+      return hash(x, y, 20) < 80 ? 0 : 1;
+    }),
+  },
+  {
+    name: 'dungeon_wall',
+    palette: 'stone',
+    solid: true,
+    grid: grid((x, y) => {
+      const row = Math.floor(y / 4);
+      const off = (row % 2) * 4;
+      if (y % 4 === 0) return 0;
+      if ((x + off) % 8 === 0) return 0;
+      return y % 4 === 1 ? 3 : 2;
+    }),
+  },
+  {
+    name: 'bramble',
+    palette: 'grass',
+    solid: true,
+    gate: 3,
+    cleared: 'dungeon_floor',
+    grid: grid((x, y) => {
+      // tangled thorns
+      const h = hash(x, y, 21);
+      if ((x * 2 + y) % 5 === 0 || (y * 3 - x) % 7 === 0) return 0;
+      if (h < 120) return 3;
+      return h < 500 ? 1 : 2;
+    }),
+  },
+  {
+    name: 'locked_door',
+    palette: 'stone',
+    solid: true,
+    gate: 1,
+    cleared: 'dungeon_floor',
+    grid: grid((x, y) => {
+      if (x < 2 || x > 13 || y < 1 || y > 14) return 1;
+      if (x < 4 || x > 11 || y < 3) return 0;
+      // keyhole
+      if (x >= 7 && x <= 8 && y >= 6 && y <= 7) return 3;
+      if (x >= 7 && x <= 8 && y >= 8 && y <= 10) return 3;
+      return 2;
+    }),
+  },
+  {
+    name: 'boss_door',
+    palette: 'wood',
+    solid: true,
+    gate: 2,
+    cleared: 'dungeon_floor',
+    grid: grid((x, y) => {
+      if (x < 1 || x > 14 || y < 1 || y > 14) return 0;
+      if (x < 3 || x > 12 || y < 3) return 1;
+      // skull-ish mark
+      const d = Math.hypot(x - 7.5, y - 8);
+      if (d < 3.4) return d < 2 && y > 8 ? 0 : 3;
+      return 2;
+    }),
+  },
+  {
+    name: 'stairs_down',
+    palette: 'stone',
+    solid: false,
+    grid: grid((x, y) => {
+      const step = Math.floor(y / 4);
+      const inset = step * 2;
+      if (x < inset || x > 15 - inset) return 0;
+      return y % 4 === 0 ? 0 : 3 - Math.min(step, 2);
+    }),
+  },
+  {
+    name: 'stairs_up',
+    palette: 'stone',
+    solid: false,
+    grid: grid((x, y) => {
+      const step = 3 - Math.floor(y / 4);
+      const inset = step * 2;
+      if (x < inset || x > 15 - inset) return 0;
+      return y % 4 === 0 ? 0 : 3 - Math.min(step, 2);
+    }),
+  },
+  {
     name: 'campfire',
     palette: 'sand',
     solid: true,

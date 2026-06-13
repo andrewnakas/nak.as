@@ -1,0 +1,56 @@
+[
+  {
+    "name": "elder_maru",
+    "label": "ELDER MARU",
+    "sprite": "npc_elder",
+    "lines": [
+      ["THE ISLE OF BRACK", "REMEMBERS KINDER", "DAYS, TRAVELER."],
+      ["THE ROOTS BENEATH", "US STIR. BE WARY", "IN THE WOODS."]
+    ]
+  },
+  {
+    "name": "pike",
+    "label": "PIKE",
+    "sprite": "npc_a",
+    "lines": [
+      ["THE PERCH BITE", "BEST OFF THE OLD", "DOCK, SOUTH WAY."],
+      ["FACE THE WATER,", "CAST WITH B, AND", "STRIKE THE BITE!"]
+    ]
+  },
+  {
+    "name": "wren",
+    "label": "WREN",
+    "sprite": "npc_b",
+    "lines": [
+      ["A CAMPFIRE AND", "FRESH FISH. THAT", "IS ALL I NEED."],
+      ["STAND BY A FIRE", "AND OPEN YOUR", "PACK TO COOK."]
+    ]
+  },
+  {
+    "name": "bramble",
+    "label": "BRAMBLE",
+    "sprite": "npc_a",
+    "lines": [
+      ["A HOLLOW STAG", "ROAMS GREENREACH.", "FAST AS WIND."],
+      ["HARES DROP MEAT.", "GOOD EATING IF", "YOU COOK IT."]
+    ]
+  },
+  {
+    "name": "tink",
+    "label": "TINK",
+    "sprite": "npc_b",
+    "lines": [
+      ["FUSE! ANYTHING TO", "ANYTHING! WELL...", "ALMOST ANYTHING."],
+      ["A CLAW ON A SWORD", "CUTS DEEPER. TRY", "IT IN YOUR PACK!"]
+    ]
+  },
+  {
+    "name": "marsh_hermit",
+    "label": "HERMIT",
+    "sprite": "npc_elder",
+    "lines": [
+      ["THE GELS CARRY", "HERBS. ODD, THAT.", "OR IS IT?"],
+      ["BENEATH THE ISLE", "SOMETHING OLD", "GNAWS THE ROOTS."]
+    ]
+  }
+]

@@ -96,6 +96,32 @@ pub struct ItemStack {
     pub fused: Option<u8>,
 }
 
+/// What a dialogue box is showing. The u8 is a quest index except for
+/// Idle, where it picks one of the NPC's line sets.
+#[derive(Clone, Copy, PartialEq)]
+pub enum DialogueSource {
+    Idle(u8),
+    QuestOffer(u8),
+    QuestIncomplete(u8),
+    QuestComplete(u8),
+}
+
+#[derive(Clone, Copy)]
+pub struct Dialogue {
+    pub npc: u8,
+    pub source: DialogueSource,
+    pub page: u8,
+}
+
+#[derive(Clone, PartialEq)]
+pub struct PlayerQuest {
+    pub quest: u8,
+    pub done: bool,
+    /// One counter per objective (collect objectives stay 0; they are
+    /// counted live from the inventory).
+    pub progress: Vec<u32>,
+}
+
 /// Fishing mini-game phases.
 #[derive(Clone, Copy, PartialEq)]
 pub enum FishPhase {
@@ -133,6 +159,8 @@ pub struct Player {
     /// XP per skill: [fishing, cooking, hunting].
     pub skills: [u32; 3],
     pub fishing: Option<FishPhase>,
+    pub dialogue: Option<Dialogue>,
+    pub quests: Vec<PlayerQuest>,
 }
 
 impl Player {
@@ -149,6 +177,8 @@ struct Bundle {
     drops: BTreeMap<String, Vec<defs::DropJson>>,
     skills: defs::SkillsJson,
     recipes: Vec<defs::RecipeJson>,
+    npcs: Vec<defs::NpcJson>,
+    quests: Vec<defs::QuestJson>,
 }
 
 pub struct Sim {
@@ -167,12 +197,23 @@ pub struct Sim {
     events: Vec<GameEvent>,
     /// UI toasts for local players (slot, message).
     toasts: Vec<(u8, String)>,
+    /// Mutated tiles: (sx, sy, tile index) -> new tile id. Opened doors,
+    /// cleared brambles. Broadcast in snapshots so clients render them.
+    pub overrides: BTreeMap<(i32, i32, i32), u16>,
     pub content_hash: u64,
 }
 
 enum WearSlot {
     A,
     B,
+}
+
+#[derive(Clone, Copy)]
+enum QuestEvent {
+    Kill(u8),
+    Cook,
+    Fuse,
+    Fish,
 }
 
 /// Add `qty` of `def` to the inventory; weapons get their full durability.
@@ -231,12 +272,25 @@ impl Sim {
             bundle.drops,
             bundle.skills,
             bundle.recipes,
+            bundle.npcs,
+            bundle.quests,
             &|name| world::sprite_index(&sprite_names, name),
         )?;
-        let world = World::build(bundle.world, &|name| {
-            defs.enemy_index(name)
-                .ok_or_else(|| format!("map references unknown enemy '{name}'"))
-        })?;
+        let world = World::build(
+            bundle.world,
+            &|name| {
+                defs.enemy_index(name)
+                    .ok_or_else(|| format!("map references unknown enemy '{name}'"))
+            },
+            &|name| {
+                defs.npc_def_index(name)
+                    .ok_or_else(|| format!("map references unknown npc '{name}'"))
+            },
+            &|name| {
+                defs.item_index(name)
+                    .ok_or_else(|| format!("map references unknown item '{name}'"))
+            },
+        )?;
 
         let mut sim = Sim {
             tick: 0,
@@ -251,10 +305,27 @@ impl Sim {
             audio: Vec::new(),
             events: Vec::new(),
             toasts: Vec::new(),
+            overrides: BTreeMap::new(),
             content_hash: h.finish(),
         };
         for i in 0..sim.world.screens.len() {
             sim.spawn_screen(i);
+        }
+        // Ground items from the map: persistent pickups (state=1 -> no TTL).
+        let mut ground = Vec::new();
+        for screen in &sim.world.screens {
+            for gi in &screen.items {
+                let mut e = entity::blank(ET_PICKUP, screen.x, screen.y, fx(gi.x), fx(gi.y));
+                e.def = PK_ITEM;
+                e.data = gi.item as i32;
+                e.state = 1;
+                ground.push(e);
+            }
+        }
+        for mut e in ground {
+            e.id = sim.next_id;
+            sim.next_id += 1;
+            sim.entities.push(e);
         }
         Ok(sim)
     }
@@ -265,7 +336,7 @@ impl Sim {
         let mut spawned = Vec::new();
         for sp in &screen.spawns {
             let def = &self.defs.enemies[sp.enemy as usize];
-            spawned.push(Entity::enemy(
+            let mut e = Entity::enemy(
                 self.next_id,
                 sp.enemy,
                 def.hp,
@@ -273,11 +344,29 @@ impl Sim {
                 screen.y,
                 sp.x,
                 sp.y,
-            ));
+            );
+            e.big = def.big;
+            spawned.push(e);
             self.next_id += 1;
         }
         self.entities.extend(spawned);
         self.last_spawn.insert(coords, self.tick);
+    }
+
+    /// Tile solidity including door/bramble overrides (player path only;
+    /// enemies keep using the pristine map).
+    fn effective_solid(&self, screen: &world::Screen, px: i32, py: i32) -> bool {
+        let tx = px.div_euclid(16);
+        let ty = (py - HUD_H).div_euclid(16);
+        if (0..world::SCREEN_COLS).contains(&tx) && (0..world::SCREEN_ROWS).contains(&ty) {
+            if let Some(&t) = self
+                .overrides
+                .get(&(screen.x, screen.y, ty * world::SCREEN_COLS + tx))
+            {
+                return self.world.tile_solid.get(t as usize).copied().unwrap_or(true);
+            }
+        }
+        self.world.is_solid(screen, px, py)
     }
 
     pub fn add_player(&mut self, slot: usize) {
@@ -310,6 +399,8 @@ impl Sim {
             dead_t: 0,
             skills: [0, 0, 0],
             fishing: None,
+            dialogue: None,
+            quests: Vec::new(),
         };
         // Starting kit (quest rewards will replace this hand-out later).
         for (name, qty) in [
@@ -399,6 +490,7 @@ impl Sim {
             self.emit_toast(slot, &format!("CAUGHT A {label}!"));
             self.emit_cue(pl.sx, pl.sy, cues::ITEM);
             self.award_xp(pl, slot, defs::SKILL_FISHING, fish.xp);
+            Self::quest_event(pl, &self.defs, QuestEvent::Fish);
             self.wear_weapon(pl, slot, WearSlot::B);
         } else {
             self.emit_toast(slot, "PACK IS FULL!");
@@ -425,9 +517,48 @@ impl Sim {
     }
 
     fn weapon_poison(&self, stack: &ItemStack) -> bool {
-        stack
-            .fused
-            .is_some_and(|m| self.defs.items[m as usize].fuse_effect == FuseEffect::Poison)
+        self.weapon_effect(stack) == Some(FuseEffect::Poison)
+    }
+
+    fn weapon_effect(&self, stack: &ItemStack) -> Option<FuseEffect> {
+        stack.fused.map(|m| self.defs.items[m as usize].fuse_effect)
+    }
+
+    /// Clear bramble tiles (gate 3) intersecting a pixel box. Returns true
+    /// if anything was cleared.
+    fn clear_gates_in_box(&mut self, sx: i32, sy: i32, x0: i32, y0: i32, x1: i32, y1: i32) -> bool {
+        let Some(screen) = self.world.screen_at(sx, sy) else {
+            return false;
+        };
+        let mut cleared = Vec::new();
+        let (ty0, ty1) = ((y0 - HUD_H).div_euclid(16), (y1 - 1 - HUD_H).div_euclid(16));
+        let (tx0, tx1) = (x0.div_euclid(16), (x1 - 1).div_euclid(16));
+        for ty in ty0..=ty1 {
+            for tx in tx0..=tx1 {
+                if !(0..world::SCREEN_COLS).contains(&tx)
+                    || !(0..world::SCREEN_ROWS).contains(&ty)
+                {
+                    continue;
+                }
+                let idx = ty * world::SCREEN_COLS + tx;
+                if self.overrides.contains_key(&(sx, sy, idx)) {
+                    continue;
+                }
+                let tile = screen.tiles[idx as usize] as usize;
+                if self.world.tile_gate.get(tile).copied().unwrap_or(0) == 3 {
+                    if let Some(&target) = self.world.tile_cleared.get(tile) {
+                        if target >= 0 {
+                            cleared.push((idx, target as u16));
+                        }
+                    }
+                }
+            }
+        }
+        let any = !cleared.is_empty();
+        for (idx, target) in cleared {
+            self.overrides.insert((sx, sy, idx), target);
+        }
+        any
     }
 
     /// Durability loss on a connect; breaks the item at 0 (removed from
@@ -551,6 +682,28 @@ impl Sim {
             pl.prev_buttons = pl.buttons;
             self.players[slot] = Some(pl);
             return;
+        }
+
+        // Dialogue: freezes the player; A advances pages.
+        if pl.dialogue.is_some() {
+            if pl.buttons & BTN_A != 0 && pl.prev_buttons & BTN_A == 0 {
+                self.advance_dialogue(&mut pl, slot);
+            }
+            pl.walking = false;
+            pl.prev_buttons = pl.buttons;
+            self.players[slot] = Some(pl);
+            return;
+        }
+
+        // Talking takes priority over swinging when an NPC is in reach.
+        if pl.buttons & BTN_A != 0 && pl.prev_buttons & BTN_A == 0 {
+            if let Some(npc) = self.npc_in_front(&pl) {
+                pl.dialogue = Some(self.choose_dialogue(&pl, npc));
+                pl.fishing = None;
+                pl.prev_buttons = pl.buttons;
+                self.players[slot] = Some(pl);
+                return;
+            }
         }
 
         // Sword swing: A edge starts (requires a sword in A); movement locked.
@@ -757,8 +910,217 @@ impl Sim {
             }
         }
 
+        // Key doors: push into one with the right key to open it.
+        if pl.walking {
+            let pushing = matches!(
+                (pl.facing, pl.buttons),
+                (0, b) if b & BTN_DOWN != 0)
+                || matches!((pl.facing, pl.buttons), (1, b) if b & BTN_UP != 0)
+                || matches!((pl.facing, pl.buttons), (2, b) if b & BTN_LEFT != 0)
+                || matches!((pl.facing, pl.buttons), (3, b) if b & BTN_RIGHT != 0);
+            if pushing {
+                let (fx_, fy_) = facing_tile_center(&pl);
+                let door = self.world.screen_at(pl.sx, pl.sy).and_then(|screen| {
+                    let (idx, tile) = self.world.tile_at(screen, fx_, fy_)?;
+                    if self.overrides.contains_key(&(pl.sx, pl.sy, idx)) {
+                        return None; // already opened
+                    }
+                    let gate = self.world.tile_gate.get(tile as usize).copied().unwrap_or(0);
+                    let cleared = self.world.tile_cleared.get(tile as usize).copied().unwrap_or(-1);
+                    (matches!(gate, 1 | 2) && cleared >= 0).then_some((idx, gate, cleared as u16))
+                });
+                if let Some((idx, gate, cleared)) = door {
+                    let key_name = if gate == 1 { "small_key" } else { "boss_key" };
+                    let key = self.defs.item_index(key_name);
+                    let key_idx = key.and_then(|k| {
+                        pl.inventory.iter().position(|s| s.def == k && s.qty > 0)
+                    });
+                    if let Some(ki) = key_idx {
+                        consume_one(&mut pl, ki);
+                        self.overrides.insert((pl.sx, pl.sy, idx), cleared);
+                        self.emit_cue(pl.sx, pl.sy, cues::ITEM);
+                        self.emit_toast(slot, "THE DOOR OPENS");
+                    } else if self.tick % 60 == 0 {
+                        self.emit_toast(
+                            slot,
+                            if gate == 1 { "LOCKED. NEEDS A KEY." } else { "SEALED. NEEDS THE BOSS KEY." },
+                        );
+                    }
+                }
+            }
+        }
+
+        // Warp tiles (cave mouths, stairs) teleport on step.
+        if let Some(screen) = self.world.screen_at(pl.sx, pl.sy) {
+            let cx = to_px(pl.x) + 8;
+            let cy = to_px(pl.y) + 8;
+            let (wtx, wty) = (cx.div_euclid(16), (cy - HUD_H).div_euclid(16));
+            if let Some(w) = screen.warps.iter().find(|w| w.tx == wtx && w.ty == wty) {
+                pl.sx = w.sx;
+                pl.sy = w.sy;
+                pl.x = fx(w.px).clamp(MIN_X, MAX_X);
+                pl.y = fx(w.py).clamp(MIN_Y, MAX_Y);
+                pl.transition = None;
+                pl.iframes = pl.iframes.max(30);
+            }
+        }
+
         pl.prev_buttons = pl.buttons;
         self.players[slot] = Some(pl);
+    }
+
+    // ---- npcs, dialogue, quests ----
+
+    fn npc_in_front(&self, p: &Player) -> Option<u8> {
+        let screen = self.world.screen_at(p.sx, p.sy)?;
+        let (fx_, fy_) = facing_tile_center(p);
+        let (cx, cy) = (to_px(p.x) + 8, to_px(p.y) + 8);
+        // Facing tile, or standing inside the NPC (players pass through them).
+        screen
+            .npcs
+            .iter()
+            .find(|n| {
+                ((n.x + 8 - fx_).abs() <= 10 && (n.y + 8 - fy_).abs() <= 10)
+                    || ((n.x + 8 - cx).abs() <= 12 && (n.y + 8 - cy).abs() <= 12)
+            })
+            .map(|n| n.npc)
+    }
+
+    /// Pick what an NPC says: turn-in beats nudge beats new offer beats chatter.
+    fn choose_dialogue(&self, p: &Player, npc: u8) -> Dialogue {
+        let mut offer = None;
+        let mut incomplete = None;
+        for (qi, q) in self.defs.quests.iter().enumerate() {
+            if q.giver != npc {
+                continue;
+            }
+            let qi = qi as u8;
+            match p.quests.iter().find(|pq| pq.quest == qi) {
+                Some(pq) if pq.done => {}
+                Some(pq) => {
+                    if self.objectives_met(p, pq) {
+                        return Dialogue {
+                            npc,
+                            source: DialogueSource::QuestComplete(qi),
+                            page: 0,
+                        };
+                    }
+                    incomplete.get_or_insert(qi);
+                }
+                None => {
+                    let unlocked = q.requires.is_none_or(|req| {
+                        p.quests.iter().any(|pq| pq.quest == req && pq.done)
+                    });
+                    if unlocked {
+                        offer.get_or_insert(qi);
+                    }
+                }
+            }
+        }
+        let source = if let Some(qi) = offer {
+            DialogueSource::QuestOffer(qi)
+        } else if let Some(qi) = incomplete {
+            DialogueSource::QuestIncomplete(qi)
+        } else {
+            let sets = self.defs.npcs[npc as usize].lines.len().max(1) as u32;
+            DialogueSource::Idle(((self.tick / 97) % sets) as u8)
+        };
+        Dialogue {
+            npc,
+            source,
+            page: 0,
+        }
+    }
+
+    fn dialogue_pages<'a>(&'a self, d: &Dialogue) -> &'a [Vec<String>] {
+        dialogue_pages_for(&self.defs, d)
+    }
+
+    fn advance_dialogue(&mut self, pl: &mut Player, slot: usize) {
+        let Some(mut d) = pl.dialogue else {
+            return;
+        };
+        let pages = self.dialogue_pages(&d).len() as u8;
+        d.page += 1;
+        if d.page < pages {
+            pl.dialogue = Some(d);
+            return;
+        }
+        // Dialogue finished: apply its effect.
+        pl.dialogue = None;
+        match d.source {
+            DialogueSource::QuestOffer(qi) => {
+                let q = &self.defs.quests[qi as usize];
+                pl.quests.push(PlayerQuest {
+                    quest: qi,
+                    done: false,
+                    progress: vec![0; q.objectives.len()],
+                });
+                let title = q.title.clone();
+                self.emit_toast(slot, &format!("QUEST: {title}"));
+            }
+            DialogueSource::QuestComplete(qi) => {
+                let pq = pl.quests.iter().find(|pq| pq.quest == qi);
+                if !pq.is_some_and(|pq| self.objectives_met(pl, pq)) {
+                    return; // raced away the items mid-dialogue
+                }
+                // Consume collect objectives.
+                let objectives = self.defs.quests[qi as usize].objectives.clone();
+                for o in &objectives {
+                    if let defs::Objective::Collect { item, count } = o {
+                        let mut left = *count;
+                        while left > 0 {
+                            let Some(idx) =
+                                pl.inventory.iter().position(|s| s.def == *item && s.qty > 0)
+                            else {
+                                break;
+                            };
+                            consume_one(pl, idx);
+                            left -= 1;
+                        }
+                    }
+                }
+                let q = &self.defs.quests[qi as usize];
+                let shells = q.reward_shells;
+                let rewards = q.reward_items.clone();
+                let title = q.title.clone();
+                pl.shells += shells;
+                for (item, qty) in rewards {
+                    give_item(pl, &self.defs, item, qty as u16);
+                }
+                if let Some(pq) = pl.quests.iter_mut().find(|pq| pq.quest == qi) {
+                    pq.done = true;
+                }
+                self.emit_toast(slot, &format!("DONE: {title}"));
+                self.emit_cue(pl.sx, pl.sy, cues::FUSE);
+            }
+            _ => {}
+        }
+    }
+
+    fn objectives_met(&self, p: &Player, pq: &PlayerQuest) -> bool {
+        objectives_met_static(&self.defs, p, pq)
+    }
+
+    /// Bump matching counters on every active quest of this player.
+    fn quest_event(pl: &mut Player, defs: &Defs, ev: QuestEvent) {
+        for pq in pl.quests.iter_mut().filter(|pq| !pq.done) {
+            let q = &defs.quests[pq.quest as usize];
+            for (i, o) in q.objectives.iter().enumerate() {
+                let hit = matches!(
+                    (o, ev),
+                    (defs::Objective::Cook { .. }, QuestEvent::Cook)
+                        | (defs::Objective::Fuse { .. }, QuestEvent::Fuse)
+                        | (defs::Objective::Fish { .. }, QuestEvent::Fish)
+                ) || matches!((o, ev),
+                    (defs::Objective::Kill { enemy, .. }, QuestEvent::Kill(k)) if *enemy == k);
+                if hit {
+                    if let Some(c) = pq.progress.get_mut(i) {
+                        *c += 1;
+                    }
+                }
+            }
+        }
     }
 
     fn step_entities(&mut self) {
@@ -773,19 +1135,21 @@ impl Sim {
                         defs: &self.defs,
                         tick: self.tick,
                     };
-                    if let Some(mut proj) =
+                    for mut spawn in
                         entity::step_enemy(&mut e, &ctx, &self.players, &mut self.rng)
                     {
-                        proj.id = self.next_id;
+                        spawn.id = self.next_id;
                         self.next_id += 1;
-                        let (sx, sy) = (proj.sx, proj.sy);
-                        new_entities.push(proj);
-                        self.audio.push((sx, sy, cues::SHOOT));
-                        self.events.push(GameEvent::Audio {
-                            sx,
-                            sy,
-                            cue: cues::SHOOT,
-                        });
+                        if spawn.etype == ET_PROJECTILE {
+                            let (sx, sy) = (spawn.sx, spawn.sy);
+                            self.audio.push((sx, sy, cues::SHOOT));
+                            self.events.push(GameEvent::Audio {
+                                sx,
+                                sy,
+                                cue: cues::SHOOT,
+                            });
+                        }
+                        new_entities.push(spawn);
                     }
                 }
                 ET_PROJECTILE => entity::step_projectile(&mut e, &self.world),
@@ -797,8 +1161,18 @@ impl Sim {
                         blast.owner = e.owner;
                         self.next_id += 1;
                         let (sx, sy) = (blast.sx, blast.sy);
+                        let (bx, by) = (to_px(blast.x) + 8, to_px(blast.y) + 8);
                         new_entities.push(blast);
                         self.emit_cue(sx, sy, cues::BOOM);
+                        // Blasts blow brambles open.
+                        self.clear_gates_in_box(
+                            sx,
+                            sy,
+                            bx - BLAST_RADIUS,
+                            by - BLAST_RADIUS,
+                            bx + BLAST_RADIUS,
+                            by + BLAST_RADIUS,
+                        );
                     }
                 }
                 ET_BLAST => entity::step_blast(&mut e),
@@ -864,7 +1238,18 @@ impl Sim {
                     if e.hp <= 0 {
                         e.alive = false;
                         hunt_xp += self.defs.enemies[e.def as usize].hunt_xp;
+                        Self::quest_event(&mut p, &self.defs, QuestEvent::Kill(e.def));
                     }
+                }
+            }
+            // Fire-fused weapons burn through bramble tiles in the swing arc.
+            if self
+                .weapon_effect(&weapon)
+                .is_some_and(|e| e == FuseEffect::Fire)
+            {
+                let cleared = self.clear_gates_in_box(p.sx, p.sy, hx0, hy0, hx1, hy1);
+                if cleared {
+                    self.emit_cue(p.sx, p.sy, cues::HIT);
                 }
             }
             for c in cues_out {
@@ -882,7 +1267,7 @@ impl Sim {
 
         // 1b. Player arrows and bomb blasts hit enemies.
         let mut arrow_cues = Vec::new();
-        let mut ranged_kills: Vec<(usize, u32)> = Vec::new();
+        let mut ranged_kills: Vec<(usize, u32, u8)> = Vec::new();
         for i in 0..self.entities.len() {
             let proj = self.entities[i].clone();
             if !proj.alive || proj.owner < 0 {
@@ -921,9 +1306,7 @@ impl Sim {
                     if e.hp <= 0 {
                         e.alive = false;
                         let xp = self.defs.enemies[e.def as usize].hunt_xp;
-                        if xp > 0 {
-                            ranged_kills.push((proj.owner as usize, xp));
-                        }
+                        ranged_kills.push((proj.owner as usize, xp, e.def));
                     }
                     if is_arrow {
                         break; // arrows stop on the first enemy hit
@@ -937,9 +1320,12 @@ impl Sim {
         for (sx, sy, c) in arrow_cues {
             self.emit_cue(sx, sy, c);
         }
-        for (owner, xp) in ranged_kills {
+        for (owner, xp, enemy) in ranged_kills {
             if let Some(mut p) = self.players.get(owner).cloned().flatten() {
-                self.award_xp(&mut p, owner, defs::SKILL_HUNTING, xp);
+                if xp > 0 {
+                    self.award_xp(&mut p, owner, defs::SKILL_HUNTING, xp);
+                }
+                Self::quest_event(&mut p, &self.defs, QuestEvent::Kill(enemy));
                 self.players[owner] = Some(p);
             }
         }
@@ -1115,53 +1501,20 @@ impl Sim {
                 };
                 let jx = self.rng.below(13) as i32 - 6;
                 let jy = self.rng.below(13) as i32 - 6;
-                drops.push(Entity {
-                    id: 0,
-                    etype: ET_PICKUP,
-                    def: def_kind,
-                    data,
-                    sx: e.sx,
-                    sy: e.sy,
-                    x: e.x + fx(jx),
-                    y: e.y + fx(jy),
-                    vx: 0,
-                    vy: 0,
-                    hp: 1,
-                    facing: 0,
-                    state: 0,
-                    state_t: 0,
-                    anim: 0,
-                    iframes: 0,
-                    home: e.home,
-                    alive: true,
-                    owner: -1,
-                    poison_t: 0,
-                });
+                let mut d =
+                    entity::blank(ET_PICKUP, e.sx, e.sy, e.x + fx(jx), e.y + fx(jy));
+                d.def = def_kind;
+                d.data = data;
+                d.home = e.home;
+                drops.push(d);
             }
             // Snatchers spill stolen shells on death.
             if def.brain == Brain::Snatcher && e.data > 0 {
-                drops.push(Entity {
-                    id: 0,
-                    etype: ET_PICKUP,
-                    def: PK_SHELLS,
-                    data: e.data,
-                    sx: e.sx,
-                    sy: e.sy,
-                    x: e.x,
-                    y: e.y,
-                    vx: 0,
-                    vy: 0,
-                    hp: 1,
-                    facing: 0,
-                    state: 0,
-                    state_t: 0,
-                    anim: 0,
-                    iframes: 0,
-                    home: e.home,
-                    alive: true,
-                    owner: -1,
-                    poison_t: 0,
-                });
+                let mut d = entity::blank(ET_PICKUP, e.sx, e.sy, e.x, e.y);
+                d.def = PK_SHELLS;
+                d.data = e.data;
+                d.home = e.home;
+                drops.push(d);
             }
         }
         self.entities.retain(|e| e.alive);
@@ -1201,10 +1554,10 @@ impl Sim {
     fn feet_clear(&self, screen: &world::Screen, x: Fx, y: Fx) -> bool {
         let px = to_px(x);
         let py = to_px(y);
-        !(self.world.is_solid(screen, px + FEET_X0, py + FEET_Y0)
-            || self.world.is_solid(screen, px + FEET_X1, py + FEET_Y0)
-            || self.world.is_solid(screen, px + FEET_X0, py + FEET_Y1)
-            || self.world.is_solid(screen, px + FEET_X1, py + FEET_Y1))
+        !(self.effective_solid(screen, px + FEET_X0, py + FEET_Y0)
+            || self.effective_solid(screen, px + FEET_X1, py + FEET_Y0)
+            || self.effective_solid(screen, px + FEET_X0, py + FEET_Y1)
+            || self.effective_solid(screen, px + FEET_X1, py + FEET_Y1))
     }
 
     // ---- ui actions (host applies; clients send C2H::UiAction) ----
@@ -1289,6 +1642,7 @@ impl Sim {
                 self.emit_toast(slot, &format!("COOKED {label}!"));
                 self.emit_cue(p.sx, p.sy, cues::ITEM);
                 self.award_xp(&mut p, slot, defs::SKILL_COOKING, xp);
+                Self::quest_event(&mut p, &self.defs, QuestEvent::Cook);
             }
             "fuse" => {
                 let (wi, mi) = (act.a as usize, act.b as usize);
@@ -1311,6 +1665,7 @@ impl Sim {
                 consume_one(&mut p, mi);
                 self.emit_toast(slot, &format!("FUSED {m_label} TO {w_label}"));
                 self.emit_cue(p.sx, p.sy, cues::FUSE);
+                Self::quest_event(&mut p, &self.defs, QuestEvent::Fuse);
             }
             _ => {}
         }
@@ -1331,6 +1686,7 @@ impl Sim {
                     FishPhase::Cast { .. } => 0,
                     FishPhase::Bite { .. } => 1,
                 }),
+                &p.quests,
             ),
             None => "null".to_string(),
         }
@@ -1379,6 +1735,24 @@ impl Sim {
                         FishPhase::Bite { .. } => 1,
                     }),
                     near_fire: near_fire(&self.world, p),
+                    dialogue: p.dialogue.map(|d| {
+                        let (kind, idx) = match d.source {
+                            DialogueSource::Idle(i) => (0, i),
+                            DialogueSource::QuestOffer(q) => (1, q),
+                            DialogueSource::QuestIncomplete(q) => (2, q),
+                            DialogueSource::QuestComplete(q) => (3, q),
+                        };
+                        (d.npc, kind, idx, d.page)
+                    }),
+                    quests: p
+                        .quests
+                        .iter()
+                        .map(|pq| protocol::QuestSnap {
+                            quest: pq.quest,
+                            done: pq.done,
+                            progress: pq.progress.clone(),
+                        })
+                        .collect(),
                 })
             })
             .collect();
@@ -1414,6 +1788,7 @@ impl Sim {
                 facing: e.facing,
                 anim: e.anim,
                 flash: e.iframes > 0,
+                big: e.big,
             })
             .collect();
 
@@ -1421,6 +1796,11 @@ impl Sim {
             tick: self.tick,
             players,
             entities,
+            overrides: self
+                .overrides
+                .iter()
+                .map(|(&(sx, sy, idx), &t)| (sx, sy, idx, t))
+                .collect(),
         }
     }
 
@@ -1433,6 +1813,7 @@ impl Sim {
             &self.defs,
             &self.players,
             &self.entities,
+            &self.overrides,
             viewpoint,
             self.tick,
             out,
@@ -1481,6 +1862,28 @@ impl Sim {
                             h.u32(t);
                         }
                     }
+                    match p.dialogue {
+                        None => h.u32(0),
+                        Some(d) => {
+                            h.u32(d.npc as u32 + 1);
+                            let (k, i) = match d.source {
+                                DialogueSource::Idle(i) => (0, i),
+                                DialogueSource::QuestOffer(q) => (1, q),
+                                DialogueSource::QuestIncomplete(q) => (2, q),
+                                DialogueSource::QuestComplete(q) => (3, q),
+                            };
+                            h.u32(k);
+                            h.u32(i as u32);
+                            h.u32(d.page as u32);
+                        }
+                    }
+                    for pq in &p.quests {
+                        h.u32(pq.quest as u32);
+                        h.u32(pq.done as u32);
+                        for c in &pq.progress {
+                            h.u32(*c);
+                        }
+                    }
                     for s in &p.inventory {
                         h.u32(s.def as u32);
                         h.u32(s.qty as u32);
@@ -1514,6 +1917,12 @@ impl Sim {
             h.i32(e.owner as i32);
             h.u32(e.poison_t);
         }
+        for (&(sx, sy, idx), &t) in &self.overrides {
+            h.i32(sx);
+            h.i32(sy);
+            h.i32(idx);
+            h.u32(t as u32);
+        }
         h.finish()
     }
 }
@@ -1532,6 +1941,7 @@ fn kind_str(kind: ItemKind) -> &'static str {
 }
 
 /// Shared by the host (live inventory) and clients (snapshot inventory).
+#[allow(clippy::too_many_arguments)]
 pub fn ui_state_json(
     defs: &Defs,
     inventory: &[ItemStack],
@@ -1540,6 +1950,7 @@ pub fn ui_state_json(
     skills: [u32; 3],
     near_fire: bool,
     fishing: Option<u8>,
+    quests: &[PlayerQuest],
 ) -> String {
     #[derive(serde::Serialize)]
     struct UiItem {
@@ -1569,6 +1980,12 @@ pub fn ui_state_json(
         level_ok: bool,
     }
     #[derive(serde::Serialize)]
+    struct UiQuest {
+        title: String,
+        done: bool,
+        objectives: Vec<String>,
+    }
+    #[derive(serde::Serialize)]
     struct UiState {
         inventory: Vec<UiItem>,
         equip_a: i8,
@@ -1578,6 +1995,7 @@ pub fn ui_state_json(
         recipes: Vec<UiRecipe>,
         /// 0 = line out, 1 = bite window, null = not fishing.
         fishing: Option<u8>,
+        quests: Vec<UiQuest>,
     }
 
     let cooking_level = defs.curve.level_for_xp(skills[defs::SKILL_COOKING]);
@@ -1634,6 +2052,57 @@ pub fn ui_state_json(
             })
             .collect(),
         fishing,
+        quests: quests
+            .iter()
+            .map(|pq| {
+                let q = &defs.quests[pq.quest as usize];
+                UiQuest {
+                    title: q.title.clone(),
+                    done: pq.done,
+                    objectives: q
+                        .objectives
+                        .iter()
+                        .enumerate()
+                        .map(|(i, o)| match o {
+                            defs::Objective::Kill { enemy, count } => {
+                                let have = pq.progress.get(i).copied().unwrap_or(0).min(*count);
+                                format!(
+                                    "{} {}/{}",
+                                    defs.enemies[*enemy as usize].name.to_uppercase(),
+                                    have,
+                                    count
+                                )
+                            }
+                            defs::Objective::Collect { item, count } => {
+                                let have: u32 = inventory
+                                    .iter()
+                                    .filter(|s| s.def == *item)
+                                    .map(|s| s.qty as u32)
+                                    .sum();
+                                format!(
+                                    "{} {}/{}",
+                                    defs.items[*item as usize].label,
+                                    have.min(*count),
+                                    count
+                                )
+                            }
+                            defs::Objective::Cook { count } => {
+                                let have = pq.progress.get(i).copied().unwrap_or(0).min(*count);
+                                format!("COOK MEALS {have}/{count}")
+                            }
+                            defs::Objective::Fuse { count } => {
+                                let have = pq.progress.get(i).copied().unwrap_or(0).min(*count);
+                                format!("FUSE ITEMS {have}/{count}")
+                            }
+                            defs::Objective::Fish { count } => {
+                                let have = pq.progress.get(i).copied().unwrap_or(0).min(*count);
+                                format!("CATCH FISH {have}/{count}")
+                            }
+                        })
+                        .collect(),
+                }
+            })
+            .collect(),
     };
     serde_json::to_string(&state).unwrap_or_else(|_| "null".to_string())
 }
@@ -1642,11 +2111,13 @@ pub fn ui_state_json(
 /// Free function so the host (live sim state) and clients (interpolated
 /// snapshot state) share one code path. Paint order: tiles, pickups,
 /// enemies/projectiles, players, HUD.
+#[allow(clippy::too_many_arguments)]
 pub fn render_view(
     world: &World,
     defs: &Defs,
     players: &[Option<Player>; MAX_PLAYERS],
     entities: &[Entity],
+    overrides: &BTreeMap<(i32, i32, i32), u16>,
     viewpoint: usize,
     tick: u32,
     out: &mut DrawList,
@@ -1658,7 +2129,8 @@ pub fn render_view(
 
     match vp.transition {
         None => {
-            draw_screen(world, vp.sx, vp.sy, 0, 0, out);
+            draw_screen(world, overrides, vp.sx, vp.sy, 0, 0, out);
+            draw_npcs_on(world, defs, vp, vp.sx, vp.sy, 0, 0, out);
             draw_entities_on(world, defs, entities, vp.sx, vp.sy, 0, 0, tick, out);
             draw_players_on(world, players, vp.sx, vp.sy, 0, 0, tick, out);
         }
@@ -1679,8 +2151,10 @@ pub fn render_view(
                 dy * ((SCREEN_H - HUD_H) - shift_y),
             );
             let (old_ox, old_oy) = (-dx * shift_x, -dy * shift_y);
-            draw_screen(world, osx, osy, old_ox, old_oy, out);
-            draw_screen(world, vp.sx, vp.sy, new_ox, new_oy, out);
+            draw_screen(world, overrides, osx, osy, old_ox, old_oy, out);
+            draw_screen(world, overrides, vp.sx, vp.sy, new_ox, new_oy, out);
+            draw_npcs_on(world, defs, vp, osx, osy, old_ox, old_oy, out);
+            draw_npcs_on(world, defs, vp, vp.sx, vp.sy, new_ox, new_oy, out);
             draw_entities_on(world, defs, entities, osx, osy, old_ox, old_oy, tick, out);
             draw_entities_on(world, defs, entities, vp.sx, vp.sy, new_ox, new_oy, tick, out);
             draw_players_on(world, players, osx, osy, old_ox, old_oy, tick, out);
@@ -1689,15 +2163,117 @@ pub fn render_view(
     }
 
     draw_hud(world, vp, out);
+    draw_dialogue(world, defs, vp, out);
 }
 
-fn draw_screen(world: &World, sx: i32, sy: i32, ox: i32, oy: i32, out: &mut DrawList) {
+fn draw_npcs_on(
+    world: &World,
+    defs: &Defs,
+    vp: &Player,
+    sx: i32,
+    sy: i32,
+    ox: i32,
+    oy: i32,
+    out: &mut DrawList,
+) {
+    let Some(screen) = world.screen_at(sx, sy) else {
+        return;
+    };
+    for n in &screen.npcs {
+        let def = &defs.npcs[n.npc as usize];
+        out.sprite(def.sprite, n.x + ox, n.y + oy, 0, 0);
+
+        // Quest marker as seen by the viewpoint player.
+        let mut marker = None;
+        for (qi, q) in defs.quests.iter().enumerate() {
+            if q.giver != n.npc {
+                continue;
+            }
+            match vp.quests.iter().find(|pq| pq.quest == qi as u8) {
+                Some(pq) if pq.done => {}
+                Some(pq) => {
+                    if objectives_met_static(defs, vp, pq) {
+                        marker = Some('?');
+                        break;
+                    }
+                }
+                None => {
+                    let unlocked = q.requires.is_none_or(|req| {
+                        vp.quests.iter().any(|pq| pq.quest == req && pq.done)
+                    });
+                    if unlocked {
+                        marker.get_or_insert('!');
+                    }
+                }
+            }
+        }
+        if let Some(c) = marker {
+            if let Some(g) = world.glyph(c) {
+                out.glyph(g, n.x + 4 + ox, n.y - 9 + oy, 1);
+            }
+        }
+    }
+}
+
+fn draw_dialogue(world: &World, defs: &Defs, vp: &Player, out: &mut DrawList) {
+    let Some(d) = vp.dialogue else {
+        return;
+    };
+    let pages = dialogue_pages_for(defs, &d);
+    let Some(lines) = pages.get(d.page as usize) else {
+        return;
+    };
+    // Box: bottom 44px of the playfield, light border, dark fill.
+    out.rect(3, 2, SCREEN_H - 46, (SCREEN_W - 4) as u16, 44);
+    out.rect(0, 4, SCREEN_H - 44, (SCREEN_W - 8) as u16, 40);
+    // Speaker name then up to 3 text lines.
+    draw_text(world, &defs.npcs[d.npc as usize].label, 8, SCREEN_H - 41, 1, out);
+    for (i, line) in lines.iter().take(3).enumerate() {
+        draw_text(world, line, 8, SCREEN_H - 31 + i as i32 * 9, 1, out);
+    }
+    if let Some(g) = world.glyph('>') {
+        out.glyph(g, SCREEN_W - 14, SCREEN_H - 12, 1);
+    }
+}
+
+fn objectives_met_static(defs: &Defs, p: &Player, pq: &PlayerQuest) -> bool {
+    let q = &defs.quests[pq.quest as usize];
+    q.objectives.iter().enumerate().all(|(i, o)| match o {
+        defs::Objective::Collect { item, count } => {
+            let have: u32 = p
+                .inventory
+                .iter()
+                .filter(|s| s.def == *item)
+                .map(|s| s.qty as u32)
+                .sum();
+            have >= *count
+        }
+        defs::Objective::Kill { count, .. }
+        | defs::Objective::Cook { count }
+        | defs::Objective::Fuse { count }
+        | defs::Objective::Fish { count } => pq.progress.get(i).copied().unwrap_or(0) >= *count,
+    })
+}
+
+fn draw_screen(
+    world: &World,
+    overrides: &BTreeMap<(i32, i32, i32), u16>,
+    sx: i32,
+    sy: i32,
+    ox: i32,
+    oy: i32,
+    out: &mut DrawList,
+) {
     let Some(screen) = world.screen_at(sx, sy) else {
         return;
     };
     for ty in 0..world::SCREEN_ROWS {
         for tx in 0..world::SCREEN_COLS {
-            let tile = screen.tiles[(ty * world::SCREEN_COLS + tx) as usize];
+            let idx = ty * world::SCREEN_COLS + tx;
+            let tile = overrides
+                .get(&(sx, sy, idx))
+                .copied()
+                .unwrap_or(screen.tiles[idx as usize]);
             out.tile(tile, tx * 16 + ox, HUD_H + ty * 16 + oy, 0);
         }
     }
@@ -1719,8 +2295,9 @@ fn draw_entities_on(
         if e.sx != sx || e.sy != sy || e.etype != ET_PICKUP {
             continue;
         }
-        // Blink during the final 2s before despawning.
-        if e.state_t > entity::PICKUP_TTL - 120 && (tick >> 2) & 1 == 1 {
+        // Blink during the final 2s before despawning (not for persistent
+        // map items, state 1).
+        if e.state == 0 && e.state_t > entity::PICKUP_TTL - 120 && (tick >> 2) & 1 == 1 {
             continue;
         }
         let sprite = match e.def {
@@ -1747,8 +2324,17 @@ fn draw_entities_on(
                 }
                 let def = &defs.enemies[e.def as usize];
                 let frame = ((e.anim >> 4) & 1) as u16;
-                let flags = if e.facing == 3 { FLAG_FLIP_X } else { 0 };
-                out.sprite(def.sprite + frame, px, py, 0, flags);
+                if e.big {
+                    // 2x2 block mirrored from one quadrant sprite.
+                    let s = def.sprite + frame;
+                    out.sprite(s, px, py, 0, 0);
+                    out.sprite(s, px + 16, py, 0, FLAG_FLIP_X);
+                    out.sprite(s, px, py + 16, 0, draw::FLAG_FLIP_Y);
+                    out.sprite(s, px + 16, py + 16, 0, FLAG_FLIP_X | draw::FLAG_FLIP_Y);
+                } else {
+                    let flags = if e.facing == 3 { FLAG_FLIP_X } else { 0 };
+                    out.sprite(def.sprite + frame, px, py, 0, flags);
+                }
             }
             ET_PROJECTILE => match e.def {
                 PJ_ARROW => {
@@ -1949,6 +2535,22 @@ fn blocks(defs: &Defs, p: &Player, ax: Fx, ay: Fx) -> bool {
     }
 }
 
+pub fn dialogue_pages_for<'a>(defs: &'a Defs, d: &Dialogue) -> &'a [Vec<String>] {
+    match d.source {
+        DialogueSource::Idle(set) => {
+            let lines = &defs.npcs[d.npc as usize].lines;
+            if lines.is_empty() {
+                &[]
+            } else {
+                std::slice::from_ref(&lines[(set as usize) % lines.len()])
+            }
+        }
+        DialogueSource::QuestOffer(q) => &defs.quests[q as usize].offer,
+        DialogueSource::QuestIncomplete(q) => &defs.quests[q as usize].incomplete,
+        DialogueSource::QuestComplete(q) => &defs.quests[q as usize].complete,
+    }
+}
+
 /// Pixel center of the tile directly in front of the player.
 fn facing_tile_center(p: &Player) -> (i32, i32) {
     let cx = to_px(p.x) + 8;
@@ -2014,8 +2616,13 @@ mod tests {
             } else {
                 "[]"
             };
+            let npcs = if sx == 0 {
+                r#"[{"t":"elder","tx":4,"ty":1}]"#
+            } else {
+                "[]"
+            };
             screens.push(format!(
-                r#"{{"x":{sx},"y":0,"name":"t{sx}","tiles":{tiles:?},"entities":{entities}}}"#
+                r#"{{"x":{sx},"y":0,"name":"t{sx}","tiles":{tiles:?},"entities":{entities},"npcs":{npcs}}}"#
             ));
         }
         let sprites = [
@@ -2067,7 +2674,14 @@ mod tests {
 "drops":{{"basic":[{{"item":"heart","p":400}},{{"item":"shells","p":600,"min":1,"max":3}},{{"item":"crab_claw","p":300}}]}},
 "skills":{{"curve":{{"base":100,"growth":50,"max_level":15}},
  "fishing":[{{"item":"raw_perch","min_level":1,"weight":60,"xp":25}}]}},
-"recipes":[{{"output":"grilled_perch","inputs":["raw_perch"],"level":1,"xp":30}}]}}"#,
+"recipes":[{{"output":"grilled_perch","inputs":["raw_perch"],"level":1,"xp":30}}],
+"npcs":[{{"name":"elder","label":"ELDER","sprite":"gel_0",
+ "lines":[["HELLO TRAVELER."]]}}],
+"quests":[{{"id":"cull","giver":"elder","title":"CULL THE THORNS",
+ "offer":[["KILL A THORNLING."]],"incomplete":[["STILL HISSING..."]],
+ "complete":[["IT IS DONE."]],
+ "objectives":[{{"type":"kill","target":"thornling","count":1}}],
+ "rewards":{{"shells":10,"items":[{{"item":"bomb","qty":2}}]}}}}]}}"#,
             screens.join(",")
         )
     }
@@ -2326,6 +2940,68 @@ mod tests {
             .unwrap();
         sim.ui_action(0, &format!(r#"{{"action":"eat","a":{eat_idx}}}"#));
         assert_eq!(sim.players[0].as_ref().unwrap().hp, 6);
+    }
+
+    #[test]
+    fn quest_accept_progress_turnin() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 41).unwrap();
+        sim.add_player(0);
+        // Stand under the elder at tile (4,1) -> px 64, py 16+16=32; face up.
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.x = fx(64);
+            p.y = fx(32 + 18);
+            p.facing = 1;
+        }
+        let talk = |sim: &mut Sim| {
+            sim.set_input(0, BTN_A);
+            sim.step();
+            sim.set_input(0, 0);
+            sim.step();
+        };
+        // Open dialogue (offer has 1 page), advance once to accept.
+        talk(&mut sim);
+        assert!(sim.players[0].as_ref().unwrap().dialogue.is_some());
+        talk(&mut sim);
+        let p = sim.players[0].as_ref().unwrap();
+        assert!(p.dialogue.is_none());
+        assert_eq!(p.quests.len(), 1);
+        assert!(!p.quests[0].done);
+
+        // Kill the thornling (teleport next to it like the combat test).
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.x = fx(32);
+            p.y = fx(48 + 18);
+            p.facing = 1;
+        }
+        for _ in 0..3 {
+            sim.set_input(0, BTN_A);
+            for _ in 0..20 {
+                sim.step();
+            }
+            sim.set_input(0, 0);
+            for _ in 0..4 {
+                sim.step();
+            }
+        }
+        let p = sim.players[0].as_ref().unwrap();
+        assert_eq!(p.quests[0].progress[0], 1, "kill counted");
+
+        // Return and turn in.
+        let shells_before = p.shells;
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.x = fx(64);
+            p.y = fx(32 + 18);
+            p.facing = 1;
+        }
+        talk(&mut sim); // opens complete dialogue
+        talk(&mut sim); // advances past its single page -> rewards
+        let p = sim.players[0].as_ref().unwrap();
+        assert!(p.quests[0].done, "quest done");
+        assert_eq!(p.shells, shells_before + 10);
     }
 
     #[test]

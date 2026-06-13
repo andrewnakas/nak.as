@@ -26,6 +26,13 @@ o window
 d dock
 g tall_grass
 C campfire
+f dungeon_floor
+x dungeon_wall
+B bramble
+L locked_door
+K boss_door
+< stairs_up
+> stairs_down
 
 SCREEN 0 0 bramble_west
 TTTTTTTTTT
@@ -51,6 +58,7 @@ TT..--..TT
 E shellsnatcher 5 3
 E marsh_gel 2 5
 E thicket_hare 7 5
+N marsh_hermit 8 5
 
 SCREEN 2 0 bramble_east
 TTTTTTTTTT
@@ -66,7 +74,7 @@ E dune_wasp 7 4
 
 SCREEN 3 0 cliff_overlook
 cccccccccc
-cP......Pc
+cP..>...Pc
 c..r..r..c
 .....,....
 c.P....P.c
@@ -76,6 +84,7 @@ ccc....ccc
 E dune_wasp 4 3
 E dune_wasp 7 5
 E hollow_stag 4 5
+W 4 1 10 10 72 112
 
 SCREEN 0 1 west_fields
 TT..--..TT
@@ -89,6 +98,7 @@ TT.s..s.TT
 E marsh_gel 3 3
 E shellsnatcher 7 6
 E thicket_hare 6 3
+N bramble 2 6
 
 SCREEN 1 1 driftwood_village
 TT..--..TT
@@ -99,6 +109,9 @@ TT..--..TT
 ....--....
 ..C.--.,..
 .s..--..s.
+N elder_maru 2 3
+N tink 7 3
+N wren 3 6
 
 SCREEN 2 1 village_east
 TTT....TTT
@@ -146,6 +159,7 @@ wwww-dwwww
 wwww-dwwww
 WWww-dwwWW
 WWWWddWWWW
+N pike 7 1
 
 SCREEN 2 2 shellcomb_east
 ..s....s..
@@ -173,3 +187,152 @@ E snapcrab 7 3
 E dune_wasp 3 1
 
 SPAWN 1 1 72 80
+
+# ===== THE ROOTCELLAR (dungeon) =====
+# Layout (sx 10-13, sy 10-12):
+#  entry(10,10) - hall(11,10) - pips(12,10) L keyroom(13,10)
+#  brambles(10,11) - gels(11,11) - sentry(12,11) - junction(13,11)
+#  key2(10,12) - corridor(11,12) L bosskey(12,12) K boss(13,12)
+
+SCREEN 10 10 d_entry
+xxxxxxxxxx
+xffffffffx
+xffffffffx
+ffffffffff
+xffffffffx
+xffffffffx
+xfff<fff.x
+xxxxffxxxx
+W 4 6 3 0 64 40
+W 5 6 3 0 64 40
+
+SCREEN 11 10 d_hall
+xxxxxxxxxx
+xffffffffx
+xfBffffBfx
+ffffffffff
+xfBffffBfx
+xffffffffx
+xffffffffx
+xxxxffxxxx
+E cave_pip 3 3
+E cave_pip 6 4
+
+SCREEN 12 10 d_pips
+xxxxxxxxxx
+xffffffffx
+xffffffffx
+fffffffffL
+xffffffffx
+xffffffffx
+xffffffffx
+xxxxxxxxxx
+E cave_pip 2 2
+E cave_pip 7 2
+E cave_pip 4 5
+I small_key 8 6
+
+SCREEN 13 10 d_keyroom
+xxxxxxxxxx
+xffffffffx
+xfBBBBBBfx
+LfBffffBff
+xfBffffBfx
+xfBBBBfBfx
+xffffffffx
+xxxxffxxxx
+I small_key 4 3
+
+SCREEN 10 11 d_brambles
+xxxxffxxxx
+xffffffffx
+xBBBBBBBfx
+xffffffBfx
+xfBBBBfBfx
+xfBffffffx
+xfBfBBBBBx
+xxxxffxxxx
+I small_key 3 5
+
+SCREEN 11 11 d_gels
+xxxxffxxxx
+xffffffffx
+xffffffffx
+ffffffffff
+xffffffffx
+xffffffffx
+xffffffffx
+xxxxffxxxx
+E marsh_gel 3 2
+E marsh_gel 6 3
+E marsh_gel 4 5
+
+SCREEN 12 11 d_sentry
+xxxxxxxxxx
+xffffffffx
+xffffffffx
+ffffffffff
+xffffffffx
+xffffffffx
+xffffffffx
+xxxxffxxxx
+E rootbound_sentry 4 3
+E cave_pip 7 2
+
+SCREEN 13 11 d_junction
+xxxxffxxxx
+xffffffffx
+xffffffffx
+ffffffffff
+xffffffffx
+xffffffffx
+xffffffffx
+xxxxxxxxxx
+E cave_pip 3 3
+E cave_pip 6 4
+
+SCREEN 10 12 d_key2
+xxxxffxxxx
+xffffffffx
+xffffffffx
+xffffffffx
+xffffffffx
+xffffffffx
+xffffffffx
+xxxxxxxxxx
+E rootbound_sentry 5 4
+E marsh_gel 2 2
+
+SCREEN 11 12 d_corridor
+xxxxffxxxx
+xffffffffx
+xfBfBfBffx
+xffffffffx
+xfBfBfBffx
+xffffffffx
+xffffffffx
+xxxxxxxxxx
+E cave_pip 5 5
+
+SCREEN 12 12 d_bosskey
+xxxxxxxxxx
+xffffffffx
+xfffBBfffx
+LffBffBffx
+xfffBBfffx
+xffffffffx
+xffffffffx
+xxxxxxxxxx
+I boss_key 5 3
+E rootbound_sentry 2 5
+
+SCREEN 13 12 d_boss
+xxxxxxxxxx
+xffffffffx
+xffffffffx
+Kffffffffx
+xffffffffx
+xffffffffx
+xffffffffx
+xxxxxxxxxx
+E moldra 5 2

@@ -662,6 +662,183 @@ export const SPRITES = [
     }),
   },
 
+  // ---- NPCs ----
+  {
+    name: 'npc_elder',
+    palette: 'wood',
+    grid: [
+      '................',
+      '....00000000....',
+      '...0333333330...',
+      '..033333333330..',
+      '..033222222330..',
+      '..032022220230..',
+      '..032222222230..',
+      '...0222112220...',
+      '...0221111220...',
+      '..011111111110..',
+      '.01111111111110.',
+      '.01111111111110.',
+      '..011111111110..',
+      '...0110..0110...',
+      '...0000..0000...',
+      '................',
+    ],
+  },
+  {
+    name: 'npc_a',
+    palette: 'water',
+    grid: [
+      '................',
+      '....00000000....',
+      '...0111111110...',
+      '..011111111110..',
+      '..011222222110..',
+      '..022022220220..',
+      '..022222222220..',
+      '...0222222220...',
+      '..033333333330..',
+      '.03333333333330.',
+      '.02233333333220.',
+      '..033333333330..',
+      '..033333333330..',
+      '...0110..0110...',
+      '...0000..0000...',
+      '................',
+    ],
+  },
+  {
+    name: 'npc_b',
+    palette: 'sand',
+    grid: [
+      '................',
+      '....00000000....',
+      '...0222222220...',
+      '..022222222220..',
+      '..022333333220..',
+      '..023023320320..',
+      '..023333333320..',
+      '...0333333330...',
+      '..011111111110..',
+      '.01111111111110.',
+      '.03311111111330.',
+      '..011111111110..',
+      '..011111111110..',
+      '...0110..0110...',
+      '...0000..0000...',
+      '................',
+    ],
+  },
+
+  // ---- dungeon enemies & boss ----
+  {
+    name: 'pip_0',
+    palette: 'stone',
+    grid: grid((x, y) => {
+      // bat: wings spread
+      if (y >= 5 && y <= 8 && (x <= 4 || x >= 11)) {
+        const wx = x <= 4 ? x : 15 - x;
+        return y - 5 <= wx ? 2 : '.';
+      }
+      const b = blob(7.5, 7, 2.6, 3)(x, y);
+      if (b === '.') return '.';
+      if (y === 6 && (x === 6 || x === 9)) return 3;
+      return b === 3 ? 2 : b;
+    }),
+  },
+  {
+    name: 'pip_1',
+    palette: 'stone',
+    grid: grid((x, y) => {
+      // wings up
+      if (y >= 2 && y <= 6 && (x <= 4 || x >= 11)) {
+        const wx = x <= 4 ? x : 15 - x;
+        return 6 - y <= wx ? 2 : '.';
+      }
+      const b = blob(7.5, 8, 2.6, 3)(x, y);
+      if (b === '.') return '.';
+      if (y === 7 && (x === 6 || x === 9)) return 3;
+      return b === 3 ? 2 : b;
+    }),
+  },
+  {
+    name: 'sentry_0',
+    palette: 'grass',
+    grid: grid((x, y) => {
+      // rooted knot of wood with one eye
+      if (y >= 12 && (x === 4 || x === 8 || x === 11)) return 0; // roots
+      const b = blob(7.5, 8, 5, 4.6)(x, y);
+      if (b === '.') return '.';
+      if (Math.hypot(x - 7.5, y - 7) < 1.8) return 3; // eye
+      return (x * 2 + y) % 5 === 0 ? 0 : b === 3 ? 2 : b;
+    }),
+  },
+  {
+    name: 'sentry_1',
+    palette: 'grass',
+    grid: grid((x, y) => {
+      if (y >= 12 && (x === 5 || x === 9 || x === 12)) return 0;
+      const b = blob(7.5, 8.5, 5, 4.2)(x, y);
+      if (b === '.') return '.';
+      if (Math.hypot(x - 7.5, y - 7.5) < 1.4) return 3;
+      return (x * 2 + y) % 5 === 0 ? 0 : b === 3 ? 2 : b;
+    }),
+  },
+  {
+    // Top-left quadrant of the 32x32 boss; mirrored x/y at render time.
+    name: 'moldra_0',
+    palette: 'grass',
+    grid: grid((x, y) => {
+      // gnarled root mass radiating from the bottom-right corner
+      const d = Math.hypot(15 - x, 15 - y);
+      if (d > 14) return '.';
+      if (d > 12.5) return 0;
+      const vein = (Math.atan2(15 - y, 15 - x) * 8) | 0;
+      if (vein % 2 === 0 && d > 5) return 1;
+      if (d < 4.5) return 0; // dark core
+      return (x + y) % 7 === 0 ? 3 : 2;
+    }),
+  },
+  {
+    name: 'moldra_1',
+    palette: 'grass',
+    grid: grid((x, y) => {
+      const d = Math.hypot(15 - x, 15 - y);
+      if (d > 14.5) return '.';
+      if (d > 13) return 0;
+      const vein = (Math.atan2(15 - y, 15 - x) * 8 + 1) | 0;
+      if (vein % 2 === 0 && d > 5.5) return 1;
+      if (d < 4) return 0;
+      return (x + y) % 7 === 3 ? 3 : 2;
+    }),
+  },
+
+  // ---- keys ----
+  {
+    name: 'itm_key',
+    palette: 'sand',
+    grid: grid((x, y) => {
+      const d = Math.hypot(x - 5, y - 5);
+      if (d < 3.2 && d > 1.6) return 3; // bow ring
+      if (x - y === 0 && x >= 6 && x <= 11) return 3; // shaft
+      if (y === 11 && x >= 10 && x <= 11) return 3; // teeth
+      if (y === 12 && x === 10) return 3;
+      return '.';
+    }),
+  },
+  {
+    name: 'itm_bosskey',
+    palette: 'hero',
+    grid: grid((x, y) => {
+      const d = Math.hypot(x - 5, y - 5);
+      if (d < 3.8 && d > 1.4) return y < 5 ? 3 : 2;
+      if (x - y === 0 && x >= 6 && x <= 12) return 2;
+      if (y === 11 && x >= 10 && x <= 12) return 2;
+      if (y === 13 && x === 11) return 2;
+      return '.';
+    }),
+  },
+
   // ---- materials (drops; inventory icons in Phase 4) ----
   {
     name: 'mat_claw',

@@ -48,6 +48,16 @@ pub struct PlayerSnap {
     /// Fishing phase: 0 = waiting, 1 = bite window.
     pub fishing: Option<u8>,
     pub near_fire: bool,
+    /// (npc, source kind 0..=3, source index, page).
+    pub dialogue: Option<(u8, u8, u8, u8)>,
+    pub quests: Vec<QuestSnap>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct QuestSnap {
+    pub quest: u8,
+    pub done: bool,
+    pub progress: Vec<u32>,
 }
 
 /// Entity type tags inside EntitySnap.
@@ -70,6 +80,7 @@ pub struct EntitySnap {
     pub facing: u8,
     pub anim: u32,
     pub flash: bool,
+    pub big: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -77,6 +88,9 @@ pub struct SnapshotData {
     pub tick: u32,
     pub players: Vec<PlayerSnap>,
     pub entities: Vec<EntitySnap>,
+    /// Mutated tiles: (sx, sy, tile index, new tile id). Full list — the
+    /// world has only a handful of doors/brambles.
+    pub overrides: Vec<(i32, i32, i32, u16)>,
 }
 
 /// Discrete things that happened in the sim, sent reliably to clients.

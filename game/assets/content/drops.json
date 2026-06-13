@@ -34,5 +34,18 @@
     { "item": "venison", "p": 1000, "min": 1, "max": 2 },
     { "item": "stag_pelt", "p": 600 },
     { "item": "ember_cap", "p": 300 }
+  ],
+  "cave_pip": [
+    { "item": "heart", "p": 300 },
+    { "item": "shells", "p": 400, "min": 1, "max": 2 }
+  ],
+  "rootbound_sentry": [
+    { "item": "heart", "p": 400 },
+    { "item": "shells", "p": 700, "min": 2, "max": 4 },
+    { "item": "hardwood", "p": 500 }
+  ],
+  "moldra": [
+    { "item": "heart", "p": 1000 },
+    { "item": "shells", "p": 1000, "min": 30, "max": 50 }
   ]
 }

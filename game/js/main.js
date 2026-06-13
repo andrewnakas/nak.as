@@ -15,7 +15,7 @@ import { showMenu, setStatus, showPartyCode, showPartyList, InventoryUI } from '
 const ROLE_HOST = 0;
 const ROLE_CLIENT = 1;
 
-const CONTENT_FILES = ['world', 'items', 'enemies', 'drops', 'skills', 'recipes'];
+const CONTENT_FILES = ['world', 'items', 'enemies', 'drops', 'skills', 'recipes', 'npcs', 'quests'];
 
 async function boot() {
   const [, ...parts] = await Promise.all([
@@ -27,10 +27,16 @@ async function boot() {
       }),
     ),
   ]);
+  const bundle = Object.fromEntries(CONTENT_FILES.map((name, i) => [name, parts[i]]));
+  // Debug spawn override: ?at=sx,sy,px,py (solo testing only — changes the
+  // content hash, so mismatched peers are rejected, which is what we want).
+  const at = new URLSearchParams(location.search).get('at');
+  if (CONFIG.debug && at) {
+    const [sx, sy, x, y] = at.split(',').map(Number);
+    bundle.world.spawn = { sx, sy, x, y };
+  }
   // One canonical bundle string — its hash must match across all peers.
-  const worldJson = JSON.stringify(
-    Object.fromEntries(CONTENT_FILES.map((name, i) => [name, parts[i]])),
-  );
+  const worldJson = JSON.stringify(bundle);
 
   const input = new Input();
   const renderer = new Renderer(document.getElementById('screen'));

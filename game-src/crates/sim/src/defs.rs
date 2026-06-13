@@ -39,6 +39,12 @@ pub struct EnemyJson {
     /// Hunting XP granted to the killer (critters).
     #[serde(default)]
     pub hunt_xp: u32,
+    /// 32x32 rendering + hitbox (boss).
+    #[serde(default)]
+    pub big: bool,
+    /// Enemy name this one periodically summons (boss adds).
+    #[serde(default)]
+    pub summons: String,
 }
 
 #[derive(Deserialize)]
@@ -64,6 +70,8 @@ pub enum Brain {
     Snatcher,
     /// Harmless prey: wanders, flees when approached. Hunting XP on kill.
     Critter,
+    /// Moldra: stalks, spits seed spreads, summons; enrages at half HP.
+    Boss,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -82,6 +90,8 @@ pub enum ItemKind {
 pub enum FuseEffect {
     None,
     Poison,
+    /// Fire-fused weapons clear bramble tiles.
+    Fire,
 }
 
 pub struct ItemDef {
@@ -118,6 +128,8 @@ pub struct EnemyDef {
     pub sprite: u16,
     pub drop_table: usize,
     pub hunt_xp: u32,
+    pub big: bool,
+    pub summons: Option<u8>,
 }
 
 #[derive(Clone, Copy)]
@@ -202,6 +214,87 @@ pub struct Recipe {
     pub xp: u32,
 }
 
+// ---- NPCs & quests ----
+
+#[derive(Deserialize)]
+pub struct NpcJson {
+    pub name: String,
+    pub label: String,
+    pub sprite: String,
+    /// Idle dialogue: one entry per page, each page up to 3 lines of 18 chars.
+    pub lines: Vec<Vec<String>>,
+}
+
+pub struct NpcDef {
+    pub name: String,
+    pub label: String,
+    pub sprite: u16,
+    pub lines: Vec<Vec<String>>,
+}
+
+#[derive(Deserialize)]
+pub struct QuestJson {
+    pub id: String,
+    pub giver: String,
+    #[serde(default)]
+    pub requires: Option<String>,
+    pub title: String,
+    pub offer: Vec<Vec<String>>,
+    pub incomplete: Vec<Vec<String>>,
+    pub complete: Vec<Vec<String>>,
+    pub objectives: Vec<ObjectiveJson>,
+    pub rewards: RewardsJson,
+}
+
+#[derive(Deserialize)]
+pub struct ObjectiveJson {
+    #[serde(rename = "type")]
+    pub kind: String,
+    #[serde(default)]
+    pub target: String,
+    #[serde(default = "one")]
+    pub count: u32,
+}
+
+#[derive(Deserialize, Default)]
+pub struct RewardsJson {
+    #[serde(default)]
+    pub shells: u32,
+    #[serde(default)]
+    pub items: Vec<RewardItemJson>,
+}
+
+#[derive(Deserialize)]
+pub struct RewardItemJson {
+    pub item: String,
+    #[serde(default = "one")]
+    pub qty: u32,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum Objective {
+    /// Kill `count` of enemy def.
+    Kill { enemy: u8, count: u32 },
+    /// Hold `count` of item def at turn-in (consumed).
+    Collect { item: u8, count: u32 },
+    Cook { count: u32 },
+    Fuse { count: u32 },
+    Fish { count: u32 },
+}
+
+pub struct QuestDef {
+    pub id: String,
+    pub giver: u8,
+    pub requires: Option<u8>,
+    pub title: String,
+    pub offer: Vec<Vec<String>>,
+    pub incomplete: Vec<Vec<String>>,
+    pub complete: Vec<Vec<String>>,
+    pub objectives: Vec<Objective>,
+    pub reward_shells: u32,
+    pub reward_items: Vec<(u8, u32)>,
+}
+
 pub struct Defs {
     pub items: Vec<ItemDef>,
     pub enemies: Vec<EnemyDef>,
@@ -209,15 +302,20 @@ pub struct Defs {
     pub curve: SkillCurve,
     pub fishing: Vec<FishEntry>,
     pub recipes: Vec<Recipe>,
+    pub npcs: Vec<NpcDef>,
+    pub quests: Vec<QuestDef>,
 }
 
 impl Defs {
+    #[allow(clippy::too_many_arguments)]
     pub fn build(
         items: Vec<ItemJson>,
         enemies: Vec<EnemyJson>,
         drops: BTreeMap<String, Vec<DropJson>>,
         skills: SkillsJson,
         recipes: Vec<RecipeJson>,
+        npcs: Vec<NpcJson>,
+        quests: Vec<QuestJson>,
         sprite_index: &dyn Fn(&str) -> Result<u16, String>,
     ) -> Result<Defs, String> {
         let item_index: BTreeMap<&str, u8> = items
@@ -254,6 +352,7 @@ impl Defs {
             drop_tables.push(table);
         }
 
+        let enemy_names: Vec<String> = enemies.iter().map(|e| e.name.clone()).collect();
         let enemies = enemies
             .into_iter()
             .map(|e| {
@@ -264,12 +363,26 @@ impl Defs {
                     "wasp" => Brain::Wasp,
                     "snatcher" => Brain::Snatcher,
                     "critter" => Brain::Critter,
+                    "boss" => Brain::Boss,
                     other => return Err(format!("enemy '{}': unknown brain '{other}'", e.name)),
                 };
                 let drop_table = drop_names
                     .iter()
                     .position(|n| *n == e.drops)
                     .ok_or_else(|| format!("enemy '{}': unknown drop table '{}'", e.name, e.drops))?;
+                let summons = if e.summons.is_empty() {
+                    None
+                } else {
+                    Some(
+                        enemy_names
+                            .iter()
+                            .position(|n| *n == e.summons)
+                            .map(|i| i as u8)
+                            .ok_or_else(|| {
+                                format!("enemy '{}': unknown summons '{}'", e.name, e.summons)
+                            })?,
+                    )
+                };
                 Ok(EnemyDef {
                     brain,
                     hp: e.hp,
@@ -278,6 +391,8 @@ impl Defs {
                     sprite: sprite_index(&e.sprite)?,
                     drop_table,
                     hunt_xp: e.hunt_xp,
+                    big: e.big,
+                    summons,
                     name: e.name,
                 })
             })
@@ -300,6 +415,7 @@ impl Defs {
                 let fuse_effect = match it.fuse_effect.as_str() {
                     "" | "none" => FuseEffect::None,
                     "poison" => FuseEffect::Poison,
+                    "fire" => FuseEffect::Fire,
                     other => return Err(format!("item '{}': unknown effect '{other}'", it.name)),
                 };
                 Ok(ItemDef {
@@ -352,6 +468,90 @@ impl Defs {
             })
             .collect::<Result<Vec<_>, String>>()?;
 
+        let npcs = npcs
+            .into_iter()
+            .map(|n| {
+                Ok(NpcDef {
+                    sprite: sprite_index(&n.sprite)?,
+                    name: n.name,
+                    label: n.label,
+                    lines: n.lines,
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+
+        let npc_index = |name: &str| -> Result<u8, String> {
+            npcs.iter()
+                .position(|n| n.name == name)
+                .map(|i| i as u8)
+                .ok_or_else(|| format!("unknown npc '{name}'"))
+        };
+        let enemy_lookup = |name: &str| -> Result<u8, String> {
+            enemies
+                .iter()
+                .position(|e| e.name == name)
+                .map(|i| i as u8)
+                .ok_or_else(|| format!("unknown enemy '{name}'"))
+        };
+        let quest_ids: Vec<String> = quests.iter().map(|q| q.id.clone()).collect();
+        let quests = quests
+            .into_iter()
+            .map(|q| {
+                let objectives = q
+                    .objectives
+                    .iter()
+                    .map(|o| {
+                        Ok(match o.kind.as_str() {
+                            "kill" => Objective::Kill {
+                                enemy: enemy_lookup(&o.target)?,
+                                count: o.count,
+                            },
+                            "collect" => Objective::Collect {
+                                item: lookup(&o.target)?,
+                                count: o.count,
+                            },
+                            "cook" => Objective::Cook { count: o.count },
+                            "fuse" => Objective::Fuse { count: o.count },
+                            "fish" => Objective::Fish { count: o.count },
+                            other => {
+                                return Err(format!(
+                                    "quest '{}': unknown objective '{other}'",
+                                    q.id
+                                ))
+                            }
+                        })
+                    })
+                    .collect::<Result<Vec<_>, String>>()?;
+                let requires = match &q.requires {
+                    None => None,
+                    Some(id) => Some(
+                        quest_ids
+                            .iter()
+                            .position(|i| i == id)
+                            .map(|i| i as u8)
+                            .ok_or_else(|| format!("quest '{}': unknown requires '{id}'", q.id))?,
+                    ),
+                };
+                Ok(QuestDef {
+                    giver: npc_index(&q.giver)?,
+                    requires,
+                    objectives,
+                    reward_shells: q.rewards.shells,
+                    reward_items: q
+                        .rewards
+                        .items
+                        .iter()
+                        .map(|r| Ok((lookup(&r.item)?, r.qty)))
+                        .collect::<Result<Vec<_>, String>>()?,
+                    id: q.id,
+                    title: q.title,
+                    offer: q.offer,
+                    incomplete: q.incomplete,
+                    complete: q.complete,
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+
         Ok(Defs {
             items,
             enemies,
@@ -359,7 +559,16 @@ impl Defs {
             curve: skills.curve,
             fishing,
             recipes,
+            npcs,
+            quests,
         })
+    }
+
+    pub fn npc_def_index(&self, name: &str) -> Option<u8> {
+        self.npcs
+            .iter()
+            .position(|n| n.name == name)
+            .map(|i| i as u8)
     }
 
     pub fn enemy_index(&self, name: &str) -> Option<u8> {

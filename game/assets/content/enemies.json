@@ -63,5 +63,34 @@
     "sprite": "stag_0",
     "drops": "hollow_stag",
     "hunt_xp": 70
+  },
+  {
+    "name": "cave_pip",
+    "brain": "wasp",
+    "hp": 1,
+    "damage": 1,
+    "speed": 160,
+    "sprite": "pip_0",
+    "drops": "cave_pip"
+  },
+  {
+    "name": "rootbound_sentry",
+    "brain": "thornling",
+    "hp": 4,
+    "damage": 2,
+    "speed": 0,
+    "sprite": "sentry_0",
+    "drops": "rootbound_sentry"
+  },
+  {
+    "name": "moldra",
+    "brain": "boss",
+    "hp": 24,
+    "damage": 2,
+    "speed": 96,
+    "sprite": "moldra_0",
+    "drops": "moldra",
+    "big": true,
+    "summons": "marsh_gel"
   }
 ]
