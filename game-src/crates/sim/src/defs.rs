@@ -39,6 +39,9 @@ pub struct EnemyJson {
     /// Hunting XP granted to the killer (critters).
     #[serde(default)]
     pub hunt_xp: u32,
+    /// Character (combat) XP granted to the killer.
+    #[serde(default)]
+    pub combat_xp: u32,
     /// 32x32 rendering + hitbox (boss).
     #[serde(default)]
     pub big: bool,
@@ -128,6 +131,7 @@ pub struct EnemyDef {
     pub sprite: u16,
     pub drop_table: usize,
     pub hunt_xp: u32,
+    pub combat_xp: u32,
     pub big: bool,
     pub summons: Option<u8>,
 }
@@ -391,6 +395,7 @@ impl Defs {
                     sprite: sprite_index(&e.sprite)?,
                     drop_table,
                     hunt_xp: e.hunt_xp,
+                    combat_xp: e.combat_xp,
                     big: e.big,
                     summons,
                     name: e.name,

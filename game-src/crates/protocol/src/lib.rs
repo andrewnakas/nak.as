@@ -45,6 +45,9 @@ pub struct PlayerSnap {
     pub equip_b: i8,
     /// XP per skill: [fishing, cooking, hunting].
     pub skills: [u32; 3],
+    /// Character RPG level + total combat XP.
+    pub level: u32,
+    pub xp: u32,
     /// Fishing phase: 0 = waiting, 1 = bite window.
     pub fishing: Option<u8>,
     pub near_fire: bool,

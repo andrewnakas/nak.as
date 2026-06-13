@@ -6,7 +6,8 @@
     "damage": 1,
     "speed": 0,
     "sprite": "thornling_0",
-    "drops": "thornling"
+    "drops": "thornling",
+    "combat_xp": 8
   },
   {
     "name": "snapcrab",
@@ -15,7 +16,8 @@
     "damage": 1,
     "speed": 128,
     "sprite": "snapcrab_0",
-    "drops": "snapcrab"
+    "drops": "snapcrab",
+    "combat_xp": 12
   },
   {
     "name": "marsh_gel",
@@ -24,7 +26,8 @@
     "damage": 1,
     "speed": 160,
     "sprite": "gel_0",
-    "drops": "marsh_gel"
+    "drops": "marsh_gel",
+    "combat_xp": 6
   },
   {
     "name": "dune_wasp",
@@ -33,7 +36,8 @@
     "damage": 2,
     "speed": 224,
     "sprite": "wasp_0",
-    "drops": "dune_wasp"
+    "drops": "dune_wasp",
+    "combat_xp": 14
   },
   {
     "name": "shellsnatcher",
@@ -42,7 +46,8 @@
     "damage": 1,
     "speed": 256,
     "sprite": "snatcher_0",
-    "drops": "shellsnatcher"
+    "drops": "shellsnatcher",
+    "combat_xp": 10
   },
   {
     "name": "thicket_hare",
@@ -52,7 +57,8 @@
     "speed": 320,
     "sprite": "hare_0",
     "drops": "thicket_hare",
-    "hunt_xp": 20
+    "hunt_xp": 20,
+    "combat_xp": 4
   },
   {
     "name": "hollow_stag",
@@ -62,7 +68,8 @@
     "speed": 288,
     "sprite": "stag_0",
     "drops": "hollow_stag",
-    "hunt_xp": 70
+    "hunt_xp": 70,
+    "combat_xp": 25
   },
   {
     "name": "cave_pip",
@@ -71,7 +78,8 @@
     "damage": 1,
     "speed": 160,
     "sprite": "pip_0",
-    "drops": "cave_pip"
+    "drops": "cave_pip",
+    "combat_xp": 6
   },
   {
     "name": "rootbound_sentry",
@@ -80,7 +88,8 @@
     "damage": 2,
     "speed": 0,
     "sprite": "sentry_0",
-    "drops": "rootbound_sentry"
+    "drops": "rootbound_sentry",
+    "combat_xp": 20
   },
   {
     "name": "moldra",
@@ -91,6 +100,7 @@
     "sprite": "moldra_0",
     "drops": "moldra",
     "big": true,
-    "summons": "marsh_gel"
+    "summons": "marsh_gel",
+    "combat_xp": 150
   }
 ]

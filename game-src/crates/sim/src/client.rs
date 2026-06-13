@@ -181,6 +181,8 @@ fn lerp_player(pa: Option<&PlayerSnap>, pb: &PlayerSnap, num: u64, den: u64) -> 
         kvy: 0,
         dead_t: u32::from(pb.dead),
         skills: pb.skills,
+        level: pb.level,
+        xp: pb.xp,
         fishing: pb.fishing.map(|f| {
             if f == 0 {
                 crate::FishPhase::Cast { t: 1 }
@@ -207,6 +209,7 @@ fn lerp_player(pa: Option<&PlayerSnap>, pb: &PlayerSnap, num: u64, den: u64) -> 
                 progress: q.progress.clone(),
             })
             .collect(),
+        intro_done: true, // remote players' intro state is irrelevant locally
     }
 }
 

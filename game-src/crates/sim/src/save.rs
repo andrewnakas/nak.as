@@ -23,7 +23,12 @@ pub struct SaveData {
     pub equip_a: i8,
     pub equip_b: i8,
     pub skills: [u32; 3],
+    #[serde(default)]
+    pub xp: u32,
     pub quests: Vec<SaveQuest>,
+    /// Whether the one-time intro/tutorial is done (spawn in town vs beach).
+    #[serde(default)]
+    pub intro_done: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -64,6 +69,8 @@ pub fn export(defs: &Defs, p: &Player) -> String {
         equip_a: p.equip_a,
         equip_b: p.equip_b,
         skills: p.skills,
+        xp: p.xp,
+        intro_done: p.intro_done,
         quests: p
             .quests
             .iter()
@@ -102,6 +109,9 @@ pub fn apply(defs: &Defs, p: &mut Player, json: &str) -> bool {
     p.hp = data.hp.clamp(1, p.max_hp);
     p.shells = data.shells;
     p.skills = data.skills;
+    p.xp = data.xp;
+    p.level = crate::level_for_xp(data.xp);
+    p.intro_done = data.intro_done;
 
     p.inventory.clear();
     for s in data.inventory.iter().take(crate::INVENTORY_CAP) {

@@ -160,9 +160,40 @@ pub struct Player {
     pub dead_t: u32,
     /// XP per skill: [fishing, cooking, hunting].
     pub skills: [u32; 3],
+    /// Character RPG progression (separate from the per-skill XP above):
+    /// combat XP raises `level`, which raises max HP and base damage.
+    pub level: u32,
+    pub xp: u32,
     pub fishing: Option<FishPhase>,
     pub dialogue: Option<Dialogue>,
     pub quests: Vec<PlayerQuest>,
+    /// Set once the player has completed the intro/tutorial. Persisted so
+    /// returning characters spawn in town, not on the tutorial beach.
+    pub intro_done: bool,
+}
+
+/// Total combat XP required to reach a level (level 1 = 0). Gentle quadratic.
+pub fn xp_for_level(level: u32) -> u32 {
+    let n = level.saturating_sub(1);
+    60 * n + 20 * n * n
+}
+
+pub fn level_for_xp(xp: u32) -> u32 {
+    let mut level = 1;
+    while level < MAX_LEVEL && xp >= xp_for_level(level + 1) {
+        level += 1;
+    }
+    level
+}
+
+pub const MAX_LEVEL: u32 = 30;
+/// Hearts (2 HP each) gained: 3 hearts at L1, +1 heart every 2 levels.
+pub fn max_hp_for_level(level: u32) -> i16 {
+    (6 + (level.saturating_sub(1) / 2) as i16 * 2).min(40)
+}
+/// Flat bonus damage from character level (+1 per 5 levels).
+pub fn level_damage_bonus(level: u32) -> i16 {
+    (level.saturating_sub(1) / 5) as i16
 }
 
 impl Player {
@@ -400,26 +431,16 @@ impl Sim {
             kvy: 0,
             dead_t: 0,
             skills: [0, 0, 0],
+            level: 1,
+            xp: 0,
             fishing: None,
             dialogue: None,
             quests: Vec::new(),
+            intro_done: false,
         };
-        // Starting kit (quest rewards will replace this hand-out later).
-        for (name, qty) in [
-            ("driftwood_sword", 1),
-            ("oak_bow", 1),
-            ("wooden_shield", 1),
-            ("arrow", 15),
-            ("bomb", 5),
-            ("fishing_rod", 1),
-        ] {
-            if let Some(def) = self.defs.item_index(name) {
-                give_item(&mut p, &self.defs, def, qty);
-            }
-        }
-        if !p.inventory.is_empty() {
-            p.equip_a = 0;
-        }
+        // No starting kit: you begin empty-handed. The first weapon is a
+        // stick picked up off the ground in the intro; real gear is bought
+        // from the town vendor with shells.
         self.players[slot] = Some(p);
     }
 
@@ -531,6 +552,25 @@ impl Sim {
         let after = self.defs.curve.level_for_xp(pl.skills[skill]);
         if after > before {
             self.emit_toast(slot, &format!("{} UP! LV {after}", defs::SKILL_NAMES[skill]));
+            self.emit_cue(pl.sx, pl.sy, cues::FUSE);
+        }
+    }
+
+    /// Character XP from a kill. Levels raise max HP and base damage.
+    fn award_combat_xp(&mut self, pl: &mut Player, slot: usize, enemy_def: u8) {
+        let amount = self.defs.enemies[enemy_def as usize].combat_xp;
+        if amount == 0 {
+            return;
+        }
+        let before = pl.level;
+        pl.xp = pl.xp.saturating_add(amount);
+        pl.level = level_for_xp(pl.xp);
+        if pl.level > before {
+            let new_max = max_hp_for_level(pl.level);
+            let gained = new_max - pl.max_hp;
+            pl.max_hp = new_max;
+            pl.hp = (pl.hp + gained.max(0)).min(pl.max_hp); // heal the new hearts
+            self.emit_toast(slot, &format!("LEVEL {}!", pl.level));
             self.emit_cue(pl.sx, pl.sy, cues::FUSE);
         }
     }
@@ -1252,12 +1292,13 @@ impl Sim {
             let Some(weapon) = p.equipped(p.equip_a).copied() else {
                 continue;
             };
-            let damage = self.weapon_damage(&weapon) as i16;
+            let damage = (self.weapon_damage(&weapon) as i16) + level_damage_bonus(p.level);
             let poisons = self.weapon_poison(&weapon);
             let (hx0, hy0, hx1, hy1) = sword_box(&p);
             let mut cues_out = Vec::new();
             let mut connected = false;
             let mut hunt_xp = 0u32;
+            let mut killed: Vec<u8> = Vec::new();
             for e in self.entities.iter_mut() {
                 if !e.alive || e.etype != ET_ENEMY || e.iframes > 0 {
                     continue;
@@ -1282,9 +1323,13 @@ impl Sim {
                     if e.hp <= 0 {
                         e.alive = false;
                         hunt_xp += self.defs.enemies[e.def as usize].hunt_xp;
+                        killed.push(e.def);
                         Self::quest_event(&mut p, &self.defs, QuestEvent::Kill(e.def));
                     }
                 }
+            }
+            for def in killed {
+                self.award_combat_xp(&mut p, slot, def);
             }
             // Fire-fused weapons burn through bramble tiles in the swing arc.
             if self
@@ -1369,6 +1414,7 @@ impl Sim {
                 if xp > 0 {
                     self.award_xp(&mut p, owner, defs::SKILL_HUNTING, xp);
                 }
+                self.award_combat_xp(&mut p, owner, enemy);
                 Self::quest_event(&mut p, &self.defs, QuestEvent::Kill(enemy));
                 self.players[owner] = Some(p);
             }
@@ -1753,6 +1799,8 @@ impl Sim {
                     FishPhase::Bite { .. } => 1,
                 }),
                 &p.quests,
+                p.level,
+                p.xp,
             ),
             None => "null".to_string(),
         }
@@ -1796,6 +1844,8 @@ impl Sim {
                     equip_a: p.equip_a,
                     equip_b: p.equip_b,
                     skills: p.skills,
+                    level: p.level,
+                    xp: p.xp,
                     fishing: p.fishing.map(|f| match f {
                         FishPhase::Cast { .. } => 0,
                         FishPhase::Bite { .. } => 1,
@@ -1905,7 +1955,10 @@ impl Sim {
                     h.u32(p.facing as u32);
                     h.u32(p.anim);
                     h.i32(p.hp as i32);
+                    h.i32(p.max_hp as i32);
                     h.u32(p.shells);
+                    h.u32(p.level);
+                    h.u32(p.xp);
                     h.u32(p.attack_t as u32);
                     h.u32(p.iframes as u32);
                     h.u32(p.dead_t);
@@ -2008,6 +2061,7 @@ fn kind_str(kind: ItemKind) -> &'static str {
 
 /// Shared by the host (live inventory) and clients (snapshot inventory).
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 pub fn ui_state_json(
     defs: &Defs,
     inventory: &[ItemStack],
@@ -2017,6 +2071,8 @@ pub fn ui_state_json(
     near_fire: bool,
     fishing: Option<u8>,
     quests: &[PlayerQuest],
+    char_level: u32,
+    char_xp: u32,
 ) -> String {
     #[derive(serde::Serialize)]
     struct UiItem {
@@ -2062,6 +2118,11 @@ pub fn ui_state_json(
         /// 0 = line out, 1 = bite window, null = not fishing.
         fishing: Option<u8>,
         quests: Vec<UiQuest>,
+        level: u32,
+        xp: u32,
+        xp_into: u32,
+        xp_need: u32,
+        max_hp_hearts: i16,
     }
 
     let cooking_level = defs.curve.level_for_xp(skills[defs::SKILL_COOKING]);
@@ -2169,6 +2230,11 @@ pub fn ui_state_json(
                 }
             })
             .collect(),
+        level: char_level,
+        xp: char_xp,
+        xp_into: char_xp - xp_for_level(char_level),
+        xp_need: xp_for_level(char_level + 1) - xp_for_level(char_level),
+        max_hp_hearts: max_hp_for_level(char_level) / 2,
     };
     serde_json::to_string(&state).unwrap_or_else(|_| "null".to_string())
 }
@@ -2509,10 +2575,12 @@ fn draw_players_on(
 
 fn draw_hud(world: &World, vp: &Player, out: &mut DrawList) {
     out.rect(0, 0, 0, SCREEN_W as u16, HUD_H as u16);
-    // Hearts: '#' full, '%' half, '&' empty in the font charset.
+    // Hearts (cap the row so a high max_hp doesn't run off-screen; the
+    // extra hearts still count, they just don't all draw). '#' full,
+    // '%' half, '&' empty.
     let full = (vp.hp.max(0) / 2) as i32;
     let half = (vp.hp.max(0) % 2) as i32;
-    let total = (vp.max_hp / 2) as i32;
+    let total = ((vp.max_hp / 2) as i32).min(7);
     for i in 0..total {
         let c = if i < full {
             '#'
@@ -2522,16 +2590,30 @@ fn draw_hud(world: &World, vp: &Player, out: &mut DrawList) {
             '&'
         };
         if let Some(g) = world.glyph(c) {
-            out.glyph(g, 2 + i * 9, 4, 1);
+            out.glyph(g, 2 + i * 9, 1, 1);
         }
     }
+
+    // Level (centered) with a thin XP bar beneath it.
+    let lv = format!("LV{}", vp.level);
+    let lvx = (SCREEN_W - lv.len() as i32 * 8) / 2;
+    draw_text(world, &lv, lvx, 1, 1, out);
+    let cur = level_for_xp(vp.xp);
+    let base = xp_for_level(cur);
+    let next = xp_for_level(cur + 1).max(base + 1);
+    let frac = ((vp.xp - base) * 30 / (next - base)).min(30) as i32;
+    out.rect(1, (SCREEN_W - 30) / 2, 11, 30, 2); // track
+    if frac > 0 {
+        out.rect(3, (SCREEN_W - 30) / 2, 11, frac as u16, 2); // fill
+    }
+
     // Shells: icon + count, right-aligned.
     let text = format!("{}", vp.shells);
     let x0 = SCREEN_W - 4 - (text.len() as i32 + 1) * 8;
     if let Some(g) = world.glyph('$') {
-        out.glyph(g, x0, 4, 1);
+        out.glyph(g, x0, 1, 1);
     }
-    draw_text(world, &text, x0 + 9, 4, 1, out);
+    draw_text(world, &text, x0 + 9, 1, 1, out);
 }
 
 pub fn draw_text(world: &World, text: &str, x: i32, y: i32, variant: u16, out: &mut DrawList) {
@@ -2734,7 +2816,7 @@ mod tests {
  {{"name":"raw_perch","label":"RAW PERCH","sprite":"itm_fish","kind":"material"}},
  {{"name":"grilled_perch","label":"GRILLED PERCH","sprite":"itm_food","kind":"food","heal":4}}],
 "enemies":[
- {{"name":"thornling","brain":"thornling","hp":2,"damage":1,"speed":0,"sprite":"thornling_0","drops":"basic"}},
+ {{"name":"thornling","brain":"thornling","hp":2,"damage":1,"speed":0,"sprite":"thornling_0","drops":"basic","combat_xp":100}},
  {{"name":"gel","brain":"gel","hp":2,"damage":1,"speed":128,"sprite":"gel_0","drops":"basic"}},
  {{"name":"hare","brain":"critter","hp":1,"damage":0,"speed":320,"sprite":"gel_0","drops":"basic","hunt_xp":20}}],
 "drops":{{"basic":[{{"item":"heart","p":400}},{{"item":"shells","p":600,"min":1,"max":3}},{{"item":"crab_claw","p":300}}]}},
@@ -2752,11 +2834,36 @@ mod tests {
         )
     }
 
+    /// Players now start empty-handed; tests that exercise the weapon/skill
+    /// systems hand the player a starter kit and equip the sword in A.
+    fn give_starter_kit(sim: &mut Sim, slot: usize) {
+        let kit = [
+            ("driftwood_sword", 1u16),
+            ("oak_bow", 1),
+            ("wooden_shield", 1),
+            ("arrow", 15),
+            ("bomb", 5),
+            ("fishing_rod", 1),
+        ];
+        let mut p = sim.players[slot].take().unwrap();
+        for (name, qty) in kit {
+            if let Some(def) = sim.defs.item_index(name) {
+                give_item(&mut p, &sim.defs, def, qty);
+            }
+        }
+        if !p.inventory.is_empty() {
+            p.equip_a = 0;
+        }
+        sim.players[slot] = Some(p);
+    }
+
     fn scripted_run(ticks: u32) -> u64 {
         let bundle = test_bundle();
         let mut sim = Sim::new(&bundle, 0xA11CE).unwrap();
         sim.add_player(0);
         sim.add_player(1);
+        give_starter_kit(&mut sim, 0);
+        give_starter_kit(&mut sim, 1);
         let mut script = Pcg32::new(42, 7);
         for t in 0..ticks {
             if t % 13 == 0 {
@@ -2780,6 +2887,7 @@ mod tests {
         let bundle = test_bundle();
         let mut sim = Sim::new(&bundle, 1).unwrap();
         sim.add_player(0);
+        give_starter_kit(&mut sim, 0);
         let x0 = sim.players[0].as_ref().unwrap().x;
         sim.set_input(0, BTN_RIGHT);
         for _ in 0..10 {
@@ -2793,6 +2901,7 @@ mod tests {
         let bundle = test_bundle();
         let mut sim = Sim::new(&bundle, 1).unwrap();
         sim.add_player(0);
+        give_starter_kit(&mut sim, 0);
         // Spawn (y=64) is aligned with the edge gap (rows 3-4); walk right through it.
         sim.set_input(0, BTN_RIGHT);
         for _ in 0..400 {
@@ -2807,6 +2916,7 @@ mod tests {
         let bundle = test_bundle();
         let mut sim = Sim::new(&bundle, 99).unwrap();
         sim.add_player(0);
+        give_starter_kit(&mut sim, 0);
         // Teleport next to the thornling at tile (2,2) -> px (32, 48).
         {
             let p = sim.players[0].as_mut().unwrap();
@@ -2843,6 +2953,11 @@ mod tests {
             .filter(|e| e.etype == ET_PICKUP)
             .count();
         assert!(pickups > 0, "expected at least one drop");
+        // Thornling grants 100 combat XP -> level 2 (needs 60) and a heart.
+        let p = sim.players[0].as_ref().unwrap();
+        assert_eq!(p.level, 2, "should have levelled up");
+        assert!(p.xp >= 100);
+        assert_eq!(p.max_hp, max_hp_for_level(2));
     }
 
     #[test]
@@ -2850,6 +2965,7 @@ mod tests {
         let bundle = test_bundle();
         let mut sim = Sim::new(&bundle, 5).unwrap();
         sim.add_player(0);
+        give_starter_kit(&mut sim, 0);
         // Walk into the gel's corner long enough to take contact damage.
         sim.set_input(0, BTN_RIGHT | BTN_DOWN);
         let mut hurt = false;
@@ -2868,6 +2984,7 @@ mod tests {
         let bundle = test_bundle();
         let mut sim = Sim::new(&bundle, 3).unwrap();
         sim.add_player(0);
+        give_starter_kit(&mut sim, 0);
         let claw = sim.defs.item_index("crab_claw").unwrap();
         {
             let p = sim.players[0].as_mut().unwrap();
@@ -2903,6 +3020,7 @@ mod tests {
         let bundle = test_bundle();
         let mut sim = Sim::new(&bundle, 11).unwrap();
         sim.add_player(0);
+        give_starter_kit(&mut sim, 0);
         // Shrink the sword to 2 durability so the test is quick.
         {
             let p = sim.players[0].as_mut().unwrap();
@@ -2939,6 +3057,7 @@ mod tests {
         let bundle = test_bundle();
         let mut sim = Sim::new(&bundle, 21).unwrap();
         sim.add_player(0);
+        give_starter_kit(&mut sim, 0);
         let rod = sim.defs.item_index("fishing_rod").unwrap();
         // Move to screen 1, stand left of the water tile (5,3) facing right.
         {
@@ -3063,6 +3182,7 @@ mod tests {
         let bundle = test_bundle();
         let mut sim = Sim::new(&bundle, 41).unwrap();
         sim.add_player(0);
+        give_starter_kit(&mut sim, 0);
         // Stand under the elder at tile (4,1) -> px 64, py 16+16=32; face up.
         {
             let p = sim.players[0].as_mut().unwrap();
@@ -3125,6 +3245,7 @@ mod tests {
         let bundle = test_bundle();
         let mut sim = Sim::new(&bundle, 31).unwrap();
         sim.add_player(0);
+        give_starter_kit(&mut sim, 0);
         // Spawn a hare right in front of the player and stab it.
         let hare = sim.defs.enemy_index("hare").unwrap();
         let (px, py) = {

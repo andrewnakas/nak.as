@@ -184,6 +184,12 @@ export class InventoryUI {
       return;
     }
 
+    // Character level header.
+    const lvRow = document.createElement('div');
+    lvRow.className = 'inv-row inv-level';
+    lvRow.textContent = `LEVEL ${state.level} — ${state.xp_into}/${state.xp_need} XP — ${state.max_hp_hearts} HEARTS`;
+    list.appendChild(lvRow);
+
     // Skills header.
     const skillsRow = document.createElement('div');
     skillsRow.className = 'inv-row inv-skills';

@@ -123,6 +123,8 @@ impl Game {
                     self.view.latest_near_fire(slot),
                     self.view.latest_fishing(slot),
                     &p.quests,
+                    p.level,
+                    p.xp,
                 ),
                 None => "null".to_string(),
             }
