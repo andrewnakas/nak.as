@@ -31,8 +31,18 @@ export class World {
 
   async join() {
     setStatus('finding a world…');
-    this.code = await findWorld();
+    // Tag the world request with our content version so the lobby only ever
+    // groups peers running the same build — no cross-version mismatches.
+    this.version = this._contentVersion();
+    this.code = await findWorld(undefined, this.version);
     await this._connect();
+  }
+
+  /// A short, stable version tag derived from the content hash of a throwaway
+  /// Game instance. Same build => same tag on every device.
+  _contentVersion() {
+    const g = new Game(this.deps.worldJson, 0, 0n);
+    return g.content_hash().toString(16).slice(0, 8);
   }
 
   async _connect() {
@@ -69,7 +79,7 @@ export class World {
         if (this._refindCount < 4) {
           this._refindCount = (this._refindCount || 0) + 1;
           setStatus('that world was unreachable — finding another…', true);
-          this.code = await findWorld(this.code); // exclude the dead one
+          this.code = await findWorld(this.code, this.version); // exclude the dead one
           return this._connect();
         }
         // Repeatedly failing — likely our own network blocks WebRTC entirely.
@@ -207,26 +217,49 @@ export class World {
     this.session?.stop();
     setStatus('you are now hosting this world…');
     await this._startHost();
+    showWorld(this.code, true);
     this.reconnecting = false;
   }
 
   _onSocketClosed() {
-    // Signaling socket dropped entirely (network blip). Re-find a world.
-    if (!this.reconnecting && !this._shuttingDown) {
-      this._refind();
-    }
+    // The signaling socket is only needed during connect; once we're playing
+    // (have a session) a normal close is fine — the WebRTC link carries the
+    // game. Only re-find if we're not connected and not mid-handoff.
+    if (this.reconnecting || this._shuttingDown) return;
+    if (this.session && this.session.game.tick_count() > 0) return; // playing
+    this._refind();
   }
 
+  /// Find a fresh world, with exponential backoff so a failing network can't
+  /// spin a reconnect storm.
   async _refind() {
+    if (this.reconnecting) return;
     this.reconnecting = true;
     this.session?.stop();
-    try {
-      this.code = await findWorld();
-      await this._connect();
-    } catch (err) {
-      setStatus(`couldn't reach the world: ${err.message}`, true);
+
+    this._attempts = (this._attempts || 0) + 1;
+    if (this._attempts > 8) {
+      setStatus(
+        "couldn't reach the world — your network may block peer connections. try another network or reload.",
+        true,
+      );
+      this.reconnecting = false;
+      return;
     }
-    this.reconnecting = false;
+    const backoff = Math.min(1000 * 2 ** (this._attempts - 1), 15000);
+    await new Promise((r) => setTimeout(r, backoff));
+
+    try {
+      this.code = await findWorld(undefined, this.version);
+      this.reconnecting = false;
+      await this._connect();
+      this._attempts = 0; // connected — reset
+    } catch (err) {
+      this.reconnecting = false;
+      setStatus(`couldn't reach the world: ${err.message}`, true);
+      // try again after backoff
+      this._onSocketClosed();
+    }
   }
 }
 

@@ -110,12 +110,15 @@ export default {
 
     const lobby = () => env.LOBBY.get(env.LOBBY.idFromName('global'));
 
-    // Matchmaking: hand back a world to auto-join. An optional { exclude }
-    // reports a world whose host was unreachable so the lobby retires it.
+    // Matchmaking: hand back a world to auto-join. Optional { exclude }
+    // retires an unreachable world; { version } groups same-build peers.
     if (method === 'POST' && url.pathname === '/find-world') {
       const body = await readJson(request);
-      const exclude = body?.exclude ? `?exclude=${encodeURIComponent(body.exclude)}` : '';
-      const r = await lobby().fetch(`https://lobby/find${exclude}`);
+      const params = new URLSearchParams();
+      if (body?.exclude) params.set('exclude', body.exclude);
+      if (body?.version) params.set('version', body.version);
+      const qs = params.toString();
+      const r = await lobby().fetch(`https://lobby/find${qs ? `?${qs}` : ''}`);
       const world = await r.json();
       return json(request, 200, world);
     }

@@ -213,7 +213,8 @@ export class HostSession extends BaseSession {
   stop() {
     super.stop();
     for (const peer of this.peers.values()) peer.link.close();
-    this.signaling?.close();
+    // The signaling socket is owned by the World orchestrator (it needs it
+    // for migration), so we don't close it here.
   }
 }
 
@@ -265,8 +266,9 @@ export class ClientSession extends BaseSession {
     };
 
     this.slot = slot;
-    // Mesh is up; the client no longer needs the signaling socket.
-    signaling.close();
+    // Keep the signaling socket open: the World orchestrator listens on it
+    // for host-migration events for the life of the world. (It's idle once
+    // the WebRTC mesh is up — just a heartbeat — so it costs nothing.)
     return slot;
   }
 

@@ -60,14 +60,18 @@ export async function createParty() {
   return (await r.json()).code;
 }
 
-/// Ask the lobby for a world to auto-join. Returns its code. Pass a code to
-/// `exclude` to report it as unreachable (a dead host) so the lobby retires
-/// it and gives a different one.
-export async function findWorld(exclude) {
+/// Ask the lobby for a world to auto-join. Returns its code. `exclude`
+/// reports an unreachable world (dead host) to retire it; `version` is the
+/// caller's content build tag so the lobby only groups same-version peers.
+export async function findWorld(exclude, version) {
+  const body = {};
+  if (exclude) body.exclude = exclude;
+  if (version) body.version = version;
+  const hasBody = Object.keys(body).length > 0;
   const r = await fetch(`${CONFIG.apiBase}/find-world`, {
     method: 'POST',
-    headers: exclude ? { 'Content-Type': 'application/json' } : undefined,
-    body: exclude ? JSON.stringify({ exclude }) : undefined,
+    headers: hasBody ? { 'Content-Type': 'application/json' } : undefined,
+    body: hasBody ? JSON.stringify(body) : undefined,
   });
   if (!r.ok) throw new Error(`couldn't reach the world server (HTTP ${r.status})`);
   return (await r.json()).code;
