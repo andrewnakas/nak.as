@@ -200,6 +200,25 @@ export class HostSession extends BaseSession {
     }
     reply({ t: 'welcome', slot, contentHash: msg.contentHash });
     this.onPartyChange?.(this.partyList());
+    this._broadcastVoiceRoster();
+  }
+
+  /// Tell every direct client the slot->id map of all DIRECT members, so they
+  /// can build proximity-voice links to each other (the star game topology
+  /// doesn't give clients each other's ids otherwise). The host includes
+  /// itself (slot 0) and its own id so clients can voice-chat the host too.
+  /// Relay clients are excluded — they have no WebRTC and can't join the mesh.
+  _broadcastVoiceRoster() {
+    const entries = [{ slot: 0, id: this.selfId }];
+    for (const peer of this.peers.values()) {
+      if (peer.slot >= 0 && !peer.relay && peer.id) {
+        entries.push({ slot: peer.slot, id: peer.id });
+      }
+    }
+    const msg = { t: 'voice-roster', entries };
+    for (const peer of this.peers.values()) {
+      if (peer.slot >= 0 && !peer.relay) peer.link?.sendR(msg);
+    }
   }
 
   _handleReliable(peer, text) {
@@ -245,6 +264,7 @@ export class HostSession extends BaseSession {
     peer.link?.close(); // relay peers have no WebRTC link
     this.peers.delete(remoteId);
     this.onPartyChange?.(this.partyList());
+    this._broadcastVoiceRoster();
   }
 
   // Route game bytes to a peer over its transport: direct = WebRTC channel,
@@ -469,11 +489,21 @@ export class ClientSession extends BaseSession {
       });
     });
 
-    // Post-handshake, the reliable channel carries binary game events.
+    // Post-handshake, the reliable channel carries binary game events plus the
+    // occasional JSON control message (e.g. the voice roster: slot -> peer id,
+    // so this client can build proximity-voice links to the others).
     this.link.onR = (data) => {
       if (typeof data !== 'string') {
         this.game.apply_host_msg(new Uint8Array(data), performance.now());
+        return;
       }
+      let msg;
+      try {
+        msg = JSON.parse(data);
+      } catch {
+        return;
+      }
+      if (msg.t === 'voice-roster') this.onVoiceRoster?.(msg.entries);
     };
 
     this.slot = slot;

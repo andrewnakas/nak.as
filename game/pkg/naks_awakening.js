@@ -413,6 +413,25 @@ export class Game {
         const ret = wasm.game_vendor_here(this.__wbg_ptr, slot);
         return ret;
     }
+    /**
+     * Flat [slot, sx, sy, x, y, ...] for every player the local client can see
+     * (or all players, for the host). Proximity voice uses this to pan each
+     * peer's mic by their position relative to the listener and gate by range.
+     * @returns {Int32Array}
+     */
+    visible_players() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.game_visible_players(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayI32FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export3(r0, r1 * 4, 4);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
 }
 if (Symbol.dispose) Game.prototype[Symbol.dispose] = Game.prototype.free;
 function __wbg_get_imports() {

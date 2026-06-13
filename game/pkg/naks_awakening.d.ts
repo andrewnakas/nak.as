@@ -94,6 +94,12 @@ export class Game {
      * Host uses live state; client uses the latest snapshot position.
      */
     vendor_here(slot: number): number;
+    /**
+     * Flat [slot, sx, sy, x, y, ...] for every player the local client can see
+     * (or all players, for the host). Proximity voice uses this to pan each
+     * peer's mic by their position relative to the listener and gate by range.
+     */
+    visible_players(): Int32Array;
 }
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
@@ -131,6 +137,7 @@ export interface InitOutput {
     readonly game_ui_action: (a: number, b: number, c: number, d: number) => void;
     readonly game_ui_state: (a: number, b: number, c: number) => void;
     readonly game_vendor_here: (a: number, b: number) => number;
+    readonly game_visible_players: (a: number, b: number) => void;
     readonly __wbindgen_export: (a: number, b: number) => number;
     readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_add_to_stack_pointer: (a: number) => number;

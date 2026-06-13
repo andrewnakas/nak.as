@@ -149,6 +149,48 @@ export function hideConnecting() {
   if (el) el.style.display = 'none';
 }
 
+/// Wire up the proximity-voice toggle button. `makeMesh` is an async factory
+/// that builds (once) and returns the VoiceMesh — deferred so the first click
+/// provides the user gesture getUserMedia + audio unlock both require.
+/// States cycle: off -> live (mic on) -> muted (hear others, mic off) -> off.
+export function installVoiceToggle(makeMesh) {
+  const btn = $('#voice-toggle');
+  if (!btn || btn._wired) return;
+  btn._wired = true;
+  btn.hidden = false;
+  let state = 'off'; // 'off' | 'live' | 'muted'
+  let mesh = null;
+  const paint = () => {
+    btn.classList.toggle('on', state === 'live');
+    btn.classList.remove('error');
+    btn.textContent =
+      state === 'live' ? '🎙 voice on' : state === 'muted' ? '🔇 muted' : '🎙 voice off';
+  };
+  btn.addEventListener('click', async () => {
+    try {
+      if (state === 'off') {
+        if (!mesh) mesh = await makeMesh();
+        await mesh.enable(); // prompts for mic the first time
+        mesh.setMuted(false);
+        state = 'live';
+      } else if (state === 'live') {
+        mesh.setMuted(true);
+        state = 'muted';
+      } else {
+        mesh.stop();
+        state = 'off';
+      }
+      paint();
+    } catch (err) {
+      // Mic denied or unavailable — surface it without breaking the game.
+      btn.classList.add('error');
+      btn.textContent = '🎙 no mic';
+      toast('voice unavailable: ' + (err?.message ?? 'mic blocked'));
+    }
+  });
+  paint();
+}
+
 export function toast(msg) {
   const el = document.createElement('div');
   el.className = 'toast';

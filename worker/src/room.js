@@ -132,6 +132,15 @@ export class RoomDO {
         if (target) this.send(target.ws, { t: 'signal', from: meta.id, payload: msg.payload });
         return;
       }
+      // Separate signaling namespace for proximity-voice peer connections so
+      // voice SDP/ICE never collides with the game link's signaling. Pure
+      // passthrough between two joined members, same as 'signal'.
+      case 'voice-signal': {
+        if (!meta.joined) return;
+        const target = this.joined().find((m) => m.meta.id === msg.to);
+        if (target) this.send(target.ws, { t: 'voice-signal', from: meta.id, payload: msg.payload });
+        return;
+      }
       // A direct (WebRTC) client whose peer connection never came up — almost
       // always a network that blocks UDP/TURN but passes this WebSocket — asks
       // to be served over the relay tier instead. We flip it to relayed and tell

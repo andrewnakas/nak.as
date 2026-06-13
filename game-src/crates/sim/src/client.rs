@@ -55,6 +55,15 @@ impl ClientView {
             .map(|p| lerp_player(None, p, 0, 0))
     }
 
+    /// All players in the freshest snapshot as (slot, sx, sy, x, y) — used by
+    /// proximity voice to place each peer's audio relative to the listener.
+    pub fn latest_player_positions(&self) -> Vec<(u8, i32, i32, i32, i32)> {
+        self.snaps
+            .last()
+            .map(|(_, s)| s.players.iter().map(|p| (p.slot, p.sx, p.sy, p.x, p.y)).collect())
+            .unwrap_or_default()
+    }
+
     /// Vendor NPC the slot player can shop with (snapshot position + static
     /// world/defs the client already has).
     pub fn vendor_here(&self, sim: &crate::Sim, slot: u8) -> i32 {

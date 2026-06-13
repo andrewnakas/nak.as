@@ -14,7 +14,7 @@
 // cross-NAT pairs (phone on cellular ↔ home computer) still connect. TURN is
 // the fallback the browser uses only when STUN fails. TCP/443 TURN punches
 // through restrictive corporate firewalls that block UDP entirely.
-const ICE_CONFIG = {
+export const ICE_CONFIG = {
   iceServers: [
     {
       urls: [

@@ -173,14 +173,73 @@ export class World {
     return loadStartingSave(this.name);
   }
 
+  /// Stand up the proximity-voice mesh for our local player at `localSlot`.
+  /// The mic stays OFF until the player toggles voice on (privacy); this just
+  /// prepares the mesh and its slot->id roster so toggling is instant.
+  _startVoice(localSlot) {
+    if (this._voice || !navigator.mediaDevices?.getUserMedia) return;
+    // slot -> signaling id, kept current from the host roster (client) or our
+    // own peer map (host).
+    this._slotToId = new Map();
+    this._voiceRoster = (entries) => {
+      this._slotToId = new Map(entries.map((e) => [e.slot, e.id]));
+    };
+
+    const localPos = () => {
+      const v = this.session?.game.visible_players?.() ?? [];
+      for (let i = 0; i + 5 <= v.length; i += 5) {
+        if (v[i] === localSlot) return { slot: localSlot, sx: v[i + 1], sy: v[i + 2], x: v[i + 3], y: v[i + 4] };
+      }
+      return null;
+    };
+    const allPlayers = () => {
+      const v = this.session?.game.visible_players?.() ?? [];
+      const out = [];
+      for (let i = 0; i + 5 <= v.length; i += 5) {
+        out.push({ slot: v[i], sx: v[i + 1], sy: v[i + 2], x: v[i + 3], y: v[i + 4] });
+      }
+      return out;
+    };
+    const resolvePeerId = (slot) => {
+      // Host knows ids directly from its peer map; clients use the roster.
+      if (this.session?.peers) {
+        if (slot === 0) return this.selfId;
+        for (const p of this.session.peers.values()) if (p.slot === slot) return p.id;
+      }
+      return this._slotToId.get(slot) ?? null;
+    };
+
+    // Build the mesh lazily on first toggle: that click both unlocks audio and
+    // is the user gesture getUserMedia needs. The toggle calls this factory.
+    const makeMesh = async () => {
+      if (this._voice) return this._voice;
+      this.deps.audio?.unlock?.();
+      const audioCtx = this.deps.audio?.ctx;
+      if (!audioCtx) throw new Error('audio not ready');
+      const { VoiceMesh } = await import('./net/voice.js');
+      this._voice = new VoiceMesh({
+        signaling: this.signaling,
+        getLocal: localPos,
+        getPlayers: allPlayers,
+        resolvePeerId,
+        audioCtx,
+      });
+      this._voice.setSelfId(this.selfId);
+      return this._voice;
+    };
+    import('./ui.js').then(({ installVoiceToggle }) => installVoiceToggle?.(makeMesh));
+  }
+
   async _startHost() {
     const save = await this._save();
     const game = new Game(this.deps.worldJson, ROLE_HOST, randomSeed());
     const session = new HostSession({ ...this.deps, game }, { save });
+    session.selfId = this.selfId;
     session.attachSignaling(this.signaling);
     session.start();
     this.session = session;
     this._installInventory();
+    this._startVoice(0);
   }
 
   async _startClient(hostId) {
@@ -215,6 +274,10 @@ export class World {
     session.start();
     this.session = session;
     this._installInventory();
+    // Proximity voice: the host pushes a slot->id roster over the reliable
+    // channel; feed it to the mesh so we can build voice links to nearby peers.
+    session.onVoiceRoster = (entries) => this._voiceRoster?.(entries);
+    this._startVoice(slot);
     // Connected cleanly — clear the one-shot reload guard so a future deploy
     // can trigger a refresh again.
     sessionStorage.removeItem('naks_reloaded_for_version');

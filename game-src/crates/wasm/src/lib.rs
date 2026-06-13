@@ -281,6 +281,25 @@ impl Game {
         }
     }
 
+    /// Flat [slot, sx, sy, x, y, ...] for every player the local client can see
+    /// (or all players, for the host). Proximity voice uses this to pan each
+    /// peer's mic by their position relative to the listener and gate by range.
+    pub fn visible_players(&self) -> Vec<i32> {
+        let mut out = Vec::new();
+        if self.role == ROLE_CLIENT {
+            for (slot, sx, sy, x, y) in self.view.latest_player_positions() {
+                out.extend_from_slice(&[slot as i32, sx, sy, x, y]);
+            }
+        } else {
+            for (slot, p) in self.sim.players.iter().enumerate() {
+                if let Some(p) = p {
+                    out.extend_from_slice(&[slot as i32, p.sx, p.sy, p.x, p.y]);
+                }
+            }
+        }
+        out
+    }
+
     /// [sx, sy] of the viewpoint player's screen, or empty if unknown.
     pub fn player_screen(&self, slot: u8) -> Vec<i32> {
         let at = if self.role == ROLE_CLIENT {

@@ -387,6 +387,29 @@
     border-radius: 4px;
   }
 
+  #voice-toggle {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    z-index: 5;
+    font-family: inherit;
+    font-size: 10px;
+    letter-spacing: 0.5px;
+    padding: 4px 7px;
+    color: var(--gb-lightest);
+    background: rgba(22, 24, 29, 0.82);
+    border: 1px solid var(--gb-light);
+    border-radius: 4px;
+    cursor: pointer;
+    pointer-events: auto;
+  }
+  #voice-toggle.on {
+    color: #16181d;
+    background: #6f8a5b;
+    border-color: #efe6d2;
+  }
+  #voice-toggle.error { border-color: #b44a3a; color: #efb9af; }
+
   /* block iOS pinch / double-tap zoom on the play area */
   html, body { touch-action: manipulation; overscroll-behavior: none; }
   #stage, #touch-controls { touch-action: none; }
@@ -397,6 +420,7 @@
     <div id="screen-wrap">
       <canvas id="screen" width="160" height="144"></canvas>
       <div id="connecting">connecting to the world…</div>
+      <button id="voice-toggle" title="Proximity voice chat" hidden>🎙 voice off</button>
     </div>
     <div id="hud-text">
       <span id="party-code"></span> <span id="party-list"></span><br>
