@@ -130,6 +130,7 @@ export class World {
   }
 
   async _startClient(hostId) {
+    this.hostId = hostId;
     const save = await this._save();
     const game = new Game(this.deps.worldJson, ROLE_CLIENT, 0n);
     const session = new ClientSession(
@@ -137,13 +138,11 @@ export class World {
       {
         save,
         onDisconnect: () => {
-          // The host vanished without a clean migration (e.g. crash). The
-          // server will promote someone; we wait for host-migrated, but if
-          // nothing comes, re-find a world.
-          if (!this.reconnecting) {
-            setStatus('host disconnected — finding a new world…', true);
-            this._refind();
-          }
+          // Our WebRTC link to the host died (past the ICE-restart grace).
+          // The host may still be alive (our side blipped) — try reconnecting
+          // to the same host first over the still-open signaling socket;
+          // only re-find a world if the host is genuinely gone.
+          if (!this.reconnecting) this._reconnectToHost();
         },
       },
     );
@@ -157,11 +156,40 @@ export class World {
     // Connected cleanly — clear the one-shot reload guard so a future deploy
     // can trigger a refresh again.
     sessionStorage.removeItem('naks_reloaded_for_version');
+    this._reconnectTries = 0;
 
     // Watchdog: if no snapshot has advanced the tick within a few seconds,
     // the WebRTC path silently failed (strict NAT). Hide the black screen
     // behind a clear message and re-find a world rather than sit there.
     this._snapshotWatch(session);
+  }
+
+  /// The WebRTC link to the host dropped but the world/signaling is still up.
+  /// Re-establish a fresh peer connection to the same host (keeping our world,
+  /// slot, and character) before giving up and re-finding a world.
+  async _reconnectToHost() {
+    if (this.reconnecting) return;
+    this.reconnecting = true;
+    this._reconnectTries = (this._reconnectTries || 0) + 1;
+    this.session?.stop();
+
+    // After a few failed same-host reconnects the host is probably gone —
+    // wait briefly for a server host-migration, else re-find a world.
+    if (this._reconnectTries > 3 || !this.signaling || this.signaling.ws?.readyState !== 1) {
+      this.reconnecting = false;
+      setStatus('lost the host — finding a world…', true);
+      return this._refind();
+    }
+
+    setStatus('reconnecting to the host…');
+    showConnecting('reconnecting…');
+    try {
+      this.reconnecting = false; // _startClient sets its own guards
+      await this._startClient(this.hostId);
+    } catch {
+      // Couldn't reach the same host — fall back to re-finding a world.
+      this._refind();
+    }
   }
 
   _snapshotWatch(session) {

@@ -9,6 +9,12 @@
 
 const SOFT_CAP = 24; // assign here until a world reaches this, then spill
 const MAX_WORLDS = 64; // safety ceiling on simultaneous worlds
+// After a fresh world is assigned, route same-version joiners to it for this
+// long even before its host's WebSocket has connected. Without this, a burst
+// of simultaneous joiners each create their own empty world (the host hasn't
+// connected yet, so occupancy reads 0) and the party fragments. The window
+// covers the find→signaling→WebRTC-handshake latency.
+const RESERVE_MS = 12000;
 
 export class LobbyDO {
   constructor(state, env) {
@@ -52,8 +58,10 @@ export class LobbyDO {
   /// is under the soft cap. Worlds carry their version so different builds
   /// never share a world (which would cause content-hash mismatches).
   async findWorld(exclude, version) {
-    // worlds: [{ id, version }]
+    // worlds: [{ id, version, assignedAt }]  (DurableObject requests are
+    // serialized, so this read-modify-write is race-free across joiners.)
     let worlds = (await this.state.storage.get('worlds')) ?? [];
+    const now = Date.now();
 
     // Retire a reported-dead world.
     if (exclude) {
@@ -61,29 +69,44 @@ export class LobbyDO {
       await this.state.storage.put('worlds', worlds);
     }
 
-    const sameVersion = worlds.filter((w) => w.version === version);
+    const sameVersion = worlds.filter((w) => w.id !== exclude && w.version === version);
 
-    // Reuse the first joinable same-version world (skip hostless ghosts).
+    // 1. A freshly-assigned same-version world inside its reservation window:
+    //    route here even if its host hasn't connected yet, so a burst of
+    //    simultaneous joiners lands together instead of fragmenting.
+    const reserved = sameVersion
+      .filter((w) => now - (w.assignedAt || 0) < RESERVE_MS)
+      .sort((a, b) => (a.assignedAt || 0) - (b.assignedAt || 0))[0];
+    if (reserved) return { code: reserved.id };
+
+    // 2. An established, hosted same-version world under the soft cap.
     for (const w of sameVersion) {
       const { count, hasHost } = await this.status(w.id);
-      if (count === 0) return { code: w.id }; // empty: joiner hosts it
-      if (hasHost && count < SOFT_CAP) return { code: w.id };
+      if (hasHost && count > 0 && count < SOFT_CAP) return { code: w.id };
+      if (count === 0) {
+        // Empty (host left): reuse it and refresh its reservation so the next
+        // joiner pairs with this one too.
+        w.assignedAt = now;
+        await this.state.storage.put('worlds', worlds);
+        return { code: w.id };
+      }
     }
 
-    // None joinable: spin up a fresh world with a new monotonic id (avoids
-    // reusing a retired id whose DO may still hold a ghost).
+    // 3. None joinable: spin up a fresh world with a new monotonic id.
     if (worlds.length < MAX_WORLDS) {
       const next = (await this.state.storage.get('nextWorld')) ?? 1;
       const code = this.newWorldId(next);
       await this.state.storage.put('nextWorld', next + 1);
-      worlds = [...worlds, { id: code, version }];
+      worlds = [...worlds, { id: code, version, assignedAt: now }];
       await this.state.storage.put('worlds', worlds);
       return { code };
     }
 
-    // Pathological load: any same-version world, else a fresh one anyway.
+    // Pathological load: any same-version world, else a fresh id anyway.
     const fallback = sameVersion[0];
-    return { code: fallback ? fallback.id : this.newWorldId((await this.state.storage.get('nextWorld')) ?? 1) };
+    return {
+      code: fallback ? fallback.id : this.newWorldId((await this.state.storage.get('nextWorld')) ?? 1),
+    };
   }
 
   newWorldId(n) {
