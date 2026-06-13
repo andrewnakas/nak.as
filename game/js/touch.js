@@ -8,11 +8,13 @@ import { BTN } from './input.js';
 const DPAD_BITS = { up: BTN.UP, down: BTN.DOWN, left: BTN.LEFT, right: BTN.RIGHT };
 
 export function isTouchDevice() {
-  return (
-    'ontouchstart' in window ||
-    navigator.maxTouchPoints > 0 ||
-    matchMedia('(pointer: coarse)').matches
-  );
+  const coarse = matchMedia('(pointer: coarse)').matches;
+  const touchApi = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  const mobileUa = /Android|iPhone|iPad|iPod|Mobile|Tablet|Touch/i.test(navigator.userAgent);
+  // A narrow viewport is a strong hint too (covers in-app webviews that hide
+  // the touch APIs). Desktops with a mouse won't match the UA or coarse query.
+  const narrow = Math.min(window.innerWidth, window.innerHeight) <= 820;
+  return coarse || touchApi || mobileUa || (narrow && touchApi);
 }
 
 export class TouchControls {
