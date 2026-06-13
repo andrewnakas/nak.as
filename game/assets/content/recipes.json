@@ -1,0 +1,9 @@
+[
+  { "output": "grilled_perch", "inputs": ["raw_perch"], "level": 1, "xp": 30 },
+  { "output": "hare_skewer", "inputs": ["hare_meat"], "level": 1, "xp": 30 },
+  { "output": "smoked_eel", "inputs": ["raw_eel"], "level": 2, "xp": 45 },
+  { "output": "seared_venison", "inputs": ["venison"], "level": 3, "xp": 55 },
+  { "output": "fish_stew", "inputs": ["raw_perch", "marsh_herb"], "level": 4, "xp": 75 },
+  { "output": "hearty_roast", "inputs": ["venison", "ember_cap"], "level": 6, "xp": 105 },
+  { "output": "golden_sunfish", "inputs": ["raw_sunfish", "marsh_herb"], "level": 8, "xp": 130 }
+]

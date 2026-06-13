@@ -47,12 +47,25 @@ impl ClientView {
             .map(|p| (p.sx, p.sy))
     }
 
-    /// Latest known inventory + equips for the slot player (for the UI).
-    pub fn player_items(&self, slot: u8) -> Option<(Vec<ItemStack>, i8, i8)> {
+    /// Latest known inventory/equips/skills for the slot player (for the UI).
+    #[allow(clippy::type_complexity)]
+    pub fn player_ui(
+        &self,
+        slot: u8,
+    ) -> Option<(Vec<ItemStack>, i8, i8, [u32; 3], bool, Option<u8>)> {
         self.snaps
             .last()
             .and_then(|(_, s)| s.players.iter().find(|p| p.slot == slot))
-            .map(|p| (items_from_snaps(&p.inventory), p.equip_a, p.equip_b))
+            .map(|p| {
+                (
+                    items_from_snaps(&p.inventory),
+                    p.equip_a,
+                    p.equip_b,
+                    p.skills,
+                    p.near_fire,
+                    p.fishing,
+                )
+            })
     }
 
     /// Reconstruct players + entities as of (now - delay), lerping between
@@ -152,6 +165,14 @@ fn lerp_player(pa: Option<&PlayerSnap>, pb: &PlayerSnap, num: u64, den: u64) -> 
         kvx: 0,
         kvy: 0,
         dead_t: u32::from(pb.dead),
+        skills: pb.skills,
+        fishing: pb.fishing.map(|f| {
+            if f == 0 {
+                crate::FishPhase::Cast { t: 1 }
+            } else {
+                crate::FishPhase::Bite { t: 1 }
+            }
+        }),
     }
 }
 

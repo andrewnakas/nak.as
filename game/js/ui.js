@@ -88,10 +88,52 @@ export class InventoryUI {
     const state = JSON.parse(this.session.game.ui_state(this.session.slot));
     const list = $('#inv-list');
     list.textContent = '';
-    if (!state || !state.inventory.length) {
+    if (!state) {
       list.textContent = 'your pack is empty.';
       return;
     }
+
+    // Skills header.
+    const skillsRow = document.createElement('div');
+    skillsRow.className = 'inv-row inv-skills';
+    skillsRow.textContent = state.skills
+      .map((s) => `${s.name} ${s.level} (${s.xp}/${s.next})`)
+      .join(' · ');
+    list.appendChild(skillsRow);
+
+    // Campfire cooking section.
+    if (state.near_fire) {
+      const header = document.createElement('div');
+      header.className = 'inv-row';
+      header.textContent = '— CAMPFIRE —';
+      list.appendChild(header);
+      for (const r of state.recipes) {
+        if (!r.level_ok && !r.can_make) continue;
+        const row = document.createElement('div');
+        row.className = 'inv-row';
+        const name = document.createElement('span');
+        name.className = 'inv-name';
+        name.textContent = `${r.label} (${r.inputs.join(' + ')})`;
+        row.appendChild(name);
+        if (!r.level_ok) {
+          const meta = document.createElement('span');
+          meta.className = 'inv-meta';
+          meta.textContent = `LV ${r.level}`;
+          row.appendChild(meta);
+        } else if (r.can_make) {
+          row.appendChild(
+            this.button('COOK', false, () => this.action({ action: 'cook', a: r.i })),
+          );
+        } else {
+          const meta = document.createElement('span');
+          meta.className = 'inv-meta';
+          meta.textContent = 'need items';
+          row.appendChild(meta);
+        }
+        list.appendChild(row);
+      }
+    }
+
     for (const item of state.inventory) {
       const row = document.createElement('div');
       row.className = 'inv-row';
@@ -109,9 +151,10 @@ export class InventoryUI {
 
       const meta = document.createElement('span');
       meta.className = 'inv-meta';
-      meta.textContent =
-        item.kind === 'sword' || item.kind === 'bow' || item.kind === 'shield'
-          ? `${item.dur}/${item.max_dur}`
+      meta.textContent = ['sword', 'bow', 'shield', 'rod'].includes(item.kind)
+        ? `${item.dur}/${item.max_dur}`
+        : item.kind === 'food'
+          ? `x${item.qty} (+${item.heal / 2}♥)`
           : `x${item.qty}`;
       row.appendChild(meta);
 
@@ -132,11 +175,16 @@ export class InventoryUI {
             ),
           );
         }
-        if (['bow', 'shield', 'bomb'].includes(item.kind)) {
+        if (['bow', 'shield', 'bomb', 'rod'].includes(item.kind)) {
           row.appendChild(
             this.button('B', state.equip_b === item.i, () =>
               this.action({ action: 'equip_b', a: item.i }),
             ),
+          );
+        }
+        if (item.kind === 'food') {
+          row.appendChild(
+            this.button('EAT', false, () => this.action({ action: 'eat', a: item.i })),
           );
         }
         if (['sword', 'bow', 'shield'].includes(item.kind) && !item.fused) {

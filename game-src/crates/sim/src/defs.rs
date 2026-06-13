@@ -21,6 +21,9 @@ pub struct ItemJson {
     pub fuse_damage: i16,
     #[serde(default)]
     pub fuse_effect: String,
+    /// HP restored when eaten (2 = one heart).
+    #[serde(default)]
+    pub heal: i16,
 }
 
 #[derive(Deserialize)]
@@ -33,6 +36,9 @@ pub struct EnemyJson {
     pub speed: i32,
     pub sprite: String,
     pub drops: String,
+    /// Hunting XP granted to the killer (critters).
+    #[serde(default)]
+    pub hunt_xp: u32,
 }
 
 #[derive(Deserialize)]
@@ -56,6 +62,8 @@ pub enum Brain {
     Gel,
     Wasp,
     Snatcher,
+    /// Harmless prey: wanders, flees when approached. Hunting XP on kill.
+    Critter,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -66,6 +74,8 @@ pub enum ItemKind {
     Bomb,
     Arrow,
     Material,
+    Rod,
+    Food,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -83,6 +93,7 @@ pub struct ItemDef {
     pub durability: u16,
     pub fuse_damage: i16,
     pub fuse_effect: FuseEffect,
+    pub heal: i16,
 }
 
 impl ItemDef {
@@ -91,7 +102,10 @@ impl ItemDef {
     }
 
     pub fn stackable(&self) -> bool {
-        matches!(self.kind, ItemKind::Bomb | ItemKind::Arrow | ItemKind::Material)
+        matches!(
+            self.kind,
+            ItemKind::Bomb | ItemKind::Arrow | ItemKind::Material | ItemKind::Food
+        )
     }
 }
 
@@ -103,6 +117,7 @@ pub struct EnemyDef {
     pub speed: Fx,
     pub sprite: u16,
     pub drop_table: usize,
+    pub hunt_xp: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -120,10 +135,80 @@ pub struct DropEntry {
     pub max: u32,
 }
 
+// ---- skills ----
+
+pub const SKILL_FISHING: usize = 0;
+pub const SKILL_COOKING: usize = 1;
+pub const SKILL_HUNTING: usize = 2;
+pub const SKILL_NAMES: [&str; 3] = ["FISHING", "COOKING", "HUNTING"];
+
+#[derive(Deserialize, Clone, Copy)]
+pub struct SkillCurve {
+    pub base: u32,
+    pub growth: u32,
+    pub max_level: u32,
+}
+
+impl SkillCurve {
+    /// Total XP required to reach `level` (level 1 = 0 XP).
+    pub fn xp_for_level(&self, level: u32) -> u32 {
+        let n = level.saturating_sub(1);
+        self.base * n + self.growth * n.saturating_mul(n.saturating_sub(1)) / 2
+    }
+
+    pub fn level_for_xp(&self, xp: u32) -> u32 {
+        let mut level = 1;
+        while level < self.max_level && xp >= self.xp_for_level(level + 1) {
+            level += 1;
+        }
+        level
+    }
+}
+
+#[derive(Deserialize)]
+pub struct FishJson {
+    pub item: String,
+    pub min_level: u32,
+    pub weight: u32,
+    pub xp: u32,
+}
+
+#[derive(Deserialize)]
+pub struct SkillsJson {
+    pub curve: SkillCurve,
+    pub fishing: Vec<FishJson>,
+}
+
+#[derive(Clone, Copy)]
+pub struct FishEntry {
+    pub item: u8,
+    pub min_level: u32,
+    pub weight: u32,
+    pub xp: u32,
+}
+
+#[derive(Deserialize)]
+pub struct RecipeJson {
+    pub output: String,
+    pub inputs: Vec<String>,
+    pub level: u32,
+    pub xp: u32,
+}
+
+pub struct Recipe {
+    pub output: u8,
+    pub inputs: Vec<u8>,
+    pub level: u32,
+    pub xp: u32,
+}
+
 pub struct Defs {
     pub items: Vec<ItemDef>,
     pub enemies: Vec<EnemyDef>,
     pub drop_tables: Vec<Vec<DropEntry>>,
+    pub curve: SkillCurve,
+    pub fishing: Vec<FishEntry>,
+    pub recipes: Vec<Recipe>,
 }
 
 impl Defs {
@@ -131,6 +216,8 @@ impl Defs {
         items: Vec<ItemJson>,
         enemies: Vec<EnemyJson>,
         drops: BTreeMap<String, Vec<DropJson>>,
+        skills: SkillsJson,
+        recipes: Vec<RecipeJson>,
         sprite_index: &dyn Fn(&str) -> Result<u16, String>,
     ) -> Result<Defs, String> {
         let item_index: BTreeMap<&str, u8> = items
@@ -176,6 +263,7 @@ impl Defs {
                     "gel" => Brain::Gel,
                     "wasp" => Brain::Wasp,
                     "snatcher" => Brain::Snatcher,
+                    "critter" => Brain::Critter,
                     other => return Err(format!("enemy '{}': unknown brain '{other}'", e.name)),
                 };
                 let drop_table = drop_names
@@ -189,6 +277,7 @@ impl Defs {
                     speed: e.speed,
                     sprite: sprite_index(&e.sprite)?,
                     drop_table,
+                    hunt_xp: e.hunt_xp,
                     name: e.name,
                 })
             })
@@ -204,6 +293,8 @@ impl Defs {
                     "bomb" => ItemKind::Bomb,
                     "arrow" => ItemKind::Arrow,
                     "material" => ItemKind::Material,
+                    "rod" => ItemKind::Rod,
+                    "food" => ItemKind::Food,
                     other => return Err(format!("item '{}': unknown kind '{other}'", it.name)),
                 };
                 let fuse_effect = match it.fuse_effect.as_str() {
@@ -218,8 +309,45 @@ impl Defs {
                     durability: it.durability,
                     fuse_damage: it.fuse_damage,
                     fuse_effect,
+                    heal: it.heal,
                     label: it.label,
                     name: it.name,
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+
+        // item_index borrowed the consumed ItemJson vec; re-derive from defs.
+        let final_index: BTreeMap<&str, u8> = items
+            .iter()
+            .enumerate()
+            .map(|(i, it)| (it.name.as_str(), i as u8))
+            .collect();
+        let lookup = |name: &str| -> Result<u8, String> {
+            final_index
+                .get(name)
+                .copied()
+                .ok_or_else(|| format!("unknown item '{name}'"))
+        };
+        let fishing = skills
+            .fishing
+            .iter()
+            .map(|f| {
+                Ok(FishEntry {
+                    item: lookup(&f.item)?,
+                    min_level: f.min_level,
+                    weight: f.weight,
+                    xp: f.xp,
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let recipes = recipes
+            .iter()
+            .map(|r| {
+                Ok(Recipe {
+                    output: lookup(&r.output)?,
+                    inputs: r.inputs.iter().map(|i| lookup(i)).collect::<Result<_, _>>()?,
+                    level: r.level,
+                    xp: r.xp,
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
@@ -228,6 +356,9 @@ impl Defs {
             items,
             enemies,
             drop_tables,
+            curve: skills.curve,
+            fishing,
+            recipes,
         })
     }
 

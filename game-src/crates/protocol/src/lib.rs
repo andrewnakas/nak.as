@@ -43,6 +43,11 @@ pub struct PlayerSnap {
     pub inventory: Vec<ItemSnap>,
     pub equip_a: i8,
     pub equip_b: i8,
+    /// XP per skill: [fishing, cooking, hunting].
+    pub skills: [u32; 3],
+    /// Fishing phase: 0 = waiting, 1 = bite window.
+    pub fishing: Option<u8>,
+    pub near_fire: bool,
 }
 
 /// Entity type tags inside EntitySnap.

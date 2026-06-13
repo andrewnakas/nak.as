@@ -15,7 +15,7 @@ import { showMenu, setStatus, showPartyCode, showPartyList, InventoryUI } from '
 const ROLE_HOST = 0;
 const ROLE_CLIENT = 1;
 
-const CONTENT_FILES = ['world', 'items', 'enemies', 'drops'];
+const CONTENT_FILES = ['world', 'items', 'enemies', 'drops', 'skills', 'recipes'];
 
 async function boot() {
   const [, ...parts] = await Promise.all([

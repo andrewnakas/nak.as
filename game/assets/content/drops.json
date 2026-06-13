@@ -14,7 +14,8 @@
   "marsh_gel": [
     { "item": "heart", "p": 150 },
     { "item": "shells", "p": 400, "min": 1, "max": 2 },
-    { "item": "gel_core", "p": 300 }
+    { "item": "gel_core", "p": 300 },
+    { "item": "marsh_herb", "p": 350 }
   ],
   "dune_wasp": [
     { "item": "heart", "p": 250 },
@@ -24,5 +25,14 @@
   "shellsnatcher": [
     { "item": "shells", "p": 800, "min": 2, "max": 5 },
     { "item": "stag_pelt", "p": 150 }
+  ],
+  "thicket_hare": [
+    { "item": "hare_meat", "p": 900 },
+    { "item": "marsh_herb", "p": 250 }
+  ],
+  "hollow_stag": [
+    { "item": "venison", "p": 1000, "min": 1, "max": 2 },
+    { "item": "stag_pelt", "p": 600 },
+    { "item": "ember_cap", "p": 300 }
   ]
 }

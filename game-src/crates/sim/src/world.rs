@@ -12,6 +12,10 @@ pub const SCREEN_ROWS: i32 = 8;
 #[derive(Deserialize)]
 pub struct WorldJson {
     pub tile_solid: Vec<bool>,
+    #[serde(default)]
+    pub tile_water: Vec<bool>,
+    #[serde(default)]
+    pub tile_fire: Vec<bool>,
     pub sprite_names: Vec<String>,
     pub font_chars: String,
     pub screens: Vec<ScreenJson>,
@@ -78,10 +82,13 @@ pub struct SpriteIds {
     pub blast: u16,
     pub arrow_h: u16,
     pub arrow_v: u16,
+    pub bobber: u16,
 }
 
 pub struct World {
     pub tile_solid: Vec<bool>,
+    pub tile_water: Vec<bool>,
+    pub tile_fire: Vec<bool>,
     pub screens: Vec<Screen>,
     index: BTreeMap<(i32, i32), usize>,
     pub spawn: Spawn,
@@ -113,6 +120,7 @@ impl World {
             blast: find("blast_0")?,
             arrow_h: find("arrow_h")?,
             arrow_v: find("arrow_v")?,
+            bobber: find("bobber")?,
         };
 
         let font = raw
@@ -150,6 +158,8 @@ impl World {
 
         Ok(World {
             tile_solid: raw.tile_solid,
+            tile_water: raw.tile_water,
+            tile_fire: raw.tile_fire,
             screens,
             index,
             spawn: Spawn {
@@ -175,13 +185,26 @@ impl World {
     /// Pixels outside the playfield are walkable so edge transitions can
     /// trigger; the sim clamps when there is no neighbor screen.
     pub fn is_solid(&self, screen: &Screen, px: i32, py: i32) -> bool {
+        self.tile_flag(&self.tile_solid, screen, px, py)
+    }
+
+    pub fn is_water(&self, screen: &Screen, px: i32, py: i32) -> bool {
+        self.tile_flag(&self.tile_water, screen, px, py)
+    }
+
+    pub fn is_fire(&self, screen: &Screen, px: i32, py: i32) -> bool {
+        self.tile_flag(&self.tile_fire, screen, px, py)
+    }
+
+    /// Out-of-playfield pixels report false for every flag.
+    fn tile_flag(&self, flags: &[bool], screen: &Screen, px: i32, py: i32) -> bool {
         let tx = px.div_euclid(16);
         let ty = (py - HUD_H).div_euclid(16);
         if tx < 0 || tx >= SCREEN_COLS || ty < 0 || ty >= SCREEN_ROWS {
             return false;
         }
         let tile = screen.tiles[(ty * SCREEN_COLS + tx) as usize] as usize;
-        self.tile_solid.get(tile).copied().unwrap_or(true)
+        flags.get(tile).copied().unwrap_or(false)
     }
 }
 

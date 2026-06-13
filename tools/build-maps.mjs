@@ -114,6 +114,8 @@ if (!byCoord.has(`${spawn.sx},${spawn.sy}`)) {
 const world = {
   tile_names: TILES.map((t) => t.name),
   tile_solid: TILES.map((t) => t.solid),
+  tile_water: TILES.map((t) => !!t.water),
+  tile_fire: TILES.map((t) => !!t.fire),
   sprite_names: SPRITES.map((s) => s.name),
   font_chars: CHARSET,
   screens: screens.map((s) => ({

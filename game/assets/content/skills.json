@@ -1,0 +1,9 @@
+{
+  "curve": { "base": 100, "growth": 50, "max_level": 15 },
+  "fishing": [
+    { "item": "raw_perch", "min_level": 1, "weight": 60, "xp": 25 },
+    { "item": "raw_eel", "min_level": 3, "weight": 30, "xp": 40 },
+    { "item": "raw_sunfish", "min_level": 6, "weight": 22, "xp": 60 },
+    { "item": "raw_brackfish", "min_level": 10, "weight": 14, "xp": 95 }
+  ]
+}

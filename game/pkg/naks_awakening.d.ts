@@ -50,7 +50,7 @@ export class Game {
      */
     ui_action(slot: number, json: string): void;
     /**
-     * Inventory/equipment JSON for the UI overlay (role-aware).
+     * Inventory/equipment/skills JSON for the UI overlay (role-aware).
      */
     ui_state(slot: number): string;
 }

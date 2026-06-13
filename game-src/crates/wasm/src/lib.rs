@@ -87,11 +87,13 @@ impl Game {
         })
     }
 
-    /// Inventory/equipment JSON for the UI overlay (role-aware).
+    /// Inventory/equipment/skills JSON for the UI overlay (role-aware).
     pub fn ui_state(&self, slot: u8) -> String {
         if self.role == ROLE_CLIENT {
-            match self.view.player_items(slot) {
-                Some((items, a, b)) => sim::ui_state_json(&self.sim.defs, &items, a, b),
+            match self.view.player_ui(slot) {
+                Some((items, a, b, skills, near_fire, fishing)) => {
+                    sim::ui_state_json(&self.sim.defs, &items, a, b, skills, near_fire, fishing)
+                }
                 None => "null".to_string(),
             }
         } else {

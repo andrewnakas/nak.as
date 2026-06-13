@@ -43,6 +43,110 @@
     "kind": "arrow"
   },
   {
+    "name": "fishing_rod",
+    "label": "FISHING ROD",
+    "sprite": "itm_rod",
+    "kind": "rod",
+    "durability": 25
+  },
+  {
+    "name": "raw_perch",
+    "label": "RAW PERCH",
+    "sprite": "itm_fish",
+    "kind": "material"
+  },
+  {
+    "name": "raw_eel",
+    "label": "RAW EEL",
+    "sprite": "itm_fish",
+    "kind": "material"
+  },
+  {
+    "name": "raw_sunfish",
+    "label": "RAW SUNFISH",
+    "sprite": "itm_fish",
+    "kind": "material"
+  },
+  {
+    "name": "raw_brackfish",
+    "label": "RAW BRACKFISH",
+    "sprite": "itm_fish",
+    "kind": "material"
+  },
+  {
+    "name": "marsh_herb",
+    "label": "MARSH HERB",
+    "sprite": "itm_herb",
+    "kind": "material"
+  },
+  {
+    "name": "ember_cap",
+    "label": "EMBER CAP",
+    "sprite": "itm_mushroom",
+    "kind": "material"
+  },
+  {
+    "name": "hare_meat",
+    "label": "HARE MEAT",
+    "sprite": "itm_meat",
+    "kind": "material"
+  },
+  {
+    "name": "venison",
+    "label": "VENISON",
+    "sprite": "itm_meat",
+    "kind": "material"
+  },
+  {
+    "name": "grilled_perch",
+    "label": "GRILLED PERCH",
+    "sprite": "itm_food",
+    "kind": "food",
+    "heal": 4
+  },
+  {
+    "name": "smoked_eel",
+    "label": "SMOKED EEL",
+    "sprite": "itm_food",
+    "kind": "food",
+    "heal": 6
+  },
+  {
+    "name": "hare_skewer",
+    "label": "HARE SKEWER",
+    "sprite": "itm_food",
+    "kind": "food",
+    "heal": 4
+  },
+  {
+    "name": "seared_venison",
+    "label": "SEARED VENISON",
+    "sprite": "itm_food",
+    "kind": "food",
+    "heal": 6
+  },
+  {
+    "name": "fish_stew",
+    "label": "FISH STEW",
+    "sprite": "itm_food",
+    "kind": "food",
+    "heal": 8
+  },
+  {
+    "name": "hearty_roast",
+    "label": "HEARTY ROAST",
+    "sprite": "itm_food",
+    "kind": "food",
+    "heal": 12
+  },
+  {
+    "name": "golden_sunfish",
+    "label": "GOLDEN SUNFISH",
+    "sprite": "itm_food",
+    "kind": "food",
+    "heal": 10
+  },
+  {
     "name": "crab_claw",
     "label": "CRAB CLAW",
     "sprite": "mat_claw",

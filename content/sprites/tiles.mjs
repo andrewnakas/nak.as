@@ -49,8 +49,8 @@ export const TILES = [
   },
   { name: 'path', palette: 'sand', solid: false, grid: speckle(2, 1, 110, 4) },
   { name: 'sand', palette: 'sand', solid: false, grid: speckle(2, 3, 160, 5) },
-  { name: 'water', palette: 'water', solid: true, grid: waves(1, 2) },
-  { name: 'deep_water', palette: 'water', solid: true, grid: waves(0, 1) },
+  { name: 'water', palette: 'water', solid: true, water: true, grid: waves(1, 2) },
+  { name: 'deep_water', palette: 'water', solid: true, water: true, grid: waves(0, 1) },
   {
     name: 'tree',
     palette: 'grass',
@@ -210,6 +210,25 @@ export const TILES = [
     grid: grid((x, y) => {
       if (y % 4 === 3 && hash(x, Math.floor(y / 4), 11) < 500) return 0;
       return (x + y) % 2 === 0 ? 2 : 1;
+    }),
+  },
+  {
+    name: 'campfire',
+    palette: 'sand',
+    solid: true,
+    fire: true,
+    grid: grid((x, y) => {
+      // stone ring
+      const d = Math.hypot(x - 7.5, y - 9);
+      if (d > 5.2 && d < 6.8) return 1;
+      if (d > 6.8) return hash(x, y, 12) < 90 ? 2 : 1;
+      // flames (background tile: no transparency, dark ground instead)
+      const fd = Math.hypot((x - 7.5) * 1.4, y - 9);
+      if (fd < 4.4 && y >= 5) {
+        const flick = hash(x, y, 13) % 3;
+        return flick === 0 ? 3 : flick === 1 ? 2 : 0;
+      }
+      return 0;
     }),
   },
 ];

@@ -96,6 +96,15 @@ pub struct ItemStack {
     pub fused: Option<u8>,
 }
 
+/// Fishing mini-game phases.
+#[derive(Clone, Copy, PartialEq)]
+pub enum FishPhase {
+    /// Waiting for a bite; t counts down.
+    Cast { t: u32 },
+    /// Bite window; press B within t ticks to land it.
+    Bite { t: u32 },
+}
+
 #[derive(Clone)]
 pub struct Player {
     pub sx: i32,
@@ -121,6 +130,9 @@ pub struct Player {
     pub kvx: Fx,
     pub kvy: Fx,
     pub dead_t: u32,
+    /// XP per skill: [fishing, cooking, hunting].
+    pub skills: [u32; 3],
+    pub fishing: Option<FishPhase>,
 }
 
 impl Player {
@@ -135,6 +147,8 @@ struct Bundle {
     items: Vec<defs::ItemJson>,
     enemies: Vec<defs::EnemyJson>,
     drops: BTreeMap<String, Vec<defs::DropJson>>,
+    skills: defs::SkillsJson,
+    recipes: Vec<defs::RecipeJson>,
 }
 
 pub struct Sim {
@@ -211,9 +225,14 @@ impl Sim {
         }
         let bundle: Bundle = serde_json::from_str(content_json).map_err(|e| e.to_string())?;
         let sprite_names = bundle.world.sprite_names.clone();
-        let defs = Defs::build(bundle.items, bundle.enemies, bundle.drops, &|name| {
-            world::sprite_index(&sprite_names, name)
-        })?;
+        let defs = Defs::build(
+            bundle.items,
+            bundle.enemies,
+            bundle.drops,
+            bundle.skills,
+            bundle.recipes,
+            &|name| world::sprite_index(&sprite_names, name),
+        )?;
         let world = World::build(bundle.world, &|name| {
             defs.enemy_index(name)
                 .ok_or_else(|| format!("map references unknown enemy '{name}'"))
@@ -289,6 +308,8 @@ impl Sim {
             kvx: 0,
             kvy: 0,
             dead_t: 0,
+            skills: [0, 0, 0],
+            fishing: None,
         };
         // Starting kit (quest rewards will replace this hand-out later).
         for (name, qty) in [
@@ -297,6 +318,7 @@ impl Sim {
             ("wooden_shield", 1),
             ("arrow", 15),
             ("bomb", 5),
+            ("fishing_rod", 1),
         ] {
             if let Some(def) = self.defs.item_index(name) {
                 give_item(&mut p, &self.defs, def, qty);
@@ -343,6 +365,55 @@ impl Sim {
             .collect();
         self.toasts.retain(|(s, _)| *s as usize != viewpoint);
         out
+    }
+
+    /// Roll the catch table at the player's fishing level.
+    fn land_fish(&mut self, pl: &mut Player, slot: usize) {
+        let level = self.defs.curve.level_for_xp(pl.skills[defs::SKILL_FISHING]);
+        let eligible: Vec<defs::FishEntry> = self
+            .defs
+            .fishing
+            .iter()
+            .filter(|f| f.min_level <= level)
+            .copied()
+            .collect();
+        let total: u32 = eligible.iter().map(|f| f.weight).sum();
+        if total == 0 {
+            return;
+        }
+        let mut roll = self.rng.below(total);
+        let fish = eligible
+            .iter()
+            .find(|f| {
+                if roll < f.weight {
+                    true
+                } else {
+                    roll -= f.weight;
+                    false
+                }
+            })
+            .copied()
+            .unwrap_or(eligible[0]);
+        if give_item(pl, &self.defs, fish.item, 1) {
+            let label = self.defs.items[fish.item as usize].label.clone();
+            self.emit_toast(slot, &format!("CAUGHT A {label}!"));
+            self.emit_cue(pl.sx, pl.sy, cues::ITEM);
+            self.award_xp(pl, slot, defs::SKILL_FISHING, fish.xp);
+            self.wear_weapon(pl, slot, WearSlot::B);
+        } else {
+            self.emit_toast(slot, "PACK IS FULL!");
+        }
+    }
+
+    /// Add XP and toast on level-up.
+    fn award_xp(&mut self, pl: &mut Player, slot: usize, skill: usize, amount: u32) {
+        let before = self.defs.curve.level_for_xp(pl.skills[skill]);
+        pl.skills[skill] = pl.skills[skill].saturating_add(amount);
+        let after = self.defs.curve.level_for_xp(pl.skills[skill]);
+        if after > before {
+            self.emit_toast(slot, &format!("{} UP! LV {after}", defs::SKILL_NAMES[skill]));
+            self.emit_cue(pl.sx, pl.sy, cues::FUSE);
+        }
     }
 
     fn weapon_damage(&self, stack: &ItemStack) -> i32 {
@@ -445,6 +516,7 @@ impl Sim {
                 pl.kvx = 0;
                 pl.kvy = 0;
                 pl.transition = None;
+                pl.fishing = None;
             }
             pl.prev_buttons = pl.buttons;
             self.players[slot] = Some(pl);
@@ -501,7 +573,44 @@ impl Sim {
             return;
         }
 
-        // B item: bow shoots, bomb places, shield blocks while held.
+        // Active fishing intercepts B (catch attempt) and any movement (cancel).
+        if let Some(phase) = pl.fishing {
+            let b_pressed = pl.buttons & BTN_B != 0 && pl.prev_buttons & BTN_B == 0;
+            let moved = pl.buttons & (BTN_UP | BTN_DOWN | BTN_LEFT | BTN_RIGHT) != 0;
+            if moved {
+                pl.fishing = None;
+            } else {
+                match phase {
+                    FishPhase::Cast { t } => {
+                        if b_pressed {
+                            pl.fishing = None; // reeled in early
+                        } else if t == 0 {
+                            pl.fishing = Some(FishPhase::Bite { t: 40 });
+                            self.emit_cue(pl.sx, pl.sy, cues::SHELL);
+                        } else {
+                            pl.fishing = Some(FishPhase::Cast { t: t - 1 });
+                        }
+                    }
+                    FishPhase::Bite { t } => {
+                        if b_pressed {
+                            pl.fishing = None;
+                            self.land_fish(&mut pl, slot);
+                        } else if t == 0 {
+                            pl.fishing = None;
+                            self.emit_toast(slot, "IT GOT AWAY...");
+                        } else {
+                            pl.fishing = Some(FishPhase::Bite { t: t - 1 });
+                        }
+                    }
+                }
+                pl.walking = false;
+                pl.prev_buttons = pl.buttons;
+                self.players[slot] = Some(pl);
+                return;
+            }
+        }
+
+        // B item: bow shoots, bomb places, rod casts, shield blocks while held.
         pl.shielding = false;
         if let Some(stack) = pl.equipped(pl.equip_b).copied() {
             let kind = self.defs.items[stack.def as usize].kind;
@@ -536,6 +645,21 @@ impl Sim {
                         bomb.id = self.next_id;
                         self.next_id += 1;
                         self.entities.push(bomb);
+                    }
+                }
+                ItemKind::Rod if pressed => {
+                    // Cast only when the tile in front is water.
+                    let (fx_, fy_) = facing_tile_center(&pl);
+                    let in_water = self
+                        .world
+                        .screen_at(pl.sx, pl.sy)
+                        .is_some_and(|s| self.world.is_water(s, fx_, fy_));
+                    if in_water {
+                        let wait = 90 + self.rng.below(150);
+                        pl.fishing = Some(FishPhase::Cast { t: wait });
+                        self.emit_cue(pl.sx, pl.sy, cues::SWING);
+                    } else {
+                        self.emit_toast(slot, "FACE THE WATER TO FISH");
                     }
                 }
                 _ => {}
@@ -715,6 +839,7 @@ impl Sim {
             let (hx0, hy0, hx1, hy1) = sword_box(&p);
             let mut cues_out = Vec::new();
             let mut connected = false;
+            let mut hunt_xp = 0u32;
             for e in self.entities.iter_mut() {
                 if !e.alive || e.etype != ET_ENEMY || e.iframes > 0 {
                     continue;
@@ -738,6 +863,7 @@ impl Sim {
                     cues_out.push(if e.hp <= 0 { cues::ENEMY_DIE } else { cues::HIT });
                     if e.hp <= 0 {
                         e.alive = false;
+                        hunt_xp += self.defs.enemies[e.def as usize].hunt_xp;
                     }
                 }
             }
@@ -747,12 +873,16 @@ impl Sim {
             if connected {
                 // One wear per swing that lands, no matter how many it hit.
                 self.wear_weapon(&mut p, slot, WearSlot::A);
+                if hunt_xp > 0 {
+                    self.award_xp(&mut p, slot, defs::SKILL_HUNTING, hunt_xp);
+                }
                 self.players[slot] = Some(p);
             }
         }
 
         // 1b. Player arrows and bomb blasts hit enemies.
         let mut arrow_cues = Vec::new();
+        let mut ranged_kills: Vec<(usize, u32)> = Vec::new();
         for i in 0..self.entities.len() {
             let proj = self.entities[i].clone();
             if !proj.alive || proj.owner < 0 {
@@ -790,6 +920,10 @@ impl Sim {
                     connected = true;
                     if e.hp <= 0 {
                         e.alive = false;
+                        let xp = self.defs.enemies[e.def as usize].hunt_xp;
+                        if xp > 0 {
+                            ranged_kills.push((proj.owner as usize, xp));
+                        }
                     }
                     if is_arrow {
                         break; // arrows stop on the first enemy hit
@@ -802,6 +936,12 @@ impl Sim {
         }
         for (sx, sy, c) in arrow_cues {
             self.emit_cue(sx, sy, c);
+        }
+        for (owner, xp) in ranged_kills {
+            if let Some(mut p) = self.players.get(owner).cloned().flatten() {
+                self.award_xp(&mut p, owner, defs::SKILL_HUNTING, xp);
+                self.players[owner] = Some(p);
+            }
         }
 
         // 2. Enemies / projectiles hurt players; pickups collect.
@@ -828,7 +968,10 @@ impl Sim {
                     continue;
                 }
                 match e.etype {
-                    ET_ENEMY if p.iframes == 0 => {
+                    // Critters are harmless to touch.
+                    ET_ENEMY if p.iframes == 0
+                        && self.defs.enemies[e.def as usize].damage > 0 =>
+                    {
                         if blocks(&self.defs, &p, e.x, e.y) {
                             p.kvx = fx(2) * (p.x - e.x).signum();
                             p.kvy = fx(2) * (p.y - e.y).signum();
@@ -1096,11 +1239,56 @@ impl Sim {
                 if p.inventory.get(idx).is_some_and(|s| {
                     matches!(
                         self.defs.items[s.def as usize].kind,
-                        ItemKind::Bow | ItemKind::Shield | ItemKind::Bomb
+                        ItemKind::Bow | ItemKind::Shield | ItemKind::Bomb | ItemKind::Rod
                     )
                 }) {
                     p.equip_b = idx as i8;
                 }
+            }
+            "eat" => {
+                let idx = act.a as usize;
+                let Some(stack) = p.inventory.get(idx).copied() else {
+                    return;
+                };
+                let def = &self.defs.items[stack.def as usize];
+                if def.kind != ItemKind::Food {
+                    return;
+                }
+                p.hp = (p.hp + def.heal).min(p.max_hp);
+                self.emit_cue(p.sx, p.sy, cues::HEART);
+                consume_one(&mut p, idx);
+            }
+            "cook" => {
+                let Some(recipe) = self.defs.recipes.get(act.a as usize) else {
+                    return;
+                };
+                let level = self.defs.curve.level_for_xp(p.skills[defs::SKILL_COOKING]);
+                if recipe.level > level || !near_fire(&self.world, &p) {
+                    return;
+                }
+                // All inputs present?
+                let mut needed: Vec<u8> = recipe.inputs.clone();
+                for input in &needed {
+                    if !p.inventory.iter().any(|s| s.def == *input && s.qty > 0) {
+                        self.emit_toast(slot, "MISSING INGREDIENTS");
+                        return;
+                    }
+                }
+                needed.sort_unstable();
+                needed.dedup();
+                // (Recipes never need 2x the same input in the slice.)
+                let output = recipe.output;
+                let xp = recipe.xp;
+                for input in needed {
+                    if let Some(idx) = p.inventory.iter().position(|s| s.def == input) {
+                        consume_one(&mut p, idx);
+                    }
+                }
+                give_item(&mut p, &self.defs, output, 1);
+                let label = self.defs.items[output as usize].label.clone();
+                self.emit_toast(slot, &format!("COOKED {label}!"));
+                self.emit_cue(p.sx, p.sy, cues::ITEM);
+                self.award_xp(&mut p, slot, defs::SKILL_COOKING, xp);
             }
             "fuse" => {
                 let (wi, mi) = (act.a as usize, act.b as usize);
@@ -1129,10 +1317,21 @@ impl Sim {
         self.players[slot] = Some(p);
     }
 
-    /// Inventory/equipment JSON for the UI overlay.
+    /// Inventory/equipment/skills JSON for the UI overlay.
     pub fn ui_state(&self, slot: usize) -> String {
         match &self.players[slot.min(MAX_PLAYERS - 1)] {
-            Some(p) => ui_state_json(&self.defs, &p.inventory, p.equip_a, p.equip_b),
+            Some(p) => ui_state_json(
+                &self.defs,
+                &p.inventory,
+                p.equip_a,
+                p.equip_b,
+                p.skills,
+                near_fire(&self.world, p),
+                p.fishing.map(|f| match f {
+                    FishPhase::Cast { .. } => 0,
+                    FishPhase::Bite { .. } => 1,
+                }),
+            ),
             None => "null".to_string(),
         }
     }
@@ -1174,6 +1373,12 @@ impl Sim {
                         .collect(),
                     equip_a: p.equip_a,
                     equip_b: p.equip_b,
+                    skills: p.skills,
+                    fishing: p.fishing.map(|f| match f {
+                        FishPhase::Cast { .. } => 0,
+                        FishPhase::Bite { .. } => 1,
+                    }),
+                    near_fire: near_fire(&self.world, p),
                 })
             })
             .collect();
@@ -1262,6 +1467,20 @@ impl Sim {
                     h.u32(p.shielding as u32);
                     h.i32(p.equip_a as i32);
                     h.i32(p.equip_b as i32);
+                    for s in p.skills {
+                        h.u32(s);
+                    }
+                    match p.fishing {
+                        None => h.u32(0),
+                        Some(FishPhase::Cast { t }) => {
+                            h.u32(1);
+                            h.u32(t);
+                        }
+                        Some(FishPhase::Bite { t }) => {
+                            h.u32(2);
+                            h.u32(t);
+                        }
+                    }
                     for s in &p.inventory {
                         h.u32(s.def as u32);
                         h.u32(s.qty as u32);
@@ -1307,11 +1526,21 @@ fn kind_str(kind: ItemKind) -> &'static str {
         ItemKind::Bomb => "bomb",
         ItemKind::Arrow => "arrow",
         ItemKind::Material => "material",
+        ItemKind::Rod => "rod",
+        ItemKind::Food => "food",
     }
 }
 
 /// Shared by the host (live inventory) and clients (snapshot inventory).
-pub fn ui_state_json(defs: &Defs, inventory: &[ItemStack], equip_a: i8, equip_b: i8) -> String {
+pub fn ui_state_json(
+    defs: &Defs,
+    inventory: &[ItemStack],
+    equip_a: i8,
+    equip_b: i8,
+    skills: [u32; 3],
+    near_fire: bool,
+    fishing: Option<u8>,
+) -> String {
     #[derive(serde::Serialize)]
     struct UiItem {
         i: usize,
@@ -1321,13 +1550,37 @@ pub fn ui_state_json(defs: &Defs, inventory: &[ItemStack], equip_a: i8, equip_b:
         dur: u16,
         max_dur: u16,
         fused: Option<String>,
+        heal: i16,
+    }
+    #[derive(serde::Serialize)]
+    struct UiSkill {
+        name: &'static str,
+        level: u32,
+        xp: u32,
+        next: u32,
+    }
+    #[derive(serde::Serialize)]
+    struct UiRecipe {
+        i: usize,
+        label: String,
+        inputs: Vec<String>,
+        level: u32,
+        can_make: bool,
+        level_ok: bool,
     }
     #[derive(serde::Serialize)]
     struct UiState {
         inventory: Vec<UiItem>,
         equip_a: i8,
         equip_b: i8,
+        skills: Vec<UiSkill>,
+        near_fire: bool,
+        recipes: Vec<UiRecipe>,
+        /// 0 = line out, 1 = bite window, null = not fishing.
+        fishing: Option<u8>,
     }
+
+    let cooking_level = defs.curve.level_for_xp(skills[defs::SKILL_COOKING]);
     let state = UiState {
         inventory: inventory
             .iter()
@@ -1343,11 +1596,44 @@ pub fn ui_state_json(defs: &Defs, inventory: &[ItemStack], equip_a: i8, equip_b:
                     max_dur: def.durability
                         + if s.fused.is_some() { 10 } else { 0 },
                     fused: s.fused.map(|f| defs.items[f as usize].label.clone()),
+                    heal: def.heal,
                 }
             })
             .collect(),
         equip_a,
         equip_b,
+        skills: (0..3)
+            .map(|i| {
+                let level = defs.curve.level_for_xp(skills[i]);
+                UiSkill {
+                    name: defs::SKILL_NAMES[i],
+                    level,
+                    xp: skills[i],
+                    next: defs.curve.xp_for_level(level + 1),
+                }
+            })
+            .collect(),
+        near_fire,
+        recipes: defs
+            .recipes
+            .iter()
+            .enumerate()
+            .map(|(i, r)| UiRecipe {
+                i,
+                label: defs.items[r.output as usize].label.clone(),
+                inputs: r
+                    .inputs
+                    .iter()
+                    .map(|inp| defs.items[*inp as usize].label.clone())
+                    .collect(),
+                level: r.level,
+                can_make: r.inputs.iter().all(|inp| {
+                    inventory.iter().any(|s| s.def == *inp && s.qty > 0)
+                }),
+                level_ok: r.level <= cooking_level,
+            })
+            .collect(),
+        fishing,
     };
     serde_json::to_string(&state).unwrap_or_else(|_| "null".to_string())
 }
@@ -1554,6 +1840,18 @@ fn draw_players_on(
                 out.sprite(s, x, y, 0, f);
             }
         }
+
+        // Fishing: bobber on the water tile in front; "!" overhead on a bite.
+        if let Some(phase) = p.fishing {
+            let (cx, cy) = facing_tile_center(p);
+            let bob = if (tick >> 4) & 1 == 1 { 1 } else { 0 };
+            out.sprite(world.sprites.bobber, cx - 8 + ox, cy - 8 + bob + oy, 0, 0);
+            if matches!(phase, FishPhase::Bite { .. }) {
+                if let Some(g) = world.glyph('!') {
+                    out.glyph(g, px + 4, py - 9, 1);
+                }
+            }
+        }
     }
 }
 
@@ -1651,6 +1949,30 @@ fn blocks(defs: &Defs, p: &Player, ax: Fx, ay: Fx) -> bool {
     }
 }
 
+/// Pixel center of the tile directly in front of the player.
+fn facing_tile_center(p: &Player) -> (i32, i32) {
+    let cx = to_px(p.x) + 8;
+    let cy = to_px(p.y) + 8;
+    match p.facing {
+        1 => (cx, cy - 16),
+        2 => (cx - 16, cy),
+        3 => (cx + 16, cy),
+        _ => (cx, cy + 16),
+    }
+}
+
+/// True when any of the 4 tiles around the player's center is a campfire.
+fn near_fire(world: &World, p: &Player) -> bool {
+    let Some(screen) = world.screen_at(p.sx, p.sy) else {
+        return false;
+    };
+    let cx = to_px(p.x) + 8;
+    let cy = to_px(p.y) + 8;
+    [(0, -16), (0, 16), (-16, 0), (16, 0), (0, 0)]
+        .iter()
+        .any(|(dx, dy)| world.is_fire(screen, cx + dx, cy + dy))
+}
+
 fn sword_box(p: &Player) -> (i32, i32, i32, i32) {
     let px = to_px(p.x);
     let py = to_px(p.y);
@@ -1667,7 +1989,8 @@ mod tests {
     use super::*;
 
     /// 2x1-screen bundle: borders solid, interiors open, gap on the shared
-    /// edge, one thornling and one gel on screen 0.
+    /// edge, one thornling and one gel on screen 0. Screen 1 has a water
+    /// tile (id 2) at (5,3) and a campfire (id 3) at (3,4).
     fn test_bundle() -> String {
         let mut screens = Vec::new();
         for sx in 0..2 {
@@ -1681,6 +2004,10 @@ mod tests {
                     tiles[ty * 10] = 1;
                     tiles[ty * 10 + 9] = 1;
                 }
+            }
+            if sx == 1 {
+                tiles[3 * 10 + 5] = 2; // water
+                tiles[4 * 10 + 3] = 3; // campfire
             }
             let entities = if sx == 0 {
                 r#"[{"t":"thornling","tx":2,"ty":2},{"t":"gel","tx":7,"ty":5}]"#
@@ -1710,10 +2037,16 @@ mod tests {
             "arrow_v",
             "itm_bow",
             "itm_shield",
+            "bobber",
+            "itm_rod",
+            "itm_fish",
+            "itm_food",
         ];
         let sprite_names = sprites.map(|s| format!("\"{s}\"")).join(",");
         format!(
-            r#"{{"world":{{"tile_names":["floor","wall"],"tile_solid":[false,true],
+            r#"{{"world":{{"tile_names":["floor","wall","water","fire"],
+"tile_solid":[false,true,true,true],"tile_water":[false,false,true,false],
+"tile_fire":[false,false,false,true],
 "sprite_names":[{sprite_names}],"font_chars":"0123456789#%&$",
 "screens":[{}],"spawn":{{"sx":0,"sy":0,"x":72,"y":64}}}},
 "items":[
@@ -1723,11 +2056,18 @@ mod tests {
  {{"name":"bomb","label":"BOMB","sprite":"itm_bomb","kind":"bomb"}},
  {{"name":"arrow","label":"ARROW","sprite":"arrow_h","kind":"arrow"}},
  {{"name":"crab_claw","label":"CRAB CLAW","sprite":"claw","kind":"material","fuse_damage":1}},
- {{"name":"wasp_stinger","label":"WASP STINGER","sprite":"claw","kind":"material","fuse_effect":"poison"}}],
+ {{"name":"wasp_stinger","label":"WASP STINGER","sprite":"claw","kind":"material","fuse_effect":"poison"}},
+ {{"name":"fishing_rod","label":"FISHING ROD","sprite":"itm_rod","kind":"rod","durability":25}},
+ {{"name":"raw_perch","label":"RAW PERCH","sprite":"itm_fish","kind":"material"}},
+ {{"name":"grilled_perch","label":"GRILLED PERCH","sprite":"itm_food","kind":"food","heal":4}}],
 "enemies":[
  {{"name":"thornling","brain":"thornling","hp":2,"damage":1,"speed":0,"sprite":"thornling_0","drops":"basic"}},
- {{"name":"gel","brain":"gel","hp":2,"damage":1,"speed":128,"sprite":"gel_0","drops":"basic"}}],
-"drops":{{"basic":[{{"item":"heart","p":400}},{{"item":"shells","p":600,"min":1,"max":3}},{{"item":"crab_claw","p":300}}]}}}}"#,
+ {{"name":"gel","brain":"gel","hp":2,"damage":1,"speed":128,"sprite":"gel_0","drops":"basic"}},
+ {{"name":"hare","brain":"critter","hp":1,"damage":0,"speed":320,"sprite":"gel_0","drops":"basic","hunt_xp":20}}],
+"drops":{{"basic":[{{"item":"heart","p":400}},{{"item":"shells","p":600,"min":1,"max":3}},{{"item":"crab_claw","p":300}}]}},
+"skills":{{"curve":{{"base":100,"growth":50,"max_level":15}},
+ "fishing":[{{"item":"raw_perch","min_level":1,"weight":60,"xp":25}}]}},
+"recipes":[{{"output":"grilled_perch","inputs":["raw_perch"],"level":1,"xp":30}}]}}"#,
             screens.join(",")
         )
     }
@@ -1912,6 +2252,107 @@ mod tests {
             }
         }
         panic!("sword never broke");
+    }
+
+    #[test]
+    fn fishing_cooking_eating_loop() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 21).unwrap();
+        sim.add_player(0);
+        let rod = sim.defs.item_index("fishing_rod").unwrap();
+        // Move to screen 1, stand left of the water tile (5,3) facing right.
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.sx = 1;
+            p.x = fx(4 * 16);
+            p.y = fx(HUD_H + 3 * 16);
+            p.facing = 3;
+            let rod_idx = p.inventory.iter().position(|s| s.def == rod).unwrap();
+            p.equip_b = rod_idx as i8;
+        }
+        // Cast.
+        sim.set_input(0, BTN_B);
+        sim.step();
+        sim.set_input(0, 0);
+        assert!(matches!(
+            sim.players[0].as_ref().unwrap().fishing,
+            Some(FishPhase::Cast { .. })
+        ));
+        // Wait out the bite (max 240 ticks), then hook it.
+        for _ in 0..400 {
+            sim.step();
+            if matches!(
+                sim.players[0].as_ref().unwrap().fishing,
+                Some(FishPhase::Bite { .. })
+            ) {
+                break;
+            }
+        }
+        assert!(matches!(
+            sim.players[0].as_ref().unwrap().fishing,
+            Some(FishPhase::Bite { .. })
+        ));
+        sim.set_input(0, BTN_B);
+        sim.step();
+        sim.set_input(0, 0);
+        let p = sim.players[0].as_ref().unwrap();
+        let perch = sim.defs.item_index("raw_perch").unwrap();
+        assert!(p.inventory.iter().any(|s| s.def == perch), "caught a perch");
+        assert!(p.skills[defs::SKILL_FISHING] > 0, "fishing xp awarded");
+
+        // Walk next to the campfire (3,4) and cook it.
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.x = fx(2 * 16);
+            p.y = fx(HUD_H + 4 * 16);
+        }
+        sim.ui_action(0, r#"{"action":"cook","a":0}"#);
+        let p = sim.players[0].as_ref().unwrap();
+        let cooked = sim.defs.item_index("grilled_perch").unwrap();
+        assert!(p.inventory.iter().any(|s| s.def == cooked), "cooked it");
+        assert!(p.skills[defs::SKILL_COOKING] > 0, "cooking xp awarded");
+
+        // Take damage, then eat it.
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.hp = 2;
+        }
+        let eat_idx = sim.players[0]
+            .as_ref()
+            .unwrap()
+            .inventory
+            .iter()
+            .position(|s| s.def == cooked)
+            .unwrap();
+        sim.ui_action(0, &format!(r#"{{"action":"eat","a":{eat_idx}}}"#));
+        assert_eq!(sim.players[0].as_ref().unwrap().hp, 6);
+    }
+
+    #[test]
+    fn hunting_critter_awards_xp() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 31).unwrap();
+        sim.add_player(0);
+        // Spawn a hare right in front of the player and stab it.
+        let hare = sim.defs.enemy_index("hare").unwrap();
+        let (px, py) = {
+            let p = sim.players[0].as_ref().unwrap();
+            (to_px(p.x), to_px(p.y))
+        };
+        // Overlap the sword arc deeply so the fleeing hare can't escape it.
+        let mut e = Entity::enemy(999, hare, 1, 0, 0, px, py - 12);
+        e.iframes = 0;
+        sim.entities.push(e);
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.facing = 1;
+        }
+        sim.set_input(0, BTN_A);
+        for _ in 0..20 {
+            sim.step();
+        }
+        let p = sim.players[0].as_ref().unwrap();
+        assert!(p.skills[defs::SKILL_HUNTING] > 0, "hunting xp awarded");
     }
 
     #[test]

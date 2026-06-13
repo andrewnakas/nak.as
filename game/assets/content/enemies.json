@@ -43,5 +43,25 @@
     "speed": 256,
     "sprite": "snatcher_0",
     "drops": "shellsnatcher"
+  },
+  {
+    "name": "thicket_hare",
+    "brain": "critter",
+    "hp": 1,
+    "damage": 0,
+    "speed": 320,
+    "sprite": "hare_0",
+    "drops": "thicket_hare",
+    "hunt_xp": 20
+  },
+  {
+    "name": "hollow_stag",
+    "brain": "critter",
+    "hp": 4,
+    "damage": 0,
+    "speed": 288,
+    "sprite": "stag_0",
+    "drops": "hollow_stag",
+    "hunt_xp": 70
   }
 ]

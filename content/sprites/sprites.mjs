@@ -511,6 +511,157 @@ export const SPRITES = [
     }),
   },
 
+  // ---- skills: fishing/cooking/hunting ----
+  {
+    name: 'itm_rod',
+    palette: 'wood',
+    grid: grid((x, y) => {
+      // diagonal rod with a line and hook
+      if (x - y === -1 || x - y === 0) {
+        if (x >= 2 && x <= 10) return x < 5 ? 1 : 2;
+      }
+      if (x === 11 && y >= 11 && y <= 13) return 3; // line
+      if (y === 13 && x >= 10 && x <= 11) return 3;
+      if (y === 12 && x === 10) return 3;
+      return '.';
+    }),
+  },
+  {
+    name: 'bobber',
+    palette: 'hero',
+    grid: grid((x, y) => {
+      const d = Math.hypot(x - 7.5, y - 8);
+      if (d > 3) return '.';
+      if (d > 2.2) return 0;
+      return y < 8 ? 3 : 2;
+    }),
+  },
+  {
+    name: 'itm_fish',
+    palette: 'water',
+    grid: grid((x, y) => {
+      const dx = (x - 6.5) / 1.6;
+      const dy = (y - 8) / 1.05;
+      if (Math.sqrt(dx * dx + dy * dy) < 3) {
+        if (y === 7 && x === 4) return 0; // eye
+        return Math.sqrt(dx * dx + dy * dy) > 2.5 ? 0 : x % 3 === 0 ? 3 : 2;
+      }
+      // tail
+      if (x >= 11 && x <= 13 && Math.abs(y - 8) <= x - 11) return 2;
+      return '.';
+    }),
+  },
+  {
+    name: 'itm_herb',
+    palette: 'grass',
+    grid: grid((x, y) => {
+      // three sprigs
+      if (x === 7 && y >= 5 && y <= 12) return 1;
+      if (x - y === -1 && y >= 6 && y <= 9) return 2;
+      if (x + y === 16 && y >= 6 && y <= 9) return 2;
+      if ((y === 5 && (x === 5 || x === 9)) || (y === 4 && x === 7)) return 3;
+      return '.';
+    }),
+  },
+  {
+    name: 'itm_mushroom',
+    palette: 'sand',
+    grid: grid((x, y) => {
+      // cap
+      const d = Math.hypot(x - 7.5, (y - 7) * 1.4);
+      if (y <= 7 && d < 5) return d > 4 ? 0 : (x + y) % 4 === 0 ? 3 : 2;
+      // stem
+      if (y > 7 && y <= 12 && x >= 6 && x <= 9) return y === 12 ? 0 : 1;
+      return '.';
+    }),
+  },
+  {
+    name: 'itm_meat',
+    palette: 'wood',
+    grid: grid((x, y) => {
+      const d = Math.hypot((x - 8) * 1.1, y - 7);
+      if (d < 4.5) return d > 3.6 ? 0 : x < 8 ? 3 : 2;
+      // bone
+      if (y >= 10 && y <= 11 && x >= 9 && x <= 13) return 3;
+      return '.';
+    }),
+  },
+  {
+    name: 'itm_food',
+    palette: 'sand',
+    grid: grid((x, y) => {
+      // steaming bowl
+      if (y >= 8 && y <= 12) {
+        const w = y <= 10 ? 6 : 8 - y + 4;
+        if (Math.abs(x - 7.5) < w) return y === 8 ? 3 : Math.abs(x - 7.5) > w - 1.3 ? 0 : 2;
+      }
+      if ((x === 6 || x === 9) && (y === 4 || y === 6)) return 1; // steam
+      if ((x === 7 || x === 8) && y === 5) return 1;
+      return '.';
+    }),
+  },
+  {
+    name: 'hare_0',
+    palette: 'sand',
+    grid: grid((x, y) => {
+      // ears
+      if ((x === 5 || x === 8) && y >= 2 && y <= 5) return 2;
+      const b = blob(7, 10, 4, 3.4)(x, y);
+      if (b === '.') {
+        if (y === 14 && (x === 5 || x === 9)) return 0;
+        return '.';
+      }
+      if (y === 9 && (x === 5 || x === 8)) return 0;
+      return b === 2 ? 3 : b;
+    }),
+  },
+  {
+    name: 'hare_1',
+    palette: 'sand',
+    grid: grid((x, y) => {
+      if ((x === 5 || x === 8) && y >= 3 && y <= 6) return 2;
+      const b = blob(7, 10.5, 4, 3)(x, y);
+      if (b === '.') {
+        if (y === 14 && (x === 4 || x === 10)) return 0;
+        return '.';
+      }
+      if (y === 9 && (x === 5 || x === 8)) return 0;
+      return b === 2 ? 3 : b;
+    }),
+  },
+  {
+    name: 'stag_0',
+    palette: 'wood',
+    grid: grid((x, y) => {
+      // antlers
+      if (y <= 3 && (x === 3 || x === 6 || x === 9 || x === 12) && y >= 1) return 3;
+      if (y === 4 && (x === 4 || x === 5 || x === 10 || x === 11)) return 3;
+      // head + body
+      const b = blob(7.5, 9, 4.6, 4)(x, y);
+      if (b === '.') {
+        if (y >= 13 && (x === 5 || x === 10)) return 0; // legs
+        return '.';
+      }
+      if (y === 8 && (x === 6 || x === 9)) return 0;
+      return b;
+    }),
+  },
+  {
+    name: 'stag_1',
+    palette: 'wood',
+    grid: grid((x, y) => {
+      if (y <= 3 && (x === 3 || x === 6 || x === 9 || x === 12) && y >= 1) return 3;
+      if (y === 4 && (x === 4 || x === 5 || x === 10 || x === 11)) return 3;
+      const b = blob(7.5, 9.5, 4.6, 3.6)(x, y);
+      if (b === '.') {
+        if (y >= 13 && (x === 4 || x === 11)) return 0;
+        return '.';
+      }
+      if (y === 8 && (x === 6 || x === 9)) return 0;
+      return b;
+    }),
+  },
+
   // ---- materials (drops; inventory icons in Phase 4) ----
   {
     name: 'mat_claw',

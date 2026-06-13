@@ -189,6 +189,19 @@ pub fn step_enemy(
             clamp_to_playfield(e);
             None
         }
+        Brain::Critter => {
+            // Graze peacefully; bolt when anyone gets close.
+            if let Some((px, py, d2)) = target {
+                if d2 < 55 * 55 {
+                    let (dx, dy) = step_toward(e.x, e.y, px, py, def.speed * 2);
+                    try_move(e, ctx.world, -dx, -dy);
+                    e.facing = if dx > 0 { 2 } else { 3 };
+                    return None;
+                }
+            }
+            wander(e, ctx.world, def.speed / 2, rng, 90);
+            None
+        }
         Brain::Snatcher => {
             if e.state == ST_FLEE {
                 // Run from the nearest player after stealing.

@@ -25,6 +25,7 @@ o window
 ! sign
 d dock
 g tall_grass
+C campfire
 
 SCREEN 0 0 bramble_west
 TTTTTTTTTT
@@ -49,6 +50,7 @@ T...--...T
 TT..--..TT
 E shellsnatcher 5 3
 E marsh_gel 2 5
+E thicket_hare 7 5
 
 SCREEN 2 0 bramble_east
 TTTTTTTTTT
@@ -73,6 +75,7 @@ c.,....,.c
 ccc....ccc
 E dune_wasp 4 3
 E dune_wasp 7 5
+E hollow_stag 4 5
 
 SCREEN 0 1 west_fields
 TT..--..TT
@@ -85,6 +88,7 @@ T,......,T
 TT.s..s.TT
 E marsh_gel 3 3
 E shellsnatcher 7 6
+E thicket_hare 6 3
 
 SCREEN 1 1 driftwood_village
 TT..--..TT
@@ -93,7 +97,7 @@ TT..--..TT
 ....--....
 .!--------
 ....--....
-..,.--.,..
+..C.--.,..
 .s..--..s.
 
 SCREEN 2 1 village_east
@@ -118,6 +122,8 @@ c.,...,..c
 cc.s...scc
 E thornling 4 3
 E shellsnatcher 6 5
+E hollow_stag 7 1
+E thicket_hare 2 6
 
 SCREEN 0 2 shellcomb_west
 TT.s..s.TT
@@ -133,7 +139,7 @@ E snapcrab 6 2
 
 SCREEN 1 2 shellcomb_dock
 .s..--..s.
-ss..--..ss
+sC..--..ss
 ssss--ssss
 ssss--ssss
 wwww-dwwww
