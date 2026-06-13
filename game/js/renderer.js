@@ -10,12 +10,35 @@ const KIND_TILE = 1;
 const KIND_SPRITE = 2;
 const KIND_RECT = 3;
 const KIND_GLYPH = 4;
+const KIND_HPBAR = 5;
 const FLAG_FLIP_X = 1;
 const FLAG_FLIP_Y = 2;
 
 // HUD/transition rects use this muted ramp (matches palettes.mjs direction):
 // dark slate -> deep teal -> sage -> bone. Index 0 is the HUD bar & letterbox.
 const SHADES = ['#16181d', '#2f5b4a', '#6f8a5b', '#efe6d2'];
+
+// Health-bar gradient stops, muted to sit inside the GBC palette: a sage-green
+// at full, amber midway, dusty red when low. Interpolated by HP ratio.
+const HP_STOPS = [
+  [0.0, [0xb4, 0x4a, 0x3a]], // low  — dusty red
+  [0.5, [0xc9, 0x9a, 0x46]], // mid  — amber
+  [1.0, [0x6f, 0x8a, 0x5b]], // full — sage green (matches SHADES[2])
+];
+function hpColor(ratio) {
+  const r = Math.max(0, Math.min(1, ratio));
+  for (let i = 1; i < HP_STOPS.length; i++) {
+    if (r <= HP_STOPS[i][0]) {
+      const [lo, c0] = HP_STOPS[i - 1];
+      const [hi, c1] = HP_STOPS[i];
+      const t = (r - lo) / (hi - lo || 1);
+      const mix = (a, b) => Math.round(a + (b - a) * t);
+      return `rgb(${mix(c0[0], c1[0])},${mix(c0[1], c1[1])},${mix(c0[2], c1[2])})`;
+    }
+  }
+  const c = HP_STOPS[HP_STOPS.length - 1][1];
+  return `rgb(${c[0]},${c[1]},${c[2]})`;
+}
 
 export class Renderer {
   constructor(canvas) {
@@ -105,12 +128,23 @@ export class Renderer {
       const d = list[i + 4];
       const e = list[i + 5];
 
-      if (kind === KIND_RECT || kind === KIND_GLYPH) {
-        // Rects and glyphs escape the playfield clip (the HUD uses them).
+      if (kind === KIND_RECT || kind === KIND_GLYPH || kind === KIND_HPBAR) {
+        // Rects, glyphs and the HP bar escape the playfield clip (HUD layer).
         ctx.restore();
         if (kind === KIND_RECT) {
           ctx.fillStyle = SHADES[a & 3];
           ctx.fillRect(x, y, d, e);
+        } else if (kind === KIND_HPBAR) {
+          // a = fill permille (0..1000). Dark track, then a colored fill whose
+          // hue tracks remaining health.
+          const ratio = a / 1000;
+          ctx.fillStyle = SHADES[0];
+          ctx.fillRect(x, y, d, e);
+          const fillW = Math.round(d * ratio);
+          if (fillW > 0) {
+            ctx.fillStyle = hpColor(ratio);
+            ctx.fillRect(x, y, fillW, e);
+          }
         } else {
           this.drawGlyph(a, x, y, d);
         }

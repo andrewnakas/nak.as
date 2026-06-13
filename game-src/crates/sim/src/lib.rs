@@ -2893,24 +2893,15 @@ fn draw_players_on(
 
 fn draw_hud(world: &World, vp: &Player, out: &mut DrawList) {
     out.rect(0, 0, 0, SCREEN_W as u16, HUD_H as u16);
-    // Hearts (cap the row so a high max_hp doesn't run off-screen; the
-    // extra hearts still count, they just don't all draw). '#' full,
-    // '%' half, '&' empty.
-    let full = (vp.hp.max(0) / 2) as i32;
-    let half = (vp.hp.max(0) % 2) as i32;
-    let total = ((vp.max_hp / 2) as i32).min(7);
-    for i in 0..total {
-        let c = if i < full {
-            '#'
-        } else if i == full && half == 1 {
-            '%'
-        } else {
-            '&'
-        };
-        if let Some(g) = world.glyph(c) {
-            out.glyph(g, 2 + i * 9, 1, 1);
-        }
-    }
+    // Health bar: a continuous fill whose color shifts green->amber->red as HP
+    // drops (JS picks the color from the permille). Fixed width regardless of
+    // max_hp, so a leveled-up player with more HP still gets a readable bar.
+    const HP_BAR_W: i32 = 56;
+    let hp = vp.hp.max(0) as i32;
+    let maxhp = (vp.max_hp.max(1)) as i32;
+    let permille = ((hp * 1000) / maxhp).clamp(0, 1000) as u16;
+    out.rect(0, 2, 2, HP_BAR_W as u16 + 2, 6); // dark inset/border
+    out.hpbar(permille, 3, 3, HP_BAR_W as u16, 4);
 
     // Level (centered) with a thin XP bar beneath it.
     let lv = format!("LV{}", vp.level);

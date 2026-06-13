@@ -34,6 +34,16 @@ const min9 = (r) => [r, r + 3, r + 7, r + 10, r + 14];
 const min7 = (r) => [r, r + 3, r + 7, r + 10];
 const maj7 = (r) => [r, r + 4, r + 7, r + 11];
 
+// Each track defines its layer sequences plus an ARRANGEMENT of sections it
+// walks through over time, so the music evolves instead of looping one bar
+// forever. A section names which layers play and an optional transpose; the
+// scheduler also drifts (probabilistically toggles optional layers + nudges
+// voicing) within a section for an endless, non-repeating vaporwave feel.
+//
+// section: { bars, layers:[...], transpose?, filter? }
+//   bars      = how many 4-beat bars before advancing to the next section
+//   layers    = which of pad/bass/lead/arp are active this section
+//   transpose = semitone shift applied to melodic layers (lead/arp) for variety
 const TRACKS = {
   // Dreamy, gently propulsive — the open-world theme. Cmaj9 / Amin9 / Fmaj9 / Gsus.
   overworld: {
@@ -56,6 +66,13 @@ const TRACKS = {
       [77, 0.5], [81, 0.5], [84, 0.5], [88, 0.5], [84, 0.5], [81, 0.5], [77, 0.5], [81, 0.5],
       [74, 0.5], [79, 0.5], [83, 0.5], [86, 0.5], [83, 0.5], [79, 0.5], [74, 0.5], [79, 0.5],
     ],
+    arrangement: [
+      { bars: 4, layers: ['pad', 'bass'], filter: 1200 },              // intro: warm, sparse
+      { bars: 8, layers: ['pad', 'bass', 'lead'] },                    // theme
+      { bars: 8, layers: ['pad', 'bass', 'lead', 'arp'], filter: 1900 }, // full + shimmer
+      { bars: 4, layers: ['pad', 'arp'], transpose: 5, filter: 1500 }, // breakdown, lifted
+      { bars: 8, layers: ['pad', 'bass', 'lead', 'arp'] },             // reprise
+    ],
   },
   // Hazier, lower, slower-feeling — caves. Amin9 / Fmaj7 / Dmin9 / Emin7.
   dungeon: {
@@ -72,6 +89,12 @@ const TRACKS = {
       [0, 2], [65, 2], [69, 4], [0, 4], [64, 4],
     ],
     arp: null,
+    arrangement: [
+      { bars: 6, layers: ['pad', 'bass'], filter: 800 },           // drifting dark
+      { bars: 8, layers: ['pad', 'bass', 'lead'] },                // melody enters
+      { bars: 4, layers: ['pad'], transpose: -2, filter: 700 },    // hollow breakdown
+      { bars: 8, layers: ['pad', 'bass', 'lead'], filter: 1200 },  // reprise, opened up
+    ],
   },
   // Tense but still synthy/cool — boss. Driving 1/8 bass, darker chords.
   boss: {
@@ -93,6 +116,12 @@ const TRACKS = {
     arp: [
       [69, 0.25], [72, 0.25], [76, 0.25], [81, 0.25], [76, 0.25], [72, 0.25], [69, 0.25], [76, 0.25],
       [68, 0.25], [71, 0.25], [76, 0.25], [80, 0.25], [76, 0.25], [71, 0.25], [68, 0.25], [76, 0.25],
+    ],
+    arrangement: [
+      { bars: 4, layers: ['pad', 'bass', 'arp'], filter: 1700 },          // building tension
+      { bars: 8, layers: ['pad', 'bass', 'lead', 'arp'], filter: 2200 },  // full assault
+      { bars: 4, layers: ['pad', 'bass'], transpose: -1, filter: 1500 },  // menacing lull
+      { bars: 8, layers: ['pad', 'bass', 'lead', 'arp'], filter: 2400 },  // climax
     ],
   },
 };
@@ -176,9 +205,49 @@ export class Audio {
     for (const l of layers) {
       if (this.track[l]) this.cursors[l] = { pos: 0, next: start };
     }
+    // Section clock: walk the arrangement so the piece evolves over time.
+    // `beatClock` accumulates elapsed beats; when it passes the current
+    // section's length we advance (and apply that section's filter/transpose).
+    this.arrangement = this.track.arrangement ?? [
+      { bars: 999, layers },
+    ];
+    this.sectionIdx = 0;
+    this.beatClock = 0; // beats scheduled since the track started
+    this.sectionEndBeat = (this.arrangement[0].bars ?? 8) * 4;
+    this.drift = {}; // per-layer generative on/off + transpose, re-rolled per section
+    this._enterSection(0, start);
     // Lookahead scheduling on AudioContext time (survives hidden tabs).
     this.scheduler = setInterval(() => this._schedule(), 140);
     this._schedule();
+  }
+
+  /// Apply a section: set its filter target and re-roll the generative drift
+  /// (which optional layers play this section, plus a small voicing nudge).
+  _enterSection(idx, atTime) {
+    const sec = this.arrangement[idx % this.arrangement.length];
+    const active = new Set(sec.layers ?? []);
+    // Generative drift: occasionally drop an "extra" layer (lead/arp) for a
+    // breath, or sneak the arp into a section that didn't ask for it, so no two
+    // passes sound identical. Pad+bass (the bed) are never dropped.
+    const roll = () => this._rand();
+    this.drift = {
+      pad: { on: active.has('pad') },
+      bass: { on: active.has('bass') },
+      lead: { on: active.has('lead') && roll() > 0.18 },
+      arp: { on: active.has('arp') || (active.has('lead') && roll() > 0.7) },
+      // Small extra octave/step nudge on top of the section transpose.
+      transpose: (sec.transpose ?? 0) + (roll() > 0.85 ? 12 : 0),
+    };
+    if (sec.filter && this.musicFilter) {
+      this.musicFilter.frequency.setTargetAtTime(sec.filter, atTime ?? this.ctx.currentTime, 0.8);
+    }
+  }
+
+  /// Tiny deterministic-ish PRNG so we don't pull in Math.random everywhere;
+  /// seeded from the audio clock so each run differs but stays stable per call.
+  _rand() {
+    this._seed = (this._seed ?? 0x2545f491) * 1664525 + 1013904223;
+    return ((this._seed >>> 8) & 0xffff) / 0xffff;
   }
 
   _schedule() {
@@ -187,15 +256,27 @@ export class Audio {
     const beat = 60 / track.bpm;
     const horizon = this.ctx.currentTime + 0.6;
 
+    // Advance the section clock by the pad cursor (it's the bar anchor): we
+    // measure elapsed beats from the earliest layer next-time. Sections change
+    // on bar boundaries via beatClock below.
     for (const [layer, cur] of Object.entries(this.cursors)) {
       const seq = track[layer];
+      const dr = this.drift[layer];
       while (cur.next < horizon) {
-        const [value, beats] = seq[cur.pos % seq.length];
+        const [rawValue, beats] = seq[cur.pos % seq.length];
         const dur = beats * beat;
         const t0 = cur.next;
-        if (value !== 0) {
+        const audible = dr?.on ?? true;
+        // Apply the section/drift transpose to melodic layers only (not pad/bass
+        // chord bed, which would muddy the harmony).
+        const tx = layer === 'lead' || layer === 'arp' ? this.drift.transpose ?? 0 : 0;
+        const value = Array.isArray(rawValue)
+          ? rawValue
+          : rawValue !== 0 && tx
+            ? rawValue + tx
+            : rawValue;
+        if (value !== 0 && audible) {
           if (Array.isArray(value)) {
-            // chord pad: spread the voicing, very soft + slow attack
             value.forEach((m, k) =>
               this._voice(m, t0, dur, {
                 vol: 0.07,
@@ -215,7 +296,6 @@ export class Audio {
               detune: 0,
             });
           } else if (layer === 'lead') {
-            // plucky, a touch behind the beat, long shimmery tail
             this._voice(value, t0 + 0.03, dur, {
               vol: 0.13,
               type: 'sawtooth',
@@ -224,7 +304,6 @@ export class Audio {
               detune: 8,
             });
           } else {
-            // arp shimmer
             this._voice(value, t0, dur, {
               vol: 0.05,
               type: 'square',
@@ -236,6 +315,16 @@ export class Audio {
         }
         cur.next += dur;
         cur.pos++;
+        // The pad layer is our bar clock — advance the arrangement on it.
+        if (layer === 'pad') {
+          this.beatClock += beats;
+          if (this.beatClock >= this.sectionEndBeat) {
+            this.sectionIdx++;
+            const sec = this.arrangement[this.sectionIdx % this.arrangement.length];
+            this.sectionEndBeat = this.beatClock + (sec.bars ?? 8) * 4;
+            this._enterSection(this.sectionIdx, cur.next);
+          }
+        }
       }
     }
   }

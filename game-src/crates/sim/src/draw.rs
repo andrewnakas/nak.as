@@ -21,6 +21,10 @@ pub const KIND_TILE: u16 = 1;
 pub const KIND_SPRITE: u16 = 2;
 pub const KIND_RECT: u16 = 3;
 pub const KIND_GLYPH: u16 = 4;
+/// kind HPBAR: a = fill permille (0..=1000), b/c = biased x/y, d = width,
+/// e = height. JS draws a green->amber->red gradient fill by ratio over a dark
+/// track, so the player's health reads as a continuous bar instead of hearts.
+pub const KIND_HPBAR: u16 = 5;
 
 pub const FLAG_FLIP_X: u16 = 1;
 pub const FLAG_FLIP_Y: u16 = 2;
@@ -60,5 +64,11 @@ impl DrawList {
 
     pub fn glyph(&mut self, index: u16, x: i32, y: i32, variant: u16) {
         self.push(KIND_GLYPH, index, x, y, variant, 0);
+    }
+
+    /// Health bar: `permille` (0..=1000) is the fill ratio; JS colors it by
+    /// health state (green when high, red when low).
+    pub fn hpbar(&mut self, permille: u16, x: i32, y: i32, w: u16, h: u16) {
+        self.push(KIND_HPBAR, permille.min(1000), x, y, w, h);
     }
 }
