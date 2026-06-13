@@ -60,7 +60,9 @@
     align-items: center;
     justify-content: center;
     gap: 14px;
-    background: rgba(10, 10, 18, 0.92);
+    padding: 24px 0;
+    overflow-y: auto;
+    background: #0a0a12;
     z-index: 10;
   }
   #menu h1 {
@@ -218,6 +220,106 @@
     10%, 75% { opacity: 1; transform: none; }
     100% { opacity: 0; }
   }
+
+  /* ---- on-screen touch controls ---- */
+  #touch-controls {
+    display: none; /* shown by TouchControls on touch devices */
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 200px;
+    padding: 0 22px env(safe-area-inset-bottom, 16px);
+    justify-content: space-between;
+    align-items: center;
+    z-index: 7;
+    pointer-events: none;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  #touch-controls > * { pointer-events: auto; }
+  /* leave room at the bottom for the controls on touch devices */
+  body.has-touch #hud-text { display: none; }
+  body.has-touch #stage {
+    height: calc(100% - 200px);
+    justify-content: center;
+    padding-top: 4px;
+  }
+
+  #dpad {
+    position: relative;
+    width: 150px;
+    height: 150px;
+    border-radius: 50%;
+    background: rgba(22, 24, 29, 0.55);
+    border: 2px solid rgba(111, 138, 91, 0.4);
+    touch-action: none;
+  }
+  .dpad-center {
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 44px; height: 44px;
+    transform: translate(-50%, -50%);
+    border-radius: 8px;
+    background: rgba(47, 91, 74, 0.5);
+  }
+  .arrow {
+    position: absolute;
+    width: 0; height: 0;
+    opacity: 0.55;
+    transition: opacity 0.05s;
+  }
+  .arrow.on { opacity: 1; }
+  .arrow-up {
+    left: 50%; top: 16px; transform: translateX(-50%);
+    border-left: 14px solid transparent; border-right: 14px solid transparent;
+    border-bottom: 18px solid var(--gb-lightest);
+  }
+  .arrow-down {
+    left: 50%; bottom: 16px; transform: translateX(-50%);
+    border-left: 14px solid transparent; border-right: 14px solid transparent;
+    border-top: 18px solid var(--gb-lightest);
+  }
+  .arrow-left {
+    top: 50%; left: 16px; transform: translateY(-50%);
+    border-top: 14px solid transparent; border-bottom: 14px solid transparent;
+    border-right: 18px solid var(--gb-lightest);
+  }
+  .arrow-right {
+    top: 50%; right: 16px; transform: translateY(-50%);
+    border-top: 14px solid transparent; border-bottom: 14px solid transparent;
+    border-left: 18px solid var(--gb-lightest);
+  }
+
+  #face-buttons {
+    position: relative;
+    width: 150px;
+    height: 150px;
+  }
+  .face {
+    position: absolute;
+    font: inherit;
+    font-weight: bold;
+    color: var(--gb-lightest);
+    background: rgba(47, 91, 74, 0.6);
+    border: 2px solid rgba(205, 214, 189, 0.45);
+    border-radius: 50%;
+    width: 64px; height: 64px;
+    font-size: 22px;
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .face.pressed { background: var(--gb-light); transform: scale(0.93); }
+  /* A lower-right, B upper-left (Game Boy diagonal layout) */
+  .face.a { right: 0; bottom: 18px; }
+  .face.b { left: 0; top: 32px; }
+  .face.pack {
+    width: 44px; height: 44px; font-size: 18px;
+    left: 50%; top: -8px; transform: translateX(-50%);
+    background: rgba(22, 24, 29, 0.6);
+  }
+  .face.pack.pressed { transform: translateX(-50%) scale(0.93); }
 </style>
 </head>
 <body>
@@ -265,6 +367,23 @@
   </div>
   <div id="toasts"></div>
   <div id="vendor-prompt">press I — shop here</div>
+
+  <!-- On-screen Game Boy controls (touch devices only) -->
+  <div id="touch-controls">
+    <div id="dpad">
+      <div class="arrow arrow-up"></div>
+      <div class="arrow arrow-down"></div>
+      <div class="arrow arrow-left"></div>
+      <div class="arrow arrow-right"></div>
+      <div class="dpad-center"></div>
+    </div>
+    <div id="face-buttons">
+      <button class="face b" data-btn="b">B</button>
+      <button class="face a" data-btn="a">A</button>
+      <button class="face pack" data-btn="pack">☰</button>
+    </div>
+  </div>
+
   <div id="debug"></div>
   <script type="module" src="js/main.js"></script>
 </body>

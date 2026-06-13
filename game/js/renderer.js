@@ -49,11 +49,13 @@ export class Renderer {
   }
 
   resize() {
+    // Reserve vertical space for on-screen controls when they're shown.
+    const reserved = document.body.classList.contains('has-touch') ? 210 : 60;
     const scale = Math.max(
       1,
       Math.min(
         Math.floor(window.innerWidth / LOGICAL_W),
-        Math.floor((window.innerHeight - 60) / LOGICAL_H),
+        Math.floor((window.innerHeight - reserved) / LOGICAL_H),
       ),
     );
     this.canvas.width = LOGICAL_W * scale;

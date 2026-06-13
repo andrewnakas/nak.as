@@ -141,6 +141,13 @@ export function toast(msg) {
   setTimeout(() => el.remove(), 2700);
 }
 
+/// The currently-active inventory overlay (last one constructed). The mobile
+/// ☰ button toggles whichever this is, so it survives host migration.
+let activeInventory = null;
+export function toggleInventory() {
+  activeInventory?.toggle();
+}
+
 /// Inventory overlay. `session` provides ui_state/ui_action via the wasm
 /// Game (host applies directly; client sends C2H::UiAction to the host).
 export class InventoryUI {
@@ -148,6 +155,7 @@ export class InventoryUI {
     this.session = session;
     this.open = false;
     this.fuseFrom = null; // weapon index awaiting a material pick
+    activeInventory = this;
     window.addEventListener('keydown', (e) => {
       if (e.code === 'KeyI' || (e.code === 'Escape' && this.open)) {
         e.preventDefault();

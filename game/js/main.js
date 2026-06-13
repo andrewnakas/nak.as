@@ -10,7 +10,8 @@ import { Audio } from './audio.js';
 import { HostSession } from './session.js';
 import { loadStartingSave } from './saves.js';
 import { World } from './world.js';
-import { showEnter, setStatus, InventoryUI } from './ui.js';
+import { showEnter, setStatus, InventoryUI, toggleInventory } from './ui.js';
+import { TouchControls, isTouchDevice } from './touch.js';
 
 const ROLE_HOST = 0;
 
@@ -40,6 +41,12 @@ async function boot() {
   const renderer = new Renderer(document.getElementById('screen'));
   await renderer.loadSheets(['tiles0', 'sprites0', 'font0']);
   const audio = new Audio();
+
+  // On-screen Game Boy controls for touch devices (D-pad + A/B + pack).
+  if (isTouchDevice() || CONFIG.debug) {
+    new TouchControls(input, { onPack: () => toggleInventory() });
+    renderer.resize(); // recompute scale now that controls reserve space
+  }
 
   const debugEl = document.getElementById('debug');
   if (CONFIG.debug) debugEl.style.display = 'block';

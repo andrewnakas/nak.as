@@ -27,6 +27,9 @@ export class Input {
     this.buttons = 0;
     /// While true (inventory open), the game reads 0 buttons.
     this.suppressed = false;
+    /// Bits held by on-screen touch controls (kept separate so a blur or
+    /// keyup can't clear a finger still on the screen).
+    this.touchButtons = 0;
     window.addEventListener('keydown', (e) => {
       const bit = KEY_MAP[e.code];
       if (bit) {
@@ -46,7 +49,20 @@ export class Input {
     });
   }
 
+  /// Set or clear touch-held bits (called by the on-screen controls).
+  setTouch(bits) {
+    this.touchButtons = bits;
+  }
+
   read() {
-    return this.suppressed ? 0 : this.buttons;
+    return this.suppressed ? 0 : this.buttons | this.touchButtons;
+  }
+
+  set(bit) {
+    this.buttons |= bit;
+  }
+
+  clear(bit) {
+    this.buttons &= ~bit;
   }
 }
