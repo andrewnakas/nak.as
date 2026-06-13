@@ -315,6 +315,17 @@ export class Game {
         }
     }
     /**
+     * Key for sharing one serialized per-viewpoint snapshot across all clients
+     * that would receive identical bytes (same screen, same transition state).
+     * The host groups peers by this to serialize once per screen, not per peer.
+     * @param {number} slot
+     * @returns {bigint}
+     */
+    snapshot_key(slot) {
+        const ret = wasm.game_snapshot_key(this.__wbg_ptr, slot);
+        return ret;
+    }
+    /**
      * @returns {bigint}
      */
     state_hash() {

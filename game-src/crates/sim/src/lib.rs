@@ -2048,6 +2048,28 @@ impl Sim {
         self.snapshot_filtered(Some(viewpoint))
     }
 
+    /// A compact key identifying everything `snapshot_for(slot)` depends on, so
+    /// the host can share one serialized snapshot among every client whose key
+    /// matches (e.g. a crowd standing on the same town screen). Two slots with
+    /// equal keys are guaranteed to produce byte-identical filtered snapshots.
+    /// Returns `i64::MIN` for an absent/unknown player (never shared).
+    ///
+    /// The filtered snapshot depends on the player's screen AND its transition
+    /// (a transitioning player sees a second screen), so both are folded in.
+    pub fn snapshot_key(&self, slot: usize) -> i64 {
+        let Some(Some(p)) = self.players.get(slot) else {
+            return i64::MIN;
+        };
+        // sx,sy are small screen indices; pack with the transition direction
+        // (0..=3, or 4 for "not transitioning") so transitioning viewers never
+        // collide with stationary ones on the same screen.
+        let tr = p.transition.map_or(4i64, |t| t.dir as i64);
+        // Bias coords away from negatives, then pack into disjoint fields.
+        let sx = (p.sx as i64) + 0x4000;
+        let sy = (p.sy as i64) + 0x4000;
+        (sx << 32) | (sy << 8) | tr
+    }
+
     /// The set of screens the viewpoint player can see (their screen plus the
     /// one they're scrolling from), used as the interest region.
     fn interest_screens(&self, viewpoint: Option<usize>) -> Vec<(i32, i32)> {
@@ -3693,6 +3715,39 @@ mod tests {
         sim.players[1].as_mut().unwrap().sx = 0;
         let v0b = sim.snapshot_for(0);
         assert_eq!(v0b.players.len(), 2);
+    }
+
+    #[test]
+    fn snapshot_key_groups_shared_viewpoints() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 7).unwrap();
+        // Two players on the SAME screen, neither transitioning.
+        sim.add_player(0);
+        sim.add_player(1);
+        // Equal keys => their filtered snapshots are byte-identical, so the
+        // host may serialize once and share.
+        assert_eq!(sim.snapshot_key(0), sim.snapshot_key(1));
+        let a = protocol::encode(&protocol::H2C::Snapshot(sim.snapshot_for(0)));
+        let b = protocol::encode(&protocol::H2C::Snapshot(sim.snapshot_for(1)));
+        assert_eq!(a, b, "equal keys must mean identical bytes");
+
+        // Move slot 1 to another screen: keys (and bytes) diverge.
+        sim.players[1].as_mut().unwrap().sx = 3;
+        assert_ne!(sim.snapshot_key(0), sim.snapshot_key(1));
+
+        // A transitioning player sees a second screen, so it must NOT share a
+        // key with a stationary player on the same screen.
+        sim.players[1].as_mut().unwrap().sx = 0;
+        assert_eq!(sim.snapshot_key(0), sim.snapshot_key(1));
+        sim.players[1].as_mut().unwrap().transition = Some(Transition { dir: 3, t: 5 });
+        assert_ne!(
+            sim.snapshot_key(0),
+            sim.snapshot_key(1),
+            "transitioning viewer must not collide with a stationary one"
+        );
+
+        // Absent player => sentinel key (never shared).
+        assert_eq!(sim.snapshot_key(9), i64::MIN);
     }
 
     #[test]

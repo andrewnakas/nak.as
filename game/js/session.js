@@ -262,10 +262,30 @@ export class HostSession extends BaseSession {
           this.peers.size <= PERCLIENT_THRESHOLD
             ? this.game.snapshot_bytes()
             : null;
+        // A per-screen serialization cache for THIS tick. A filtered snapshot
+        // depends only on the screen, so dozens of peers clustered on the same
+        // screen (a town, a boss) share one serialize+encode instead of N. This
+        // is what keeps the host's CPU flat as a screen crowds up.
+        const byScreen = broadcast ? null : new Map();
         for (const peer of this.peers.values()) {
           if (peer.slot < 0) continue;
-          const snap =
-            broadcast && !peer.relay ? broadcast : this.game.snapshot_bytes_for(peer.slot);
+          let snap;
+          if (broadcast && !peer.relay) {
+            snap = broadcast;
+          } else if (byScreen) {
+            // Group by snapshot_key: peers with equal keys (same screen + same
+            // transition state) get byte-identical filtered snapshots, so we
+            // serialize once and reuse. i64 comes back as a BigInt; use it as
+            // the Map key directly.
+            const key = this.game.snapshot_key(peer.slot);
+            snap = byScreen.get(key);
+            if (snap === undefined) {
+              snap = this.game.snapshot_bytes_for(peer.slot);
+              byScreen.set(key, snap);
+            }
+          } else {
+            snap = this.game.snapshot_bytes_for(peer.slot);
+          }
           this._sendUnreliable(peer, snap);
         }
         const events = this.game.drain_events_bytes();

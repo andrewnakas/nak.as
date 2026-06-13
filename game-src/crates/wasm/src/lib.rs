@@ -179,6 +179,13 @@ impl Game {
         protocol::encode(&H2C::Snapshot(self.sim.snapshot_for(slot as usize)))
     }
 
+    /// Key for sharing one serialized per-viewpoint snapshot across all clients
+    /// that would receive identical bytes (same screen, same transition state).
+    /// The host groups peers by this to serialize once per screen, not per peer.
+    pub fn snapshot_key(&self, slot: u8) -> i64 {
+        self.sim.snapshot_key(slot as usize)
+    }
+
     /// Net events since the last call, wrapped for the reliable channel.
     /// Empty result means nothing to send.
     pub fn drain_events_bytes(&mut self) -> Vec<u8> {
@@ -273,8 +280,10 @@ impl Game {
         let at = if self.role == ROLE_CLIENT {
             self.view.player_screen(slot)
         } else {
-            self.sim.players[slot.min(3) as usize]
-                .as_ref()
+            self.sim
+                .players
+                .get(slot as usize)
+                .and_then(|p| p.as_ref())
                 .map(|p| (p.sx, p.sy))
         };
         at.map(|(sx, sy)| vec![sx, sy]).unwrap_or_default()

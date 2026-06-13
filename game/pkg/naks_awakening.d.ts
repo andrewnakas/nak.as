@@ -63,6 +63,12 @@ export class Game {
      * worlds so the host's uplink doesn't scale with total player count.
      */
     snapshot_bytes_for(slot: number): Uint8Array;
+    /**
+     * Key for sharing one serialized per-viewpoint snapshot across all clients
+     * that would receive identical bytes (same screen, same transition state).
+     * The host groups peers by this to serialize once per screen, not per peer.
+     */
+    snapshot_key(slot: number): bigint;
     state_hash(): bigint;
     /**
      * A save pushed by the host since the last call (client role).
@@ -111,6 +117,7 @@ export interface InitOutput {
     readonly game_shop_json: (a: number, b: number, c: number, d: number) => void;
     readonly game_snapshot_bytes: (a: number, b: number) => void;
     readonly game_snapshot_bytes_for: (a: number, b: number, c: number) => void;
+    readonly game_snapshot_key: (a: number, b: number) => bigint;
     readonly game_state_hash: (a: number) => bigint;
     readonly game_take_pending_save: (a: number, b: number) => void;
     readonly game_tick: (a: number) => void;
