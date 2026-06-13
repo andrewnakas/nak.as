@@ -221,6 +221,17 @@ export class HostSession extends BaseSession {
     }
   }
 
+  // Send one already-base64-encoded payload to a group of relay clients. One
+  // recipient uses relay-down; several use relay-multicast so the bytes cross
+  // the host's uplink once and the edge fans them out.
+  _sendRelayGroup(ids, b64) {
+    if (ids.length === 1) {
+      this.signaling.send({ t: 'relay-down', to: ids[0], data: b64 });
+    } else {
+      this.signaling.send({ t: 'relay-multicast', to: ids, data: b64 });
+    }
+  }
+
   partyList() {
     return [{ slot: 0, name: 'you' }].concat(
       [...this.peers.values()]
@@ -262,37 +273,59 @@ export class HostSession extends BaseSession {
           this.peers.size <= PERCLIENT_THRESHOLD
             ? this.game.snapshot_bytes()
             : null;
-        // A per-screen serialization cache for THIS tick. A filtered snapshot
-        // depends only on the screen, so dozens of peers clustered on the same
-        // screen (a town, a boss) share one serialize+encode instead of N. This
-        // is what keeps the host's CPU flat as a screen crowds up.
-        const byScreen = broadcast ? null : new Map();
+        // A per-screen cache for THIS tick. A filtered snapshot depends only on
+        // the screen+transition (snapshot_key), so peers clustered on the same
+        // screen (a town, a boss) share one serialize+encode instead of N —
+        // keeping host CPU flat as a screen crowds up. We also reuse the cached
+        // base64 string so relay peers encode once, and batch relay peers that
+        // share a buffer into a single relay-multicast so the host's uplink
+        // sends crowded-screen bytes exactly once regardless of audience size.
+        // Relay peers ALWAYS take a filtered snapshot (the overflow tier is
+        // bandwidth-bounded), even in a small party where direct peers get the
+        // cheap broadcast.
+        const cache = new Map(); // snapshot_key -> {snap, b64, ids[]}
         for (const peer of this.peers.values()) {
           if (peer.slot < 0) continue;
-          let snap;
           if (broadcast && !peer.relay) {
-            snap = broadcast;
-          } else if (byScreen) {
-            // Group by snapshot_key: peers with equal keys (same screen + same
-            // transition state) get byte-identical filtered snapshots, so we
-            // serialize once and reuse. i64 comes back as a BigInt; use it as
-            // the Map key directly.
-            const key = this.game.snapshot_key(peer.slot);
-            snap = byScreen.get(key);
-            if (snap === undefined) {
-              snap = this.game.snapshot_bytes_for(peer.slot);
-              byScreen.set(key, snap);
-            }
-          } else {
-            snap = this.game.snapshot_bytes_for(peer.slot);
+            peer.link.sendU(broadcast);
+            continue;
           }
-          this._sendUnreliable(peer, snap);
+          const key = this.game.snapshot_key(peer.slot);
+          let entry = cache.get(key);
+          if (entry === undefined) {
+            entry = { snap: this.game.snapshot_bytes_for(peer.slot), b64: null, ids: null };
+            cache.set(key, entry);
+          }
+          if (peer.relay) {
+            if (entry.b64 === null) entry.b64 = b64encode(entry.snap);
+            (entry.ids ??= []).push(peer.id);
+          } else {
+            peer.link.sendU(entry.snap);
+          }
+        }
+        // Flush relay groups: one frame per distinct screen-state, carrying the
+        // payload once plus the recipient list. The edge fans it out.
+        {
+          for (const entry of cache.values()) {
+            if (entry.ids) this._sendRelayGroup(entry.ids, entry.b64);
+          }
         }
         const events = this.game.drain_events_bytes();
         if (events.length) {
+          // Events are the same bytes for everyone, so encode once for the relay
+          // tier and multicast, while direct peers use their reliable channel.
+          let eventsB64 = null;
+          const relayIds = [];
           for (const peer of this.peers.values()) {
-            if (peer.slot >= 0) this._sendReliable(peer, events);
+            if (peer.slot < 0) continue;
+            if (peer.relay) {
+              if (eventsB64 === null) eventsB64 = b64encode(events);
+              relayIds.push(peer.id);
+            } else {
+              peer.link.sendRBytes(events);
+            }
           }
+          if (relayIds.length) this._sendRelayGroup(relayIds, eventsB64);
         }
       }
       // Autosave: the host persists its own character and pushes each

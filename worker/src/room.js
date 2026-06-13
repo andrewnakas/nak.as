@@ -144,6 +144,22 @@ export class RoomDO {
         }
         return;
       }
+      // Host -> many relay clients with ONE shared payload. The host sends a
+      // single frame carrying the bytes once plus a recipient id list; the edge
+      // fans it out. This is the scale path: a crowded screen's snapshot is
+      // serialized + base64-encoded + sent over the host's uplink exactly once
+      // no matter how many relay clients are watching it.
+      case 'relay-multicast': {
+        if (!meta.host) return;
+        const ids = Array.isArray(msg.to) ? new Set(msg.to) : null;
+        if (!ids) return;
+        for (const m of this.joined()) {
+          if (m.meta.relayed && ids.has(m.meta.id)) {
+            this.send(m.ws, { t: 'relay-down', data: msg.data, json: msg.json });
+          }
+        }
+        return;
+      }
       // Relay client -> host (hello / input / ui action).
       case 'relay-up': {
         if (!meta.joined || meta.host) return;
