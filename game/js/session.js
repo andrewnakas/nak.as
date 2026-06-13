@@ -30,6 +30,15 @@ class BaseSession {
       this.renderer.draw(this.game.render_frame(this.slot, now));
       this.audio?.playAll(this.game.drain_audio(this.slot));
       for (const msg of JSON.parse(this.game.drain_toasts(this.slot))) toast(msg);
+      if (this.audio && this.game.tick_count() % 30 === 0) {
+        const at = this.game.player_screen(this.slot);
+        if (at.length) {
+          const inDungeon = at[0] >= 10 && at[1] >= 10;
+          this.audio.setTrack(
+            at[0] === 13 && at[1] === 12 ? 'boss' : inDungeon ? 'dungeon' : 'overworld',
+          );
+        }
+      }
       if (this.debugEl && this.game.tick_count() % 30 === 0) {
         this.debugEl.textContent =
           `tick ${this.game.tick_count()}\n` +

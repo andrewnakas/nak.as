@@ -66,3 +66,9 @@ export const characters = {
   create: (name, data) => call('POST', '/characters', { name, data }),
   update: (id, data) => call('PUT', `/characters/${id}`, { data }),
 };
+
+export const friends = {
+  list: () => call('GET', '/friends').then((d) => d.friends),
+  request: (username) => call('POST', '/friends/request', { username }),
+  respond: (username, accept) => call('POST', '/friends/respond', { username, accept }),
+};

@@ -14,10 +14,124 @@ const CUES = {
   9: shoot,
 };
 
+// ---- music tracks ----
+// Three channels (square melody, square harmony, triangle bass); notes are
+// [midi (0 = rest), beats]. Loops forever until the track changes.
+
+const TRACKS = {
+  overworld: {
+    bpm: 132,
+    channels: [
+      {
+        type: 'square',
+        vol: 0.45,
+        notes: [
+          [76, 1], [79, 1], [81, 2], [79, 1], [76, 1], [72, 2],
+          [74, 1], [76, 1], [79, 2], [76, 2], [74, 2],
+          [76, 1], [79, 1], [81, 2], [84, 2], [81, 1], [79, 1],
+          [76, 2], [74, 2], [72, 4],
+        ],
+      },
+      {
+        type: 'square',
+        vol: 0.18,
+        notes: [
+          [60, 2], [64, 2], [60, 2], [64, 2],
+          [62, 2], [65, 2], [62, 2], [65, 2],
+          [60, 2], [64, 2], [60, 2], [64, 2],
+          [62, 2], [65, 2], [60, 4],
+        ],
+      },
+      {
+        type: 'triangle',
+        vol: 0.6,
+        notes: [
+          [48, 2], [43, 2], [48, 2], [43, 2],
+          [50, 2], [45, 2], [50, 2], [45, 2],
+          [48, 2], [43, 2], [48, 2], [43, 2],
+          [50, 2], [45, 2], [48, 4],
+        ],
+      },
+    ],
+  },
+  dungeon: {
+    bpm: 96,
+    channels: [
+      {
+        type: 'square',
+        vol: 0.35,
+        notes: [
+          [69, 2], [72, 2], [71, 2], [68, 2],
+          [69, 2], [76, 2], [74, 4],
+          [72, 2], [71, 2], [69, 2], [68, 2], [69, 6], [0, 2],
+        ],
+      },
+      {
+        type: 'square',
+        vol: 0.12,
+        notes: [
+          [57, 4], [56, 4], [57, 4], [62, 4],
+          [60, 4], [56, 4], [57, 8],
+        ],
+      },
+      {
+        type: 'triangle',
+        vol: 0.6,
+        notes: [
+          [45, 4], [44, 4], [45, 4], [50, 4],
+          [48, 4], [44, 4], [45, 8],
+        ],
+      },
+    ],
+  },
+  boss: {
+    bpm: 160,
+    channels: [
+      {
+        type: 'square',
+        vol: 0.45,
+        notes: [
+          [69, 1], [72, 1], [75, 1], [72, 1], [69, 1], [72, 1], [75, 1], [78, 1],
+          [77, 1], [74, 1], [71, 1], [74, 1], [77, 2], [74, 2],
+          [69, 1], [72, 1], [75, 1], [72, 1], [80, 2], [78, 2],
+          [77, 1], [75, 1], [74, 1], [72, 1], [69, 4],
+        ],
+      },
+      {
+        type: 'square',
+        vol: 0.16,
+        notes: [
+          [57, 2], [57, 2], [57, 2], [57, 2],
+          [59, 2], [59, 2], [59, 2], [59, 2],
+          [57, 2], [57, 2], [62, 2], [62, 2],
+          [60, 2], [60, 2], [57, 4],
+        ],
+      },
+      {
+        type: 'triangle',
+        vol: 0.65,
+        notes: [
+          [45, 1], [45, 1], [52, 1], [45, 1], [45, 1], [45, 1], [52, 1], [45, 1],
+          [47, 1], [47, 1], [54, 1], [47, 1], [47, 1], [47, 1], [54, 1], [47, 1],
+          [45, 1], [45, 1], [52, 1], [45, 1], [50, 2], [48, 2],
+          [47, 2], [48, 2], [45, 4],
+        ],
+      },
+    ],
+  },
+};
+
+const midiHz = (m) => 440 * 2 ** ((m - 69) / 12);
+
 export class Audio {
   constructor() {
     this.ctx = null;
     this.gain = null;
+    this.musicGain = null;
+    this.track = null;
+    this.positions = [];
+    this.nextTimes = [];
+    this.scheduler = null;
   }
 
   /// Call from a user-gesture handler.
@@ -27,6 +141,9 @@ export class Audio {
     this.gain = this.ctx.createGain();
     this.gain.gain.value = 0.18;
     this.gain.connect(this.ctx.destination);
+    this.musicGain = this.ctx.createGain();
+    this.musicGain.gain.value = 0.05;
+    this.musicGain.connect(this.ctx.destination);
   }
 
   play(cue) {
@@ -36,6 +153,52 @@ export class Audio {
 
   playAll(cues) {
     for (const c of cues) this.play(c);
+  }
+
+  /// Switch background music ('overworld' | 'dungeon' | 'boss' | null).
+  setTrack(name) {
+    if (this.trackName === name || !this.ctx) return;
+    this.trackName = name;
+    clearInterval(this.scheduler);
+    this.scheduler = null;
+    this.track = name ? TRACKS[name] : null;
+    if (!this.track) return;
+
+    const start = this.ctx.currentTime + 0.1;
+    this.positions = this.track.channels.map(() => 0);
+    this.nextTimes = this.track.channels.map(() => start);
+    // Lookahead scheduling: AudioContext time, not rAF (which stalls in
+    // hidden tabs and would garble the loop).
+    this.scheduler = setInterval(() => this._schedule(), 120);
+    this._schedule();
+  }
+
+  _schedule() {
+    const track = this.track;
+    if (!track || this.ctx.state !== 'running') return;
+    const beat = 60 / track.bpm;
+    const horizon = this.ctx.currentTime + 0.4;
+    track.channels.forEach((ch, i) => {
+      while (this.nextTimes[i] < horizon) {
+        const [midi, beats] = ch.notes[this.positions[i] % ch.notes.length];
+        const dur = beats * beat;
+        if (midi > 0) {
+          const osc = this.ctx.createOscillator();
+          const g = this.ctx.createGain();
+          osc.type = ch.type;
+          osc.frequency.value = midiHz(midi);
+          const t0 = this.nextTimes[i];
+          g.gain.setValueAtTime(ch.vol, t0);
+          g.gain.setValueAtTime(ch.vol, t0 + dur * 0.8);
+          g.gain.linearRampToValueAtTime(0.001, t0 + dur * 0.95);
+          osc.connect(g).connect(this.musicGain);
+          osc.start(t0);
+          osc.stop(t0 + dur);
+        }
+        this.nextTimes[i] += dur;
+        this.positions[i]++;
+      }
+    });
   }
 }
 

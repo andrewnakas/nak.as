@@ -239,6 +239,18 @@ impl Game {
         }
     }
 
+    /// [sx, sy] of the viewpoint player's screen, or empty if unknown.
+    pub fn player_screen(&self, slot: u8) -> Vec<i32> {
+        let at = if self.role == ROLE_CLIENT {
+            self.view.player_screen(slot)
+        } else {
+            self.sim.players[slot.min(3) as usize]
+                .as_ref()
+                .map(|p| (p.sx, p.sy))
+        };
+        at.map(|(sx, sy)| vec![sx, sy]).unwrap_or_default()
+    }
+
     pub fn tick_count(&self) -> u32 {
         if self.role == ROLE_CLIENT {
             self.view.latest_tick()

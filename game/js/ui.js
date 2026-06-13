@@ -2,7 +2,7 @@
 // Game-world UI (hearts, inventory) renders on the canvas; this file is
 // only the HTML shell around it.
 
-import { authUser, login, logout, register } from './api.js';
+import { authUser, friends, login, logout, register } from './api.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -10,7 +10,43 @@ function refreshAuthBox() {
   const user = authUser();
   $('#auth-form').style.display = user ? 'none' : 'flex';
   $('#auth-state').style.display = user ? 'flex' : 'none';
-  if (user) $('#auth-who').textContent = `cloud saves on: ${user}`;
+  $('#friends-box').style.display = user ? 'flex' : 'none';
+  if (user) {
+    $('#auth-who').textContent = `cloud saves on: ${user}`;
+    refreshFriends();
+  }
+}
+
+async function refreshFriends() {
+  const list = $('#friends-list');
+  try {
+    const all = await friends.list();
+    list.textContent = all.length ? '' : 'no friends yet — add one below';
+    for (const f of all) {
+      const row = document.createElement('div');
+      row.className = 'frow';
+      const label = document.createElement('span');
+      label.textContent =
+        f.status === 'friend' ? `${f.username} (lv ${f.level})`
+        : f.status === 'sent' ? `${f.username} — request sent`
+        : `${f.username} wants to be friends`;
+      row.appendChild(label);
+      if (f.status === 'incoming') {
+        for (const [text, accept] of [['OK', true], ['NO', false]]) {
+          const b = document.createElement('button');
+          b.textContent = text;
+          b.onclick = async () => {
+            await friends.respond(f.username, accept).catch((e) => setStatus(e.message, true));
+            refreshFriends();
+          };
+          row.appendChild(b);
+        }
+      }
+      list.appendChild(row);
+    }
+  } catch {
+    list.textContent = '';
+  }
 }
 
 function wireAuth() {
@@ -38,6 +74,18 @@ function wireAuth() {
       e.stopPropagation();
     };
   }
+  $('#friend-name').onkeydown = (e) => e.stopPropagation();
+  $('#friend-add').onclick = async () => {
+    const name = $('#friend-name').value.trim();
+    if (!name) return;
+    try {
+      await friends.request(name);
+      $('#friend-name').value = '';
+      refreshFriends();
+    } catch (err) {
+      setStatus(err.message, true);
+    }
+  };
 }
 
 let authWired = false;

@@ -40,6 +40,10 @@ export class Game {
      * by tools/build-maps.mjs + tools/check-content.mjs.
      */
     constructor(content_json: string, role: number, seed: bigint);
+    /**
+     * [sx, sy] of the viewpoint player's screen, or empty if unknown.
+     */
+    player_screen(slot: number): Int32Array;
     remove_player(slot: number): void;
     render_frame(viewpoint: number, now_ms: number): Uint16Array;
     set_input(slot: number, buttons: number): void;
@@ -83,6 +87,7 @@ export interface InitOutput {
     readonly game_export_save: (a: number, b: number, c: number) => void;
     readonly game_handle_client_msg: (a: number, b: number, c: number, d: number) => void;
     readonly game_new: (a: number, b: number, c: number, d: bigint) => number;
+    readonly game_player_screen: (a: number, b: number, c: number) => void;
     readonly game_remove_player: (a: number, b: number) => void;
     readonly game_render_frame: (a: number, b: number, c: number, d: number) => void;
     readonly game_set_input: (a: number, b: number, c: number) => void;

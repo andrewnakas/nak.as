@@ -11,6 +11,7 @@ import {
   verifyPassword,
 } from './auth.js';
 import { createCharacter, getCharacter, listCharacters, updateCharacter } from './characters.js';
+import { listFriends, respondRequest, sendRequest } from './friends.js';
 
 export { RoomDO } from './room.js';
 
@@ -142,6 +143,22 @@ export default {
       const body = await readJson(request);
       if (!body?.data) return json(request, 400, { error: 'missing data' });
       const result = await createCharacter(db, account.id, body.name ?? account.username, body.data);
+      if (result.error) return json(request, result.status, { error: result.error });
+      return json(request, 200, result);
+    }
+
+    if (method === 'GET' && url.pathname === '/friends') {
+      return json(request, 200, { friends: await listFriends(db, account.id) });
+    }
+    if (method === 'POST' && url.pathname === '/friends/request') {
+      const body = await readJson(request);
+      const result = await sendRequest(db, account.id, body?.username);
+      if (result.error) return json(request, result.status, { error: result.error });
+      return json(request, 200, result);
+    }
+    if (method === 'POST' && url.pathname === '/friends/respond') {
+      const body = await readJson(request);
+      const result = await respondRequest(db, account.id, body?.username, !!body?.accept);
       if (result.error) return json(request, result.status, { error: result.error });
       return json(request, 200, result);
     }

@@ -115,6 +115,12 @@
   #auth-state button {
     min-width: auto; padding: 4px 10px; font-size: 10px;
   }
+  #friends-box { display: flex; flex-direction: column; gap: 6px; align-items: center; }
+  #friends-list { font-size: 11px; color: #9cab9c; display: flex; flex-direction: column; gap: 3px; }
+  #friends-list .frow { display: flex; gap: 8px; align-items: center; }
+  #friends-list button { min-width: auto; padding: 2px 8px; font-size: 9px; }
+  #friends-box input { width: 120px; }
+  #friends-box .join-row button { min-width: 60px; }
   #party-code { color: var(--gb-lightest); }
   #inv {
     position: fixed;
@@ -224,6 +230,13 @@
       </div>
       <div id="auth-state" style="display:none">
         <span id="auth-who"></span> <button id="auth-logout">LOG OUT</button>
+      </div>
+      <div id="friends-box" style="display:none">
+        <div id="friends-list"></div>
+        <div class="join-row">
+          <input id="friend-name" maxlength="16" placeholder="add friend">
+          <button id="friend-add">ADD</button>
+        </div>
       </div>
     </div>
     <div id="status"></div>

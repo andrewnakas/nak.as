@@ -15,6 +15,7 @@ export const game_encode_ui_action: (a: number, b: number, c: number, d: number)
 export const game_export_save: (a: number, b: number, c: number) => void;
 export const game_handle_client_msg: (a: number, b: number, c: number, d: number) => void;
 export const game_new: (a: number, b: number, c: number, d: bigint) => number;
+export const game_player_screen: (a: number, b: number, c: number) => void;
 export const game_remove_player: (a: number, b: number) => void;
 export const game_render_frame: (a: number, b: number, c: number, d: number) => void;
 export const game_set_input: (a: number, b: number, c: number) => void;

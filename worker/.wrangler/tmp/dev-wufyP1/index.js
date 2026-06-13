@@ -484,6 +484,53 @@ function level(data) {
 }
 __name(level, "level");
 
+// src/friends.js
+async function listFriends(db, accountId) {
+  const { results } = await db.prepare(
+    `SELECT a.username,
+              f.status,
+              f.account_id = ?1 AS outgoing,
+              (SELECT MAX(level) FROM characters c WHERE c.account_id = a.id) AS level
+       FROM friends f
+       JOIN accounts a ON a.id = CASE WHEN f.account_id = ?1 THEN f.friend_id ELSE f.account_id END
+       WHERE f.account_id = ?1 OR f.friend_id = ?1`
+  ).bind(accountId).all();
+  return results.map((r) => ({
+    username: r.username,
+    level: r.level ?? 1,
+    status: r.status === "accepted" ? "friend" : r.outgoing ? "sent" : "incoming"
+  }));
+}
+__name(listFriends, "listFriends");
+async function sendRequest(db, accountId, username) {
+  const target = await db.prepare("SELECT id FROM accounts WHERE username = ?").bind(username ?? "").first();
+  if (!target) return { error: "no such player", status: 404 };
+  if (target.id === accountId) return { error: "that is you", status: 400 };
+  const existing = await db.prepare(
+    "SELECT status FROM friends WHERE (account_id = ?1 AND friend_id = ?2) OR (account_id = ?2 AND friend_id = ?1)"
+  ).bind(accountId, target.id).first();
+  if (existing) return { error: "request already exists", status: 409 };
+  await db.prepare(
+    "INSERT INTO friends (account_id, friend_id, status, created_at) VALUES (?, ?, 'pending', ?)"
+  ).bind(accountId, target.id, Date.now()).run();
+  return { ok: true };
+}
+__name(sendRequest, "sendRequest");
+async function respondRequest(db, accountId, username, accept) {
+  const from = await db.prepare("SELECT id FROM accounts WHERE username = ?").bind(username ?? "").first();
+  if (!from) return { error: "no such player", status: 404 };
+  if (accept) {
+    const r = await db.prepare(
+      "UPDATE friends SET status = 'accepted' WHERE account_id = ? AND friend_id = ? AND status = 'pending'"
+    ).bind(from.id, accountId).run();
+    if (!r.meta.changes) return { error: "no pending request", status: 404 };
+  } else {
+    await db.prepare("DELETE FROM friends WHERE account_id = ? AND friend_id = ?").bind(from.id, accountId).run();
+  }
+  return { ok: true };
+}
+__name(respondRequest, "respondRequest");
+
 // src/room.js
 var MAX_MEMBERS = 4;
 var RoomDO = class {
@@ -688,6 +735,21 @@ var src_default = {
       if (result.error) return json(request, result.status, { error: result.error });
       return json(request, 200, result);
     }
+    if (method === "GET" && url.pathname === "/friends") {
+      return json(request, 200, { friends: await listFriends(db, account.id) });
+    }
+    if (method === "POST" && url.pathname === "/friends/request") {
+      const body = await readJson(request);
+      const result = await sendRequest(db, account.id, body?.username);
+      if (result.error) return json(request, result.status, { error: result.error });
+      return json(request, 200, result);
+    }
+    if (method === "POST" && url.pathname === "/friends/respond") {
+      const body = await readJson(request);
+      const result = await respondRequest(db, account.id, body?.username, !!body?.accept);
+      if (result.error) return json(request, result.status, { error: result.error });
+      return json(request, 200, result);
+    }
     const charGet = url.pathname.match(/^\/characters\/([0-9a-f-]{36})$/);
     if (charGet && method === "GET") {
       const row = await getCharacter(db, account.id, charGet[1]);
@@ -746,7 +808,7 @@ var jsonError = /* @__PURE__ */ __name(async (request, env, _ctx, middlewareCtx)
 }, "jsonError");
 var middleware_miniflare3_json_error_default = jsonError;
 
-// .wrangler/tmp/bundle-sw7sH0/middleware-insertion-facade.js
+// .wrangler/tmp/bundle-HcGfIf/middleware-insertion-facade.js
 var __INTERNAL_WRANGLER_MIDDLEWARE__ = [
   middleware_ensure_req_body_drained_default,
   middleware_miniflare3_json_error_default
@@ -778,7 +840,7 @@ function __facade_invoke__(request, env, ctx, dispatch, finalMiddleware) {
 }
 __name(__facade_invoke__, "__facade_invoke__");
 
-// .wrangler/tmp/bundle-sw7sH0/middleware-loader.entry.ts
+// .wrangler/tmp/bundle-HcGfIf/middleware-loader.entry.ts
 var __Facade_ScheduledController__ = class ___Facade_ScheduledController__ {
   constructor(scheduledTime, cron, noRetry) {
     this.scheduledTime = scheduledTime;
