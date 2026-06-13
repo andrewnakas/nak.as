@@ -30,6 +30,14 @@ class BaseSession {
       this.renderer.draw(this.game.render_frame(this.slot, now));
       this.audio?.playAll(this.game.drain_audio(this.slot));
       for (const msg of JSON.parse(this.game.drain_toasts(this.slot))) toast(msg);
+      if (this.game.tick_count() % 12 === 0) {
+        // Show a "press I to shop" hint when standing by a vendor.
+        const prompt = document.getElementById('vendor-prompt');
+        if (prompt) {
+          const near = this.game.vendor_here(this.slot) >= 0;
+          prompt.style.display = near ? 'block' : 'none';
+        }
+      }
       if (this.audio && this.game.tick_count() % 30 === 0) {
         const at = this.game.player_screen(this.slot);
         if (at.length) {

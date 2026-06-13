@@ -35,6 +35,11 @@ use world::{World, WorldJson};
 pub const TICKS_PER_SEC: u32 = 60;
 pub const MAX_PLAYERS: usize = 4;
 pub const TRANSITION_TICKS: u32 = 40;
+/// Screen columns >= this are the instanced tutorial beach (not the shared
+/// mainland). Spawn point for the intro vs. town is chosen by the JS shell.
+pub const TUTORIAL_COL: i32 = 5;
+/// Where finished characters spawn (Driftwood Village).
+pub const TOWN_SPAWN: (i32, i32, i32, i32) = (1, 1, 72, 80);
 
 /// Sound cue ids (mirrored in game/js/audio.js).
 pub mod cues {
@@ -704,11 +709,18 @@ impl Sim {
         if pl.dead_t > 0 {
             pl.dead_t -= 1;
             if pl.dead_t == 0 {
-                let sp = self.world.spawn;
-                pl.sx = sp.sx;
-                pl.sy = sp.sy;
-                pl.x = fx(sp.x);
-                pl.y = fx(sp.y);
+                // Finished characters respawn in town; mid-intro players
+                // respawn at the beach start.
+                let (sx, sy, x, y) = if pl.intro_done {
+                    TOWN_SPAWN
+                } else {
+                    let sp = self.world.spawn;
+                    (sp.sx, sp.sy, sp.x, sp.y)
+                };
+                pl.sx = sx;
+                pl.sy = sy;
+                pl.x = fx(x);
+                pl.y = fx(y);
                 pl.hp = pl.max_hp;
                 pl.iframes = PLAYER_IFRAMES;
                 pl.kvx = 0;
@@ -1040,12 +1052,18 @@ impl Sim {
             let cy = to_px(pl.y) + 8;
             let (wtx, wty) = (cx.div_euclid(16), (cy - HUD_H).div_euclid(16));
             if let Some(w) = screen.warps.iter().find(|w| w.tx == wtx && w.ty == wty) {
+                let was_beach = pl.sx >= TUTORIAL_COL;
                 pl.sx = w.sx;
                 pl.sy = w.sy;
                 pl.x = fx(w.px).clamp(MIN_X, MAX_X);
                 pl.y = fx(w.py).clamp(MIN_Y, MAX_Y);
                 pl.transition = None;
                 pl.iframes = pl.iframes.max(30);
+                // Leaving the tutorial beach for the mainland completes the intro.
+                if was_beach && pl.sx < TUTORIAL_COL && !pl.intro_done {
+                    pl.intro_done = true;
+                    self.emit_toast(slot, "WELCOME TO DRIFTWOOD VILLAGE");
+                }
             }
         }
 
@@ -1068,6 +1086,94 @@ impl Sim {
                     || ((n.x + 8 - cx).abs() <= 12 && (n.y + 8 - cy).abs() <= 12)
             })
             .map(|n| n.npc)
+    }
+
+    /// True if a vendor NPC of def `npc` is on the player's screen, nearby.
+    fn vendor_in_reach(&self, p: &Player, npc: u8) -> bool {
+        let Some(screen) = self.world.screen_at(p.sx, p.sy) else {
+            return false;
+        };
+        let (cx, cy) = (to_px(p.x) + 8, to_px(p.y) + 8);
+        screen
+            .npcs
+            .iter()
+            .any(|n| n.npc == npc && (n.x + 8 - cx).abs() <= 28 && (n.y + 8 - cy).abs() <= 28)
+    }
+
+    /// Shop listing for a vendor NPC on the player's screen, as UI JSON, or
+    /// "null". Called by the JS shell when the player opens a vendor.
+    pub fn shop_json(&self, slot: usize, npc: u8) -> String {
+        match &self.players[slot.min(MAX_PLAYERS - 1)] {
+            Some(p) => self.shop_json_for(p, npc),
+            None => "null".to_string(),
+        }
+    }
+
+    pub fn shop_json_for(&self, p: &Player, npc: u8) -> String {
+        let Some(def) = self.defs.npcs.get(npc as usize) else {
+            return "null".to_string();
+        };
+        if def.shop.is_empty() || !self.vendor_in_reach(p, npc) {
+            return "null".to_string();
+        }
+        #[derive(serde::Serialize)]
+        struct ShopItem {
+            i: usize,
+            label: String,
+            price: u32,
+            qty: u16,
+            affordable: bool,
+        }
+        #[derive(serde::Serialize)]
+        struct Shop {
+            npc: u8,
+            vendor: String,
+            shells: u32,
+            items: Vec<ShopItem>,
+        }
+        let shop = Shop {
+            npc,
+            vendor: def.label.clone(),
+            shells: p.shells,
+            items: def
+                .shop
+                .iter()
+                .enumerate()
+                .map(|(i, e)| ShopItem {
+                    i,
+                    label: self.defs.items[e.item as usize].label.clone(),
+                    price: e.price,
+                    qty: e.qty,
+                    affordable: p.shells >= e.price,
+                })
+                .collect(),
+        };
+        serde_json::to_string(&shop).unwrap_or_else(|_| "null".to_string())
+    }
+
+    /// The vendor NPC the player can currently shop with (on their screen,
+    /// in reach), if any.
+    pub fn vendor_here(&self, slot: usize) -> i32 {
+        match &self.players[slot.min(MAX_PLAYERS - 1)] {
+            Some(p) => self.vendor_here_for(p),
+            None => -1,
+        }
+    }
+
+    pub fn vendor_here_for(&self, p: &Player) -> i32 {
+        let Some(screen) = self.world.screen_at(p.sx, p.sy) else {
+            return -1;
+        };
+        let (cx, cy) = (to_px(p.x) + 8, to_px(p.y) + 8);
+        for n in &screen.npcs {
+            if !self.defs.npcs[n.npc as usize].shop.is_empty()
+                && (n.x + 8 - cx).abs() <= 28
+                && (n.y + 8 - cy).abs() <= 28
+            {
+                return n.npc as i32;
+            }
+        }
+        -1
     }
 
     /// Pick what an NPC says: turn-in beats nudge beats new offer beats chatter.
@@ -1528,11 +1634,24 @@ impl Sim {
                             }
                             _ => {
                                 let def = e.data as u8;
+                                let kind = self.defs.items[def as usize].kind;
                                 if give_item(&mut p, &self.defs, def, 1) {
                                     let label =
                                         self.defs.items[def as usize].label.clone();
                                     self.emit_toast(slot, &format!("GOT {label}"));
                                     self.emit_cue(p.sx, p.sy, cues::ITEM);
+                                    // Auto-equip a picked-up weapon if that hand
+                                    // is empty (so the stick is ready to swing).
+                                    let idx = (p.inventory.len() - 1) as i8;
+                                    if kind == ItemKind::Sword && p.equip_a < 0 {
+                                        p.equip_a = idx;
+                                    } else if matches!(
+                                        kind,
+                                        ItemKind::Bow | ItemKind::Shield | ItemKind::Rod
+                                    ) && p.equip_b < 0
+                                    {
+                                        p.equip_b = idx;
+                                    }
                                     e.alive = false;
                                 }
                                 // Inventory full: leave it on the ground.
@@ -1722,6 +1841,35 @@ impl Sim {
                 p.hp = (p.hp + def.heal).min(p.max_hp);
                 self.emit_cue(p.sx, p.sy, cues::HEART);
                 consume_one(&mut p, idx);
+            }
+            // a = npc index, b = shop-entry index. Buy only from a vendor on
+            // the player's current screen and standing nearby.
+            "buy" => {
+                let npc = act.a as usize;
+                let entry_idx = act.b as usize;
+                let Some(def) = self.defs.npcs.get(npc) else {
+                    return;
+                };
+                let Some(entry) = def.shop.get(entry_idx) else {
+                    return;
+                };
+                if !self.vendor_in_reach(&p, npc as u8) {
+                    return;
+                }
+                if p.shells < entry.price {
+                    self.emit_toast(slot, "NOT ENOUGH SHELLS");
+                    self.players[slot] = Some(p);
+                    return;
+                }
+                let (item, qty, price) = (entry.item, entry.qty, entry.price);
+                if give_item(&mut p, &self.defs, item, qty) {
+                    p.shells -= price;
+                    let label = self.defs.items[item as usize].label.clone();
+                    self.emit_toast(slot, &format!("BOUGHT {label}"));
+                    self.emit_cue(p.sx, p.sy, cues::SHELL);
+                } else {
+                    self.emit_toast(slot, "PACK IS FULL");
+                }
             }
             "cook" => {
                 let Some(recipe) = self.defs.recipes.get(act.a as usize) else {
@@ -2824,7 +2972,8 @@ mod tests {
  "fishing":[{{"item":"raw_perch","min_level":1,"weight":60,"xp":25}}]}},
 "recipes":[{{"output":"grilled_perch","inputs":["raw_perch"],"level":1,"xp":30}}],
 "npcs":[{{"name":"elder","label":"ELDER","sprite":"gel_0",
- "lines":[["HELLO TRAVELER."]]}}],
+ "lines":[["HELLO TRAVELER."]],
+ "shop":[{{"item":"driftwood_sword","price":25}},{{"item":"arrow","price":8,"qty":10}}]}}],
 "quests":[{{"id":"cull","giver":"elder","title":"CULL THE THORNS",
  "offer":[["KILL A THORNLING."]],"incomplete":[["STILL HISSING..."]],
  "complete":[["IT IS DONE."]],
@@ -3175,6 +3324,50 @@ mod tests {
         let p = sim3.players[0].as_ref().unwrap();
         assert_eq!((p.sx, p.sy), (0, 0));
         assert_eq!(p.hp, 6);
+    }
+
+    #[test]
+    fn vendor_buy_spends_shells() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 7).unwrap();
+        sim.add_player(0);
+        // Stand right next to the elder (vendor) at tile (4,1) -> px 64,32.
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.x = fx(64);
+            p.y = fx(40);
+            p.shells = 100;
+        }
+        // Vendor is in reach; shop json is non-null.
+        let vendor = sim.vendor_here(0);
+        assert!(vendor >= 0, "vendor should be in reach");
+        assert_ne!(sim.shop_json(0, vendor as u8), "null");
+
+        // Buy the sword (entry 0, price 25).
+        let sword = sim.defs.item_index("driftwood_sword").unwrap();
+        sim.ui_action(0, &format!(r#"{{"action":"buy","a":{vendor},"b":0}}"#));
+        let p = sim.players[0].as_ref().unwrap();
+        assert_eq!(p.shells, 75);
+        assert!(p.inventory.iter().any(|s| s.def == sword));
+
+        // Can't afford it 4 more times (75 -> 50 -> 25 -> 0, then fail).
+        for _ in 0..3 {
+            sim.ui_action(0, &format!(r#"{{"action":"buy","a":{vendor},"b":0}}"#));
+        }
+        assert_eq!(sim.players[0].as_ref().unwrap().shells, 0);
+        sim.ui_action(0, &format!(r#"{{"action":"buy","a":{vendor},"b":0}}"#));
+        assert_eq!(sim.players[0].as_ref().unwrap().shells, 0, "broke: no buy");
+
+        // Out of range: walk away, buying does nothing.
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.x = fx(140);
+            p.y = fx(120);
+            p.shells = 100;
+        }
+        assert_eq!(sim.vendor_here(0), -1);
+        sim.ui_action(0, &format!(r#"{{"action":"buy","a":{vendor},"b":1}}"#));
+        assert_eq!(sim.players[0].as_ref().unwrap().shells, 100, "no remote buy");
     }
 
     #[test]

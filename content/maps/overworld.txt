@@ -112,6 +112,7 @@ TT..--..TT
 N elder_maru 2 3
 N tink 7 3
 N wren 3 6
+N shopkeep 7 6
 
 SCREEN 2 1 village_east
 TTT....TTT
@@ -186,7 +187,37 @@ E snapcrab 4 3
 E snapcrab 7 3
 E dune_wasp 3 1
 
-SPAWN 1 1 72 80
+# ===== TUTORIAL BEACH (instanced start; column 5) =====
+# You wash up on beach_wake with nothing. Pick up the stick, fight the
+# crab, then walk north; beach_path warps you into Driftwood Village.
+
+SCREEN 5 1 beach_wake
+ssssssssss
+s,.s..s,.s
+ss......ss
+s..ssss..s
+ss..ss..ss
+sswwwwwwss
+swwwwwwwws
+wwwwwwwwww
+N drifter 4 2
+I stick 6 3
+E snapcrab 2 4
+
+SCREEN 5 0 beach_path
+TT......TT
+T,.s..s.,T
+T..ssss..T
+Ts..ss..sT
+T..ssss..T
+T,.s..s.,T
+Ts......sT
+Tss....ssT
+N drifter 5 5
+W 4 0 1 1 64 96
+W 5 0 1 1 80 96
+
+SPAWN 5 1 72 40
 
 # ===== THE ROOTCELLAR (dungeon) =====
 # Layout (sx 10-13, sy 10-12):

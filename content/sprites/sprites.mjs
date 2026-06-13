@@ -431,6 +431,19 @@ export const SPRITES = [
 
   // ---- player gear ----
   {
+    name: 'itm_stick',
+    palette: 'wood',
+    grid: grid((x, y) => {
+      // a gnarled branch, diagonal, with a couple of nubs
+      if (x - y >= -1 && x - y <= 1 && x >= 2 && x <= 13) {
+        return x < 6 ? 1 : 2;
+      }
+      if (x === 4 && y === 6) return 1; // nub
+      if (x === 10 && y === 8) return 1; // nub
+      return '.';
+    }),
+  },
+  {
     name: 'itm_bow',
     palette: 'wood',
     grid: grid((x, y) => {

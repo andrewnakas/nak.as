@@ -227,6 +227,27 @@ pub struct NpcJson {
     pub sprite: String,
     /// Idle dialogue: one entry per page, each page up to 3 lines of 18 chars.
     pub lines: Vec<Vec<String>>,
+    /// If non-empty, this NPC is a vendor selling these (item name, price).
+    #[serde(default)]
+    pub shop: Vec<ShopEntryJson>,
+}
+
+fn one_u16() -> u16 {
+    1
+}
+
+#[derive(Deserialize)]
+pub struct ShopEntryJson {
+    pub item: String,
+    pub price: u32,
+    #[serde(default = "one_u16")]
+    pub qty: u16,
+}
+
+pub struct ShopEntry {
+    pub item: u8,
+    pub price: u32,
+    pub qty: u16,
 }
 
 pub struct NpcDef {
@@ -234,6 +255,7 @@ pub struct NpcDef {
     pub label: String,
     pub sprite: u16,
     pub lines: Vec<Vec<String>>,
+    pub shop: Vec<ShopEntry>,
 }
 
 #[derive(Deserialize)]
@@ -476,11 +498,23 @@ impl Defs {
         let npcs = npcs
             .into_iter()
             .map(|n| {
+                let shop = n
+                    .shop
+                    .iter()
+                    .map(|e| {
+                        Ok(ShopEntry {
+                            item: lookup(&e.item)?,
+                            price: e.price,
+                            qty: e.qty,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, String>>()?;
                 Ok(NpcDef {
                     sprite: sprite_index(&n.sprite)?,
                     name: n.name,
                     label: n.label,
                     lines: n.lines,
+                    shop,
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;

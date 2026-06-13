@@ -49,6 +49,10 @@ export class Game {
     set_input(slot: number, buttons: number): void;
     set_local_slot(slot: number): void;
     /**
+     * Shop listing JSON for a vendor (role-aware), or "null".
+     */
+    shop_json(slot: number, npc: number): string;
+    /**
      * Serialized snapshot to broadcast.
      */
     snapshot_bytes(): Uint8Array;
@@ -67,6 +71,11 @@ export class Game {
      * Inventory/equipment/skills/quests JSON for the UI overlay (role-aware).
      */
     ui_state(slot: number): string;
+    /**
+     * Vendor NPC the viewpoint player can shop with right now, or -1.
+     * Host uses live state; client uses the latest snapshot position.
+     */
+    vendor_here(slot: number): number;
 }
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
@@ -92,6 +101,7 @@ export interface InitOutput {
     readonly game_render_frame: (a: number, b: number, c: number, d: number) => void;
     readonly game_set_input: (a: number, b: number, c: number) => void;
     readonly game_set_local_slot: (a: number, b: number) => void;
+    readonly game_shop_json: (a: number, b: number, c: number, d: number) => void;
     readonly game_snapshot_bytes: (a: number, b: number) => void;
     readonly game_state_hash: (a: number) => bigint;
     readonly game_take_pending_save: (a: number, b: number) => void;
@@ -99,6 +109,7 @@ export interface InitOutput {
     readonly game_tick_count: (a: number) => number;
     readonly game_ui_action: (a: number, b: number, c: number, d: number) => void;
     readonly game_ui_state: (a: number, b: number, c: number) => void;
+    readonly game_vendor_here: (a: number, b: number) => number;
     readonly __wbindgen_export: (a: number, b: number) => number;
     readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_add_to_stack_pointer: (a: number) => number;

@@ -185,6 +185,22 @@
     pointer-events: none;
     z-index: 8;
   }
+  #vendor-prompt {
+    position: fixed;
+    bottom: 64px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: none;
+    background: rgba(47, 91, 74, 0.92);
+    color: var(--gb-lightest);
+    border: 1px solid var(--gb-light);
+    border-radius: 3px;
+    font-size: 11px;
+    letter-spacing: 1px;
+    padding: 5px 12px;
+    pointer-events: none;
+    z-index: 8;
+  }
   .toast {
     background: rgba(15, 56, 15, 0.92);
     color: var(--gb-lightest);
@@ -250,6 +266,7 @@
     </div>
   </div>
   <div id="toasts"></div>
+  <div id="vendor-prompt">press I — shop here</div>
   <div id="debug"></div>
   <script type="module" src="js/main.js"></script>
 </body>

@@ -103,6 +103,25 @@ impl Game {
         self.sim.ui_action(slot as usize, json);
     }
 
+    /// Vendor NPC the viewpoint player can shop with right now, or -1.
+    /// Host uses live state; client uses the latest snapshot position.
+    pub fn vendor_here(&self, slot: u8) -> i32 {
+        if self.role == ROLE_CLIENT {
+            self.view.vendor_here(&self.sim, slot)
+        } else {
+            self.sim.vendor_here(slot as usize)
+        }
+    }
+
+    /// Shop listing JSON for a vendor (role-aware), or "null".
+    pub fn shop_json(&self, slot: u8, npc: u8) -> String {
+        if self.role == ROLE_CLIENT {
+            self.view.shop_json(&self.sim, slot, npc)
+        } else {
+            self.sim.shop_json(slot as usize, npc)
+        }
+    }
+
     /// Encode a UI action for sending to the host (client role).
     pub fn encode_ui_action(&self, json: &str) -> Vec<u8> {
         protocol::encode(&C2H::UiAction {

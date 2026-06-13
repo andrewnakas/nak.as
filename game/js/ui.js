@@ -254,6 +254,38 @@ export class InventoryUI {
       }
     }
 
+    // Vendor shop section (when standing by a vendor NPC).
+    const vendor = this.session.game.vendor_here(this.session.slot);
+    if (vendor >= 0) {
+      const shop = JSON.parse(this.session.game.shop_json(this.session.slot, vendor));
+      if (shop) {
+        const header = document.createElement('div');
+        header.className = 'inv-row';
+        header.textContent = `— ${shop.vendor} —`;
+        list.appendChild(header);
+        for (const s of shop.items) {
+          const row = document.createElement('div');
+          row.className = 'inv-row';
+          const name = document.createElement('span');
+          name.className = 'inv-name';
+          name.textContent = s.qty > 1 ? `${s.label} x${s.qty}` : s.label;
+          row.appendChild(name);
+          const meta = document.createElement('span');
+          meta.className = 'inv-meta';
+          meta.textContent = `${s.price} shells`;
+          row.appendChild(meta);
+          if (s.affordable) {
+            row.appendChild(
+              this.button('BUY', false, () =>
+                this.action({ action: 'buy', a: shop.npc, b: s.i }),
+              ),
+            );
+          }
+          list.appendChild(row);
+        }
+      }
+    }
+
     for (const item of state.inventory) {
       const row = document.createElement('div');
       row.className = 'inv-row';

@@ -55,6 +55,22 @@ impl ClientView {
             .map(|p| lerp_player(None, p, 0, 0))
     }
 
+    /// Vendor NPC the slot player can shop with (snapshot position + static
+    /// world/defs the client already has).
+    pub fn vendor_here(&self, sim: &crate::Sim, slot: u8) -> i32 {
+        match self.latest_player(slot) {
+            Some(p) => sim.vendor_here_for(&p),
+            None => -1,
+        }
+    }
+
+    pub fn shop_json(&self, sim: &crate::Sim, slot: u8, npc: u8) -> String {
+        match self.latest_player(slot) {
+            Some(p) => sim.shop_json_for(&p, npc),
+            None => "null".to_string(),
+        }
+    }
+
     /// near_fire from the freshest snapshot (not derivable from Player).
     pub fn latest_near_fire(&self, slot: u8) -> bool {
         self.snaps

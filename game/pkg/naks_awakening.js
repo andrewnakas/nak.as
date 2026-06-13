@@ -255,6 +255,28 @@ export class Game {
         wasm.game_set_local_slot(this.__wbg_ptr, slot);
     }
     /**
+     * Shop listing JSON for a vendor (role-aware), or "null".
+     * @param {number} slot
+     * @param {number} npc
+     * @returns {string}
+     */
+    shop_json(slot, npc) {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.game_shop_json(retptr, this.__wbg_ptr, slot, npc);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            deferred1_0 = r0;
+            deferred1_1 = r1;
+            return getStringFromWasm0(r0, r1);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+            wasm.__wbindgen_export3(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
      * Serialized snapshot to broadcast.
      * @returns {Uint8Array}
      */
@@ -338,6 +360,16 @@ export class Game {
             wasm.__wbindgen_add_to_stack_pointer(16);
             wasm.__wbindgen_export3(deferred1_0, deferred1_1, 1);
         }
+    }
+    /**
+     * Vendor NPC the viewpoint player can shop with right now, or -1.
+     * Host uses live state; client uses the latest snapshot position.
+     * @param {number} slot
+     * @returns {number}
+     */
+    vendor_here(slot) {
+        const ret = wasm.game_vendor_here(this.__wbg_ptr, slot);
+        return ret;
     }
 }
 if (Symbol.dispose) Game.prototype[Symbol.dispose] = Game.prototype.free;

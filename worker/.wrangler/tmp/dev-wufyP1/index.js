@@ -84,6 +84,14 @@ __name(deleteSession, "deleteSession");
 // ../game/assets/content/items.json
 var items_default = [
   {
+    name: "stick",
+    label: "STICK",
+    sprite: "itm_stick",
+    kind: "sword",
+    damage: 1,
+    durability: 18
+  },
+  {
     name: "driftwood_sword",
     label: "DRIFTWOOD SWORD",
     sprite: "sword_down",

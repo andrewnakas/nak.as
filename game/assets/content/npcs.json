@@ -1,11 +1,39 @@
 [
   {
+    "name": "drifter",
+    "label": "OLD DRIFTER",
+    "sprite": "npc_elder",
+    "lines": [
+      ["EASY NOW. THE TIDE", "WASHED YOU UP ON", "THE ISLE OF BRACK."],
+      ["MOVE WITH THE ARROW", "KEYS. THAT BRANCH", "YONDER WILL ARM YOU."],
+      ["WALK OVER IT TO", "TAKE IT. PRESS Z", "TO SWING IT."],
+      ["THAT CRAB MEANS", "TROUBLE. CUT IT", "DOWN, THEN HEAD", "NORTH TO TOWN."]
+    ]
+  },
+  {
     "name": "elder_maru",
     "label": "ELDER MARU",
     "sprite": "npc_elder",
     "lines": [
       ["THE ISLE OF BRACK", "REMEMBERS KINDER", "DAYS, TRAVELER."],
       ["THE ROOTS BENEATH", "US STIR. BE WARY", "IN THE WOODS."]
+    ]
+  },
+  {
+    "name": "shopkeep",
+    "label": "MERRA'S WARES",
+    "sprite": "npc_b",
+    "lines": [
+      ["WASHED UP WITH", "JUST A STICK?", "I CAN HELP."],
+      ["SHELLS FOR GEAR.", "TALK TO ME TO", "SEE MY WARES."]
+    ],
+    "shop": [
+      { "item": "driftwood_sword", "price": 25 },
+      { "item": "oak_bow", "price": 40 },
+      { "item": "arrow", "price": 8, "qty": 10 },
+      { "item": "wooden_shield", "price": 30 },
+      { "item": "bomb", "price": 12, "qty": 3 },
+      { "item": "fishing_rod", "price": 35 }
     ]
   },
   {
