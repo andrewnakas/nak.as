@@ -12,3 +12,6 @@ andrew-nakas-3d-scan/
 nakasmotivation_soundboard/
 *.aif
 *.aiff
+
+# Wrangler local state
+worker/.wrangler/
