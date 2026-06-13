@@ -18,9 +18,13 @@ export class RoomDO {
 
   async fetch(request) {
     if (request.headers.get('Upgrade') !== 'websocket') {
-      // The lobby pokes /count to read live occupancy.
+      // The lobby pokes /count to read live occupancy + host presence.
       if (new URL(request.url).pathname.endsWith('/count')) {
-        return Response.json({ count: this.joinedCount(), cap: CONNECT_CAP });
+        return Response.json({
+          count: this.joinedCount(),
+          hasHost: !!this.host(),
+          cap: CONNECT_CAP,
+        });
       }
       return new Response('expected websocket', { status: 426 });
     }

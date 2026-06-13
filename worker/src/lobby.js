@@ -19,58 +19,65 @@ export class LobbyDO {
   async fetch(request) {
     const url = new URL(request.url);
     if (url.pathname.endsWith('/find')) {
-      const world = await this.findWorld();
+      const exclude = url.searchParams.get('exclude');
+      const world = await this.findWorld(exclude);
       return Response.json(world);
     }
     if (url.pathname.endsWith('/worlds')) {
       const worlds = (await this.state.storage.get('worlds')) ?? [];
-      const live = await Promise.all(worlds.map((id) => this.count(id).then((c) => ({ id, count: c }))));
+      const live = await Promise.all(worlds.map((id) => this.status(id).then((s) => ({ id, ...s }))));
       return Response.json({ worlds: live.filter((w) => w.count > 0) });
     }
     return new Response('not found', { status: 404 });
   }
 
-  /// Ask a RoomDO for its current occupancy (0 if unreachable).
-  async count(id) {
+  /// Ask a RoomDO for occupancy + whether it has a live host.
+  async status(id) {
     try {
       const room = this.env.ROOMS.get(this.env.ROOMS.idFromName(id));
       const r = await room.fetch('https://room/count');
-      const { count } = await r.json();
-      return count;
+      const { count, hasHost } = await r.json();
+      return { count, hasHost: !!hasHost };
     } catch {
-      return 0;
+      return { count: 0, hasHost: false };
     }
   }
 
-  /// Return { code } of a world with room, creating a new one if needed.
-  async findWorld() {
+  /// Return { code } of a joinable world, retiring a reported-dead one and
+  /// creating a fresh world when needed. A world is joinable when it's empty
+  /// (the joiner becomes host) or it has a live host and is under the soft cap.
+  async findWorld(exclude) {
     let worlds = (await this.state.storage.get('worlds')) ?? [];
 
-    // Reuse the first world under the soft cap (refreshing occupancy).
+    // Retire a world the caller reported as unreachable (dead host).
+    if (exclude && worlds.includes(exclude)) {
+      worlds = worlds.filter((w) => w !== exclude);
+      await this.state.storage.put('worlds', worlds);
+    }
+
+    // Reuse the first world that's joinable (skip hostless non-empty ghosts).
     for (const id of worlds) {
-      const c = await this.count(id);
-      if (c < SOFT_CAP) return { code: id };
+      if (id === exclude) continue;
+      const { count, hasHost } = await this.status(id);
+      if (count === 0) return { code: id }; // empty: joiner hosts it
+      if (hasHost && count < SOFT_CAP) return { code: id };
     }
 
-    // All full (or none exist): spin up a new world.
-    if (worlds.length >= MAX_WORLDS) {
-      // Pathological load: hand back the least-full existing world anyway.
-      let best = worlds[0];
-      let bestCount = Infinity;
-      for (const id of worlds) {
-        const c = await this.count(id);
-        if (c < bestCount) {
-          best = id;
-          bestCount = c;
-        }
-      }
-      return { code: best };
+    // None joinable: spin up a fresh world with a NEW id. A monotonic
+    // counter avoids reusing a retired id whose Durable Object may still
+    // hold a ghost host.
+    if (worlds.length < MAX_WORLDS) {
+      let next = (await this.state.storage.get('nextWorld')) ?? 1;
+      const code = this.newWorldId(next);
+      await this.state.storage.put('nextWorld', next + 1);
+      worlds = [...worlds, code];
+      await this.state.storage.put('worlds', worlds);
+      return { code };
     }
 
-    const code = this.newWorldId(worlds.length + 1);
-    worlds = [...worlds, code];
-    await this.state.storage.put('worlds', worlds);
-    return { code };
+    // Pathological load: least-full hosted world, else any.
+    let best = worlds.find((w) => w !== exclude) ?? worlds[0];
+    return { code: best };
   }
 
   newWorldId(n) {

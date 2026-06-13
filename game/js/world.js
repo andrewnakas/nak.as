@@ -63,9 +63,24 @@ export class World {
         if (/version mismatch/i.test(err.message)) {
           return this._handleVersionMismatch();
         }
+        // Couldn't reach the host (ghost/stale host in this world). Don't
+        // bubble up and dump the player back to the menu — find another
+        // world instead. Mark this one so the lobby skips it.
+        if (this._refindCount < 4) {
+          this._refindCount = (this._refindCount || 0) + 1;
+          setStatus('that world was unreachable — finding another…', true);
+          this.code = await findWorld(this.code); // exclude the dead one
+          return this._connect();
+        }
+        // Repeatedly failing — likely our own network blocks WebRTC entirely.
+        setStatus(
+          "couldn't reach any world host. your network may block peer connections — try another network.",
+          true,
+        );
         throw err;
       }
     }
+    this._refindCount = 0;
     setStatus('');
     showWorld(this.code, reply.t === 'host');
   }
