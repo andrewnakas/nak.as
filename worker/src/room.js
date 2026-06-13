@@ -1,14 +1,20 @@
-// RoomDO: a persistent MMO world's signaling hub. Unlike a 4-player party,
-// a world stays open for its lifetime: late joiners connect to the current
-// host, and if the host leaves we promote another member (host migration)
-// so the shared world survives. The DO only relays SDP/ICE + membership; it
-// never sees game state.
+// RoomDO: a persistent MMO world's signaling hub AND game-data relay.
 //
-// A browser host can't hold 150 WebRTC connections, so the practical cap is
-// connection-bound: CONNECT_CAP is the most peers one host serves before the
-// lobby spills new players into the next world.
+// Two transport tiers per world:
+//   1. Direct P2P (preferred): the host holds a WebRTC link to each of the
+//      first DIRECT_CAP clients. Lowest latency.
+//   2. Relayed (overflow): clients beyond DIRECT_CAP receive the host's
+//      per-viewpoint snapshots THROUGH this DO over the signaling WebSocket,
+//      and send their inputs back the same way. The browser host keeps just
+//      ONE socket (to this DO) instead of 100 WebRTC connections; the edge
+//      does the fan-out. The DO is still a dumb pipe — it never inspects or
+//      simulates game state, only forwards opaque bytes between host and the
+//      addressed client.
+//
+// This lifts the hard ceiling from ~24 (one browser's WebRTC limit) toward
+// the WORLD_CAP while keeping the host authoritative.
 
-const CONNECT_CAP = 24; // peers a single host serves (host migration resets headroom)
+const DIRECT_CAP = 24; // clients served over direct WebRTC before relaying
 export const WORLD_CAP = 150; // hard ceiling on world membership
 
 export class RoomDO {
@@ -23,7 +29,7 @@ export class RoomDO {
         return Response.json({
           count: this.joinedCount(),
           hasHost: !!this.host(),
-          cap: CONNECT_CAP,
+          cap: WORLD_CAP,
         });
       }
       return new Response('expected websocket', { status: 426 });
@@ -80,8 +86,8 @@ export class RoomDO {
     const meta = ws.deserializeAttachment();
 
     switch (msg.t) {
-      // Join the world. The first member becomes host; everyone else
-      // connects to the current host. Full worlds reject (lobby retries next).
+      // Join the world. The first member becomes host; the next DIRECT_CAP
+      // connect over direct WebRTC; the rest are relayed through this DO.
       case 'join': {
         const joined = this.joined();
         if (joined.length >= WORLD_CAP) {
@@ -89,19 +95,26 @@ export class RoomDO {
         }
         const host = this.host();
         const becomeHost = !host;
-        // Connection-bound spill: a host beyond CONNECT_CAP turns joiners away.
-        if (host && joined.length >= CONNECT_CAP) {
-          return this.send(ws, { t: 'error', code: 'host-full', msg: 'host saturated' });
-        }
+        // Clients beyond the direct cap use the relay tier instead of being
+        // turned away. joined includes the host, so subtract it to count the
+        // direct *clients* already attached.
+        const directClients = joined.filter((m) => !m.meta.host && !m.meta.relayed).length;
+        const relayed = !becomeHost && directClients >= DIRECT_CAP;
         Object.assign(meta, {
           joined: true,
           host: becomeHost,
+          relayed,
           name: String(msg.name ?? 'player').slice(0, 16),
           joinedAt: this.nextSeq(),
         });
         ws.serializeAttachment(meta);
         if (becomeHost) {
           this.send(ws, { t: 'host', self_id: meta.id });
+        } else if (relayed) {
+          // Tell the relay client it'll get game data through the DO, and
+          // tell the host a relay client appeared so it starts sending to it.
+          this.send(ws, { t: 'joined-relay', self_id: meta.id, host_id: host.meta.id });
+          this.send(host.ws, { t: 'relay-client-joined', id: meta.id, name: meta.name });
         } else {
           this.broadcast({ t: 'peer-joined', id: meta.id, name: meta.name }, meta.id);
           this.send(ws, {
@@ -119,6 +132,27 @@ export class RoomDO {
         if (target) this.send(target.ws, { t: 'signal', from: meta.id, payload: msg.payload });
         return;
       }
+      // ---- relay tier: opaque game-data forwarding ----
+      // Host -> a relay client. msg carries either `data` (base64 game bytes)
+      // or `json` (a control message like welcome/reject). The DO forwards
+      // verbatim without inspecting either.
+      case 'relay-down': {
+        if (!meta.host) return;
+        const target = this.joined().find((m) => m.meta.id === msg.to && m.meta.relayed);
+        if (target) {
+          this.send(target.ws, { t: 'relay-down', data: msg.data, json: msg.json });
+        }
+        return;
+      }
+      // Relay client -> host (hello / input / ui action).
+      case 'relay-up': {
+        if (!meta.joined || meta.host) return;
+        const host = this.host();
+        if (host) {
+          this.send(host.ws, { t: 'relay-up', from: meta.id, data: msg.data, json: msg.json });
+        }
+        return;
+      }
       case 'leave':
         return ws.close(1000, 'leave');
       default:
@@ -131,20 +165,27 @@ export class RoomDO {
     if (!meta.joined) return;
 
     if (meta.host) {
-      // Host migration: promote the longest-present remaining member.
+      // Host migration: promote the longest-present DIRECT (non-relayed)
+      // member — a relay client has no peer mesh to take over hosting. The
+      // new host re-hosts; all clients (direct + relay) reconnect to it.
       const survivors = this.joined().filter((m) => m.meta.id !== meta.id);
       survivors.sort((a, b) => a.meta.joinedAt - b.meta.joinedAt);
-      const next = survivors[0];
+      const next = survivors.find((m) => !m.meta.relayed) ?? survivors[0];
       if (next) {
         next.meta.host = true;
+        next.meta.relayed = false;
         next.ws.serializeAttachment(next.meta);
-        // New host rebuilds the world from its latest snapshot; clients
-        // reconnect to it. (The old host's screen state is already on every
-        // client via interpolation buffers.)
-        this.send(next.ws, { t: 'you-are-host', peers: survivors.map((m) => ({ id: m.meta.id, name: m.meta.name })) });
+        this.send(next.ws, {
+          t: 'you-are-host',
+          peers: survivors.map((m) => ({ id: m.meta.id, name: m.meta.name })),
+        });
         this.broadcast({ t: 'host-migrated', host_id: next.meta.id }, next.meta.id);
       }
       // else: world emptied; it simply goes idle.
+    } else if (meta.relayed) {
+      // Tell the host to stop sending snapshots to this relay client.
+      const host = this.host();
+      if (host) this.send(host.ws, { t: 'relay-client-left', id: meta.id });
     } else {
       this.broadcast({ t: 'peer-left', id: meta.id }, meta.id);
     }

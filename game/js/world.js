@@ -11,7 +11,7 @@
 import { Game } from '../pkg/naks_awakening.js';
 import { Signaling } from './net/signaling.js';
 import { findWorld } from './api.js';
-import { HostSession, ClientSession } from './session.js';
+import { HostSession, ClientSession, RelayClientSession } from './session.js';
 import { loadStartingSave } from './saves.js';
 import { setStatus, showWorld, showConnecting, hideConnecting } from './ui.js';
 
@@ -60,12 +60,15 @@ export class World {
 
     const reply = await this.signaling.request(
       { t: 'join', name: this.name },
-      ['host', 'joined'],
+      ['host', 'joined', 'joined-relay'],
     );
     this.selfId = reply.self_id;
 
     if (reply.t === 'host') {
       await this._startHost();
+    } else if (reply.t === 'joined-relay') {
+      // World is past the host's direct cap — we play over the DO relay.
+      await this._startRelayClient(reply.self_id);
     } else {
       try {
         await this._startClient(reply.host_id);
@@ -93,6 +96,23 @@ export class World {
     this._refindCount = 0;
     setStatus('');
     showWorld(this.code, reply.t === 'host');
+  }
+
+  /// Join over the relay tier: snapshots arrive through the signaling socket
+  /// (relay-down), inputs go back the same way (relay-up). No WebRTC link.
+  async _startRelayClient(selfId) {
+    const save = await this._save();
+    const game = new Game(this.deps.worldJson, ROLE_CLIENT, 0n);
+    const session = new RelayClientSession(
+      { ...this.deps, game },
+      { save, signaling: this.signaling, selfId, name: this.name },
+    );
+    setStatus('joining the world…');
+    showConnecting('joining the world…');
+    await session.start();
+    this.session = session;
+    this._installInventory();
+    hideConnecting();
   }
 
   /// Host runs a different build than us. Reload once to pull fresh assets
@@ -223,18 +243,27 @@ export class World {
   }
 
   async _onHostMigrated(m) {
-    // The host changed. Tear down our client session and reconnect to the
-    // new host (still on the same signaling socket, same world).
-    if (this.session?.slot !== undefined && this.session instanceof ClientSession) {
-      this.reconnecting = true;
-      this.session.stop();
-      setStatus('host changed — reconnecting…');
-      try {
+    // The host changed. Tear down our session and reconnect to the new host
+    // (still on the same signaling socket, same world). Direct clients re-peer
+    // to the new host; relay clients re-join (they may now be a direct client
+    // if the world shrank, or stay relayed).
+    if (this.reconnecting) return;
+    this.reconnecting = true;
+    setStatus('host changed — reconnecting…');
+    const wasRelay = this.session instanceof RelayClientSession;
+    this.session?.stop();
+    try {
+      if (wasRelay) {
+        // Re-join: the server re-classifies us (direct vs relay) for the new host.
+        this.reconnecting = false;
+        await this._connect();
+      } else {
         await this._startClient(m.host_id);
-      } catch {
-        this._refind();
+        this.reconnecting = false;
       }
+    } catch {
       this.reconnecting = false;
+      this._refind();
     }
   }
 
@@ -250,11 +279,13 @@ export class World {
   }
 
   _onSocketClosed() {
-    // The signaling socket is only needed during connect; once we're playing
-    // (have a session) a normal close is fine — the WebRTC link carries the
-    // game. Only re-find if we're not connected and not mid-handoff.
+    // For direct clients/hosts the signaling socket is only needed during
+    // connect + for migration events, so a close while playing is survivable
+    // (the WebRTC link carries the game). For a RELAY client the socket IS the
+    // game transport, so a close means we must reconnect.
     if (this.reconnecting || this._shuttingDown) return;
-    if (this.session && this.session.game.tick_count() > 0) return; // playing
+    const relay = this.session instanceof RelayClientSession;
+    if (!relay && this.session && this.session.game.tick_count() > 0) return; // direct, playing
     this._refind();
   }
 

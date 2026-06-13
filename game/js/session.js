@@ -110,7 +110,7 @@ export class HostSession extends BaseSession {
       if (!peer) {
         // First signal from a new joiner: answer their offer.
         const link = new PeerLink(signaling, m.from, false);
-        peer = { link, slot: -1, name: this.pendingNames.get(m.from) ?? 'player' };
+        peer = { id: m.from, link, slot: -1, name: this.pendingNames.get(m.from) ?? 'player', relay: false };
         this.peers.set(m.from, peer);
         link.onR = (text) => this._handleReliable(peer, text);
         link.onU = (data) => {
@@ -120,6 +120,46 @@ export class HostSession extends BaseSession {
       }
       await peer.link.handleSignal(m.payload);
     });
+
+    // ---- relay-tier clients (no WebRTC link; they talk through the DO) ----
+    signaling.on('relay-client-joined', (m) => {
+      if (!this.peers.has(m.id)) {
+        this.peers.set(m.id, { id: m.id, link: null, slot: -1, name: m.name ?? 'player', relay: true });
+      }
+    });
+    signaling.on('relay-client-left', (m) => this._dropPeer(m.id));
+    signaling.on('relay-up', (m) => {
+      const peer = this.peers.get(m.from);
+      if (!peer) return;
+      if (m.json) {
+        this._handleRelayControl(peer, m.from, m.json);
+      } else if (m.data && peer.slot >= 0) {
+        this.game.handle_client_msg(peer.slot, b64decode(m.data));
+      }
+    });
+  }
+
+  // Shared hello/handshake logic for both direct (WebRTC) and relay clients.
+  // `reply` sends the welcome/reject back over the right transport.
+  _admit(peer, msg, reply) {
+    if (msg.contentHash !== this.game.content_hash().toString(16)) {
+      reply({ t: 'reject', reason: 'version mismatch — reload the page' });
+      return;
+    }
+    const slot = this._freeSlot();
+    if (slot < 0) {
+      reply({ t: 'reject', reason: 'world is full' });
+      return;
+    }
+    peer.slot = slot;
+    peer.name = String(msg.name ?? peer.name).slice(0, 16);
+    if (typeof msg.save === 'string' && msg.save) {
+      this.game.add_player_with_save(slot, msg.save);
+    } else {
+      this.game.add_player(slot);
+    }
+    reply({ t: 'welcome', slot, contentHash: msg.contentHash });
+    this.onPartyChange?.(this.partyList());
   }
 
   _handleReliable(peer, text) {
@@ -134,25 +174,15 @@ export class HostSession extends BaseSession {
     } catch {
       return;
     }
+    if (msg.t === 'hello') this._admit(peer, msg, (r) => peer.link.sendR(r));
+  }
+
+  _handleRelayControl(peer, fromId, msg) {
     if (msg.t === 'hello') {
-      if (msg.contentHash !== this.game.content_hash().toString(16)) {
-        peer.link.sendR({ t: 'reject', reason: 'version mismatch — reload the page' });
-        return;
-      }
-      const slot = this._freeSlot();
-      if (slot < 0) {
-        peer.link.sendR({ t: 'reject', reason: 'party is full' });
-        return;
-      }
-      peer.slot = slot;
-      peer.name = String(msg.name ?? peer.name).slice(0, 16);
-      if (typeof msg.save === 'string' && msg.save) {
-        this.game.add_player_with_save(slot, msg.save);
-      } else {
-        this.game.add_player(slot);
-      }
-      peer.link.sendR({ t: 'welcome', slot, contentHash: msg.contentHash });
-      this.onPartyChange?.(this.partyList());
+      // Welcome/reject travels back to the relay client as {json: ...}.
+      this._admit(peer, msg, (r) =>
+        this.signaling.send({ t: 'relay-down', to: fromId, json: r }),
+      );
     }
   }
 
@@ -168,9 +198,27 @@ export class HostSession extends BaseSession {
     const peer = this.peers.get(remoteId);
     if (!peer) return;
     if (peer.slot >= 0) this.game.remove_player(peer.slot);
-    peer.link.close();
+    peer.link?.close(); // relay peers have no WebRTC link
     this.peers.delete(remoteId);
     this.onPartyChange?.(this.partyList());
+  }
+
+  // Route game bytes to a peer over its transport: direct = WebRTC channel,
+  // relay = base64 through the DO (relay clients can lose snapshots like the
+  // unreliable channel does, so both go via relay-down).
+  _sendUnreliable(peer, bytes) {
+    if (peer.relay) {
+      this.signaling.send({ t: 'relay-down', to: peer.id, data: b64encode(bytes) });
+    } else {
+      peer.link.sendU(bytes);
+    }
+  }
+  _sendReliable(peer, bytes) {
+    if (peer.relay) {
+      this.signaling.send({ t: 'relay-down', to: peer.id, data: b64encode(bytes) });
+    } else {
+      peer.link.sendRBytes(bytes);
+    }
   }
 
   partyList() {
@@ -206,23 +254,24 @@ export class HostSession extends BaseSession {
       acc -= TICK_MS;
       ticks++;
       if (this.peers.size && this.game.tick_count() % SNAPSHOT_EVERY === 0) {
-        // Small party: one full snapshot for everyone (cheapest). Large party:
-        // per-client snapshots filtered to each client's screen, so the host's
-        // uplink scales with players-per-screen, not total players in the world.
-        if (this.peers.size <= PERCLIENT_THRESHOLD) {
-          const snap = this.game.snapshot_bytes();
-          for (const peer of this.peers.values()) {
-            if (peer.slot >= 0) peer.link.sendU(snap);
-          }
-        } else {
-          for (const peer of this.peers.values()) {
-            if (peer.slot >= 0) peer.link.sendU(this.game.snapshot_bytes_for(peer.slot));
-          }
+        // Small party: one full snapshot for everyone (cheapest). Larger: a
+        // per-client snapshot filtered to each client's screen, so host uplink
+        // scales with players-per-screen, not total world population. Relay
+        // clients always get per-client snapshots (they're the overflow tier).
+        const broadcast =
+          this.peers.size <= PERCLIENT_THRESHOLD
+            ? this.game.snapshot_bytes()
+            : null;
+        for (const peer of this.peers.values()) {
+          if (peer.slot < 0) continue;
+          const snap =
+            broadcast && !peer.relay ? broadcast : this.game.snapshot_bytes_for(peer.slot);
+          this._sendUnreliable(peer, snap);
         }
         const events = this.game.drain_events_bytes();
         if (events.length) {
           for (const peer of this.peers.values()) {
-            if (peer.slot >= 0) peer.link.sendRBytes(events);
+            if (peer.slot >= 0) this._sendReliable(peer, events);
           }
         }
       }
@@ -231,7 +280,7 @@ export class HostSession extends BaseSession {
       if (this.game.tick_count() % AUTOSAVE_TICKS === 0) {
         persist(this.game.export_save(0));
         for (const peer of this.peers.values()) {
-          if (peer.slot >= 0) peer.link.sendRBytes(this.game.encode_save_state(peer.slot));
+          if (peer.slot >= 0) this._sendReliable(peer, this.game.encode_save_state(peer.slot));
         }
       }
     }
@@ -339,5 +388,112 @@ export class ClientSession extends BaseSession {
   stop() {
     super.stop();
     this.link?.close();
+  }
+}
+
+// ---- base64 for carrying binary game data through JSON WebSocket frames ----
+function b64encode(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s);
+}
+function b64decode(str) {
+  const bin = atob(str);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+/// A client connected over the DO relay tier instead of direct WebRTC. The
+/// host's per-viewpoint snapshots/events arrive via `relay-down`; our inputs
+/// and UI actions go back via `relay-up`. Same sim/interpolation as a direct
+/// client — only the transport differs. Higher latency than P2P, but the
+/// browser host serves us through one DO socket instead of a 25th WebRTC link,
+/// which is how a world scales past the direct cap.
+export class RelayClientSession extends BaseSession {
+  constructor(deps, { save, signaling, selfId, name }) {
+    super(deps);
+    this.signaling = signaling;
+    this.selfId = selfId;
+    this.name = name;
+    this.save = save ?? null;
+    this.lastInputSent = 0;
+    this.lastButtons = -1;
+    this.rttMs = null;
+    this._lastPing = 0;
+  }
+
+  async start() {
+    // Host -> us: snapshots, events, save pushes, welcome handshake.
+    this.signaling.on('relay-down', (m) => this._onDown(m));
+
+    const slot = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('host did not respond (relay)')), 10000);
+      this._onWelcome = (msg) => {
+        clearTimeout(timer);
+        if (msg.t === 'welcome') resolve(msg.slot);
+        else reject(new Error(msg.reason ?? 'rejected by host'));
+      };
+      // Hello rides relay-up as JSON (host distinguishes it from binary input).
+      this._sendUp({
+        t: 'hello',
+        name: this.name,
+        save: this.save,
+        contentHash: this.game.content_hash().toString(16),
+      });
+    });
+    this.slot = slot;
+    this.game.set_local_slot(slot);
+    super.start();
+    return slot;
+  }
+
+  _onDown(m) {
+    if (this.stopped) return;
+    // A control message (welcome/reject) arrives as {json}; game data as
+    // {data} (base64-encoded snapshot/event bytes).
+    if (m.json) {
+      this._onWelcome?.(m.json);
+    } else if (typeof m.data === 'string') {
+      this.game.apply_host_msg(b64decode(m.data), performance.now());
+    }
+  }
+
+  _sendUp(obj) {
+    // obj is either a JSON control message or {bin: Uint8Array}.
+    if (obj.bin) {
+      this.signaling.send({ t: 'relay-up', data: b64encode(obj.bin) });
+    } else {
+      this.signaling.send({ t: 'relay-up', json: obj });
+    }
+  }
+
+  sendUiAction(json) {
+    this._sendUp({ bin: this.game.encode_ui_action(json) });
+  }
+
+  _sampleNet() {
+    /* RTT for relay is the WS round-trip; not tracked yet */
+  }
+
+  netInfo() {
+    return 'net: relayed';
+  }
+
+  update(now) {
+    const buttons = this.input.read();
+    const changed = buttons !== this.lastButtons;
+    if (changed || now - this.lastInputSent > INPUT_KEEPALIVE_MS) {
+      this._sendUp({ bin: this.game.encode_input(buttons) });
+      this.lastButtons = buttons;
+      this.lastInputSent = now;
+    }
+    const save = this.game.take_pending_save();
+    if (save) persist(save);
+    return 0;
+  }
+
+  stop() {
+    super.stop();
   }
 }
