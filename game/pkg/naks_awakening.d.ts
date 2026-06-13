@@ -5,6 +5,7 @@ export class Game {
     free(): void;
     [Symbol.dispose](): void;
     add_player(slot: number): void;
+    add_player_with_save(slot: number, save_json: string): void;
     apply_host_msg(bytes: Uint8Array, now_ms: number): void;
     content_hash(): bigint;
     /**
@@ -22,9 +23,14 @@ export class Game {
     drain_toasts(viewpoint: number): string;
     encode_input(buttons: number): Uint8Array;
     /**
+     * Wrap a save for the reliable channel (host -> the owning client).
+     */
+    encode_save_state(slot: number): Uint8Array;
+    /**
      * Encode a UI action for sending to the host (client role).
      */
     encode_ui_action(json: string): Uint8Array;
+    export_save(slot: number): string;
     /**
      * Decode and apply one message from the client in `slot`.
      */
@@ -43,6 +49,10 @@ export class Game {
      */
     snapshot_bytes(): Uint8Array;
     state_hash(): bigint;
+    /**
+     * A save pushed by the host since the last call (client role).
+     */
+    take_pending_save(): string | undefined;
     tick(): void;
     tick_count(): number;
     /**
@@ -61,13 +71,16 @@ export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_game_free: (a: number, b: number) => void;
     readonly game_add_player: (a: number, b: number) => void;
+    readonly game_add_player_with_save: (a: number, b: number, c: number, d: number) => void;
     readonly game_apply_host_msg: (a: number, b: number, c: number, d: number) => void;
     readonly game_content_hash: (a: number) => bigint;
     readonly game_drain_audio: (a: number, b: number, c: number) => void;
     readonly game_drain_events_bytes: (a: number, b: number) => void;
     readonly game_drain_toasts: (a: number, b: number, c: number) => void;
     readonly game_encode_input: (a: number, b: number, c: number) => void;
+    readonly game_encode_save_state: (a: number, b: number, c: number) => void;
     readonly game_encode_ui_action: (a: number, b: number, c: number, d: number) => void;
+    readonly game_export_save: (a: number, b: number, c: number) => void;
     readonly game_handle_client_msg: (a: number, b: number, c: number, d: number) => void;
     readonly game_new: (a: number, b: number, c: number, d: bigint) => number;
     readonly game_remove_player: (a: number, b: number) => void;
@@ -76,14 +89,15 @@ export interface InitOutput {
     readonly game_set_local_slot: (a: number, b: number) => void;
     readonly game_snapshot_bytes: (a: number, b: number) => void;
     readonly game_state_hash: (a: number) => bigint;
+    readonly game_take_pending_save: (a: number, b: number) => void;
     readonly game_tick: (a: number) => void;
     readonly game_tick_count: (a: number) => number;
     readonly game_ui_action: (a: number, b: number, c: number, d: number) => void;
     readonly game_ui_state: (a: number, b: number, c: number) => void;
     readonly __wbindgen_export: (a: number, b: number) => number;
+    readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
-    readonly __wbindgen_export2: (a: number, b: number, c: number) => void;
-    readonly __wbindgen_export3: (a: number, b: number, c: number, d: number) => number;
+    readonly __wbindgen_export3: (a: number, b: number, c: number) => void;
 }
 
 export type SyncInitInput = BufferSource | WebAssembly.Module;

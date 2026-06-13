@@ -15,6 +15,7 @@ pub mod entity;
 pub mod fixed;
 pub mod input;
 pub mod rng;
+pub mod save;
 pub mod world;
 
 use defs::{Brain, Defs, DropItem, FuseEffect, ItemKind};
@@ -419,6 +420,31 @@ impl Sim {
             p.equip_a = 0;
         }
         self.players[slot] = Some(p);
+    }
+
+    /// Add a player and restore their character from a save (invalid or
+    /// missing positions fall back to the spawn point; the screen must exist).
+    pub fn add_player_with_save(&mut self, slot: usize, save_json: &str) {
+        self.add_player(slot);
+        let Some(mut p) = self.players.get(slot).cloned().flatten() else {
+            return;
+        };
+        let positioned = save::apply(&self.defs, &mut p, save_json);
+        if !positioned || self.world.screen_at(p.sx, p.sy).is_none() {
+            let sp = self.world.spawn;
+            p.sx = sp.sx;
+            p.sy = sp.sy;
+            p.x = fx(sp.x);
+            p.y = fx(sp.y);
+        }
+        self.players[slot] = Some(p);
+    }
+
+    pub fn export_save(&self, slot: usize) -> String {
+        match self.players.get(slot).and_then(|p| p.as_ref()) {
+            Some(p) => save::export(&self.defs, p),
+            None => "null".to_string(),
+        }
     }
 
     pub fn remove_player(&mut self, slot: usize) {
@@ -2940,6 +2966,56 @@ mod tests {
             .unwrap();
         sim.ui_action(0, &format!(r#"{{"action":"eat","a":{eat_idx}}}"#));
         assert_eq!(sim.players[0].as_ref().unwrap().hp, 6);
+    }
+
+    #[test]
+    fn save_roundtrip_preserves_character() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 51).unwrap();
+        sim.add_player(0);
+        // Mutate the character: gain shells, xp, items, a quest, move.
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.shells = 42;
+            p.skills = [120, 30, 7];
+            p.hp = 3;
+            give_item(p, &sim.defs, sim.defs.item_index("crab_claw").unwrap(), 5);
+            p.quests.push(PlayerQuest {
+                quest: 0,
+                done: false,
+                progress: vec![1],
+            });
+            p.sx = 1;
+            p.x = fx(50);
+            p.y = fx(70);
+        }
+        let json = sim.export_save(0);
+        assert!(save::migrate(&json).is_some());
+
+        let mut sim2 = Sim::new(&bundle, 99).unwrap();
+        sim2.add_player_with_save(0, &json);
+        let p = sim2.players[0].as_ref().unwrap();
+        assert_eq!(p.shells, 42);
+        assert_eq!(p.skills, [120, 30, 7]);
+        assert_eq!(p.hp, 3);
+        assert_eq!(p.sx, 1);
+        assert_eq!(to_px(p.x), 50);
+        assert_eq!(p.quests.len(), 1);
+        assert_eq!(p.quests[0].progress[0], 1);
+        let claw = sim2.defs.item_index("crab_claw").unwrap();
+        assert_eq!(
+            p.inventory.iter().find(|s| s.def == claw).map(|s| s.qty),
+            Some(5)
+        );
+        // Same hash after re-export (stable round trip).
+        assert_eq!(sim2.export_save(0), json);
+
+        // Bad saves fall back to a fresh character at spawn.
+        let mut sim3 = Sim::new(&bundle, 7).unwrap();
+        sim3.add_player_with_save(0, "{\"schema_version\":999}");
+        let p = sim3.players[0].as_ref().unwrap();
+        assert_eq!((p.sx, p.sy), (0, 0));
+        assert_eq!(p.hp, 6);
     }
 
     #[test]

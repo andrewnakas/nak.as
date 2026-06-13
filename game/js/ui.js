@@ -2,13 +2,56 @@
 // Game-world UI (hearts, inventory) renders on the canvas; this file is
 // only the HTML shell around it.
 
+import { authUser, login, logout, register } from './api.js';
+
 const $ = (sel) => document.querySelector(sel);
+
+function refreshAuthBox() {
+  const user = authUser();
+  $('#auth-form').style.display = user ? 'none' : 'flex';
+  $('#auth-state').style.display = user ? 'flex' : 'none';
+  if (user) $('#auth-who').textContent = `cloud saves on: ${user}`;
+}
+
+function wireAuth() {
+  const doAuth = async (fn) => {
+    const username = $('#auth-user').value.trim();
+    const password = $('#auth-pass').value;
+    try {
+      setStatus('…');
+      await fn(username, password);
+      setStatus('');
+      refreshAuthBox();
+    } catch (err) {
+      setStatus(err.message, true);
+    }
+  };
+  $('#auth-login').onclick = () => doAuth(login);
+  $('#auth-register').onclick = () => doAuth(register);
+  $('#auth-logout').onclick = async () => {
+    await logout().catch(() => {});
+    refreshAuthBox();
+  };
+  for (const sel of ['#auth-user', '#auth-pass']) {
+    $(sel).onkeydown = (e) => {
+      if (e.key === 'Enter') $('#auth-login').click();
+      e.stopPropagation();
+    };
+  }
+}
+
+let authWired = false;
 
 export function showMenu() {
   return new Promise((resolve) => {
     const menu = $('#menu');
     menu.style.display = 'flex';
     setStatus('');
+    if (!authWired) {
+      wireAuth();
+      authWired = true;
+    }
+    refreshAuthBox();
 
     const name = $('#menu-name');
     name.value = localStorage.getItem('naks_name') ?? '';

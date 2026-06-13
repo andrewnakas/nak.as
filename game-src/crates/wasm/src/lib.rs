@@ -25,6 +25,8 @@ pub struct Game {
     client_toasts: Vec<String>,
     /// Slot of the local player on a client (set by the JS shell post-welcome).
     local_slot: u8,
+    /// Latest save pushed by the host (client role).
+    pending_save: Option<String>,
 }
 
 #[wasm_bindgen]
@@ -41,6 +43,7 @@ impl Game {
             client_audio: Vec::new(),
             client_toasts: Vec::new(),
             local_slot: 0,
+            pending_save: None,
         }
     }
 
@@ -56,6 +59,26 @@ impl Game {
 
     pub fn add_player(&mut self, slot: u8) {
         self.sim.add_player(slot as usize);
+    }
+
+    pub fn add_player_with_save(&mut self, slot: u8, save_json: &str) {
+        self.sim.add_player_with_save(slot as usize, save_json);
+    }
+
+    pub fn export_save(&self, slot: u8) -> String {
+        self.sim.export_save(slot as usize)
+    }
+
+    /// Wrap a save for the reliable channel (host -> the owning client).
+    pub fn encode_save_state(&self, slot: u8) -> Vec<u8> {
+        protocol::encode(&H2C::SaveState {
+            json: self.sim.export_save(slot as usize),
+        })
+    }
+
+    /// A save pushed by the host since the last call (client role).
+    pub fn take_pending_save(&mut self) -> Option<String> {
+        self.pending_save.take()
     }
 
     pub fn remove_player(&mut self, slot: u8) {
@@ -169,7 +192,8 @@ impl Game {
                     }
                 }
             }
-            Some(H2C::SaveState { .. }) | None => {}
+            Some(H2C::SaveState { json }) => self.pending_save = Some(json),
+            None => {}
         }
     }
 

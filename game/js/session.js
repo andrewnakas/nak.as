@@ -4,9 +4,11 @@
 import { TICK_MS, MAX_CATCHUP_TICKS } from './config.js';
 import { PeerLink } from './net/rtc.js';
 import { toast } from './ui.js';
+import { persist } from './saves.js';
 
 const SNAPSHOT_EVERY = 3; // host ticks between snapshots (60/3 = 20 Hz)
 const INPUT_KEEPALIVE_MS = 100;
+const AUTOSAVE_TICKS = 900; // 15s
 
 class BaseSession {
   constructor({ game, input, renderer, audio, debugEl }) {
@@ -58,13 +60,19 @@ class BaseSession {
 }
 
 export class HostSession extends BaseSession {
-  constructor(deps, { onPartyChange } = {}) {
+  constructor(deps, { onPartyChange, save } = {}) {
     super(deps);
-    this.game.add_player(0);
+    if (save) this.game.add_player_with_save(0, save);
+    else this.game.add_player(0);
     this.peers = new Map(); // remoteId -> { link, slot, name }
     this.pendingNames = new Map();
     this.signaling = null;
     this.onPartyChange = onPartyChange;
+    // Save the local character when the tab closes (cloud write may not
+    // finish, but localStorage always does).
+    window.addEventListener('beforeunload', () => {
+      if (!this.stopped) persist(this.game.export_save(0));
+    });
   }
 
   /// Wire up the signaling channel so remote players can join. The host
@@ -114,7 +122,11 @@ export class HostSession extends BaseSession {
       }
       peer.slot = slot;
       peer.name = String(msg.name ?? peer.name).slice(0, 16);
-      this.game.add_player(slot);
+      if (typeof msg.save === 'string' && msg.save) {
+        this.game.add_player_with_save(slot, msg.save);
+      } else {
+        this.game.add_player(slot);
+      }
       peer.link.sendR({ t: 'welcome', slot, contentHash: msg.contentHash });
       this.onPartyChange?.(this.partyList());
     }
@@ -166,6 +178,14 @@ export class HostSession extends BaseSession {
           }
         }
       }
+      // Autosave: the host persists its own character and pushes each
+      // remote player their authoritative save to upload themselves.
+      if (this.game.tick_count() % AUTOSAVE_TICKS === 0) {
+        persist(this.game.export_save(0));
+        for (const peer of this.peers.values()) {
+          if (peer.slot >= 0) peer.link.sendRBytes(this.game.encode_save_state(peer.slot));
+        }
+      }
     }
     return acc >= TICK_MS ? 0 : acc;
   }
@@ -178,12 +198,13 @@ export class HostSession extends BaseSession {
 }
 
 export class ClientSession extends BaseSession {
-  constructor(deps, { onDisconnect } = {}) {
+  constructor(deps, { onDisconnect, save } = {}) {
     super(deps);
     this.link = null;
     this.lastInputSent = 0;
     this.lastButtons = -1;
     this.onDisconnect = onDisconnect;
+    this.save = save ?? null;
   }
 
   /// Connect to the host through the already-joined signaling room.
@@ -211,6 +232,7 @@ export class ClientSession extends BaseSession {
       this.link.sendR({
         t: 'hello',
         name,
+        save: this.save,
         contentHash: this.game.content_hash().toString(16),
       });
     });
@@ -247,6 +269,9 @@ export class ClientSession extends BaseSession {
       this.lastButtons = buttons;
       this.lastInputSent = now;
     }
+    // Authoritative saves pushed by the host: persist them as our own.
+    const save = this.game.take_pending_save();
+    if (save) persist(save);
     return 0; // clients don't tick; they render interpolated snapshots
   }
 

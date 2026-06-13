@@ -10,6 +10,7 @@ import { Audio } from './audio.js';
 import { HostSession, ClientSession } from './session.js';
 import { Signaling } from './net/signaling.js';
 import { createParty } from './api.js';
+import { loadStartingSave } from './saves.js';
 import { showMenu, setStatus, showPartyCode, showPartyList, InventoryUI } from './ui.js';
 
 const ROLE_HOST = 0;
@@ -61,9 +62,13 @@ async function boot() {
 }
 
 async function startSession({ mode, code, name }, { worldJson, input, renderer, audio, debugEl }) {
+  setStatus('loading character…');
+  const save = await loadStartingSave(name);
+  setStatus('');
+
   if (mode === 'solo') {
     const game = new Game(worldJson, ROLE_HOST, randomSeed());
-    const session = new HostSession({ game, input, renderer, audio, debugEl });
+    const session = new HostSession({ game, input, renderer, audio, debugEl }, { save });
     session.start();
     new InventoryUI(session);
     window.__naks = { session, mode };
@@ -80,7 +85,7 @@ async function startSession({ mode, code, name }, { worldJson, input, renderer, 
     const game = new Game(worldJson, ROLE_HOST, randomSeed());
     const session = new HostSession(
       { game, input, renderer, audio, debugEl },
-      { onPartyChange: showPartyList },
+      { onPartyChange: showPartyList, save },
     );
     session.attachSignaling(signaling);
     session.start();
@@ -101,9 +106,10 @@ async function startSession({ mode, code, name }, { worldJson, input, renderer, 
   const session = new ClientSession(
     { game, input, renderer, audio, debugEl },
     {
+      save,
       onDisconnect: () => {
         showPartyCode('');
-        setStatus('Host disconnected. Reload to play again.', true);
+        setStatus('Host disconnected. Your progress was saved.', true);
         document.getElementById('menu').style.display = 'flex';
       },
     },

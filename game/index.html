@@ -98,6 +98,23 @@
   .join-row input { width: 110px; text-transform: uppercase; }
   .join-row button { min-width: 96px; }
   #status { font-size: 12px; color: var(--gb-light); min-height: 16px; }
+  #auth-box {
+    border-top: 1px solid #22322a;
+    margin-top: 6px;
+    padding-top: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  #auth-form { display: flex; flex-direction: column; gap: 6px; align-items: center; }
+  #auth-form input { width: 216px; text-align: left; }
+  #auth-form .join-row button { min-width: 104px; }
+  .auth-note { font-size: 10px; color: #4c5c4c; max-width: 230px; text-align: center; }
+  #auth-state { font-size: 12px; color: var(--gb-light); display: flex; gap: 10px; align-items: center; }
+  #auth-state button {
+    min-width: auto; padding: 4px 10px; font-size: 10px;
+  }
   #party-code { color: var(--gb-lightest); }
   #inv {
     position: fixed;
@@ -194,6 +211,20 @@
     <div class="join-row">
       <input id="menu-code" maxlength="5" placeholder="CODE">
       <button id="menu-join">JOIN</button>
+    </div>
+    <div id="auth-box">
+      <div id="auth-form">
+        <input id="auth-user" maxlength="16" placeholder="username" autocomplete="username">
+        <input id="auth-pass" type="password" maxlength="128" placeholder="password" autocomplete="current-password">
+        <div class="join-row">
+          <button id="auth-login">LOG IN</button>
+          <button id="auth-register">REGISTER</button>
+        </div>
+        <div class="auth-note">log in to keep your character in the cloud — or just play</div>
+      </div>
+      <div id="auth-state" style="display:none">
+        <span id="auth-who"></span> <button id="auth-logout">LOG OUT</button>
+      </div>
     </div>
     <div id="status"></div>
   </div>
