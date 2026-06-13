@@ -7,7 +7,8 @@ import { toast } from './ui.js';
 import { persist } from './saves.js';
 
 const SNAPSHOT_EVERY = 3; // host ticks between snapshots (60/3 = 20 Hz)
-const INPUT_KEEPALIVE_MS = 100;
+const INPUT_KEEPALIVE_MS = 100; // direct (lossy WebRTC): resend input often
+const RELAY_HEARTBEAT_MS = 2000; // relay (reliable WS): only a rare liveness ping
 const AUTOSAVE_TICKS = 900; // 15s
 const MAX_SLOTS = 32; // must match sim MAX_PLAYERS
 // Above this many peers, switch from one broadcast snapshot to per-client
@@ -535,8 +536,13 @@ export class RelayClientSession extends BaseSession {
 
   update(now) {
     const buttons = this.input.read();
+    // The relay transport (DO WebSocket) is reliable+ordered, so a sent input
+    // always arrives and the host holds it until the next change. No keepalive
+    // is needed — unlike the lossy WebRTC channel — which keeps idle relay
+    // clients from each flooding the host's single socket 10×/s. We still send
+    // a rare heartbeat so the host's last-seen timer doesn't consider us idle.
     const changed = buttons !== this.lastButtons;
-    if (changed || now - this.lastInputSent > INPUT_KEEPALIVE_MS) {
+    if (changed || now - this.lastInputSent > RELAY_HEARTBEAT_MS) {
       this._sendUp({ bin: this.game.encode_input(buttons) });
       this.lastButtons = buttons;
       this.lastInputSent = now;
