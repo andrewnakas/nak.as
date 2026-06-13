@@ -9,6 +9,8 @@ import { persist } from './saves.js';
 const SNAPSHOT_EVERY = 3; // host ticks between snapshots (60/3 = 20 Hz)
 const INPUT_KEEPALIVE_MS = 100; // direct (lossy WebRTC): resend input often
 const RELAY_HEARTBEAT_MS = 2000; // relay (reliable WS): only a rare liveness ping
+const RELAY_PING_MS = 3000; // relay RTT probe cadence (ping/pong through the DO)
+const RELAY_STALE_MS = 8000; // host drops a relay peer silent this long (> ping+heartbeat)
 const AUTOSAVE_TICKS = 900; // 15s
 const MAX_SLOTS = 32; // must match sim MAX_PLAYERS
 // Above this many peers, switch from one broadcast snapshot to per-client
@@ -125,13 +127,21 @@ export class HostSession extends BaseSession {
     // ---- relay-tier clients (no WebRTC link; they talk through the DO) ----
     signaling.on('relay-client-joined', (m) => {
       if (!this.peers.has(m.id)) {
-        this.peers.set(m.id, { id: m.id, link: null, slot: -1, name: m.name ?? 'player', relay: true });
+        this.peers.set(m.id, {
+          id: m.id,
+          link: null,
+          slot: -1,
+          name: m.name ?? 'player',
+          relay: true,
+          lastSeen: performance.now(),
+        });
       }
     });
     signaling.on('relay-client-left', (m) => this._dropPeer(m.id));
     signaling.on('relay-up', (m) => {
       const peer = this.peers.get(m.from);
       if (!peer) return;
+      peer.lastSeen = performance.now(); // liveness for the stale-relay sweep
       if (m.json) {
         this._handleRelayControl(peer, m.from, m.json);
       } else if (m.data && peer.slot >= 0) {
@@ -184,6 +194,10 @@ export class HostSession extends BaseSession {
       this._admit(peer, msg, (r) =>
         this.signaling.send({ t: 'relay-down', to: fromId, json: r }),
       );
+    } else if (msg.t === 'ping') {
+      // Echo the client's timestamp so it can measure the real DO round-trip
+      // (relay-up -> host -> relay-down). Cheap; only the addressed client.
+      this.signaling.send({ t: 'relay-down', to: fromId, json: { t: 'pong', ts: msg.ts } });
     }
   }
 
@@ -243,15 +257,29 @@ export class HostSession extends BaseSession {
 
   _sampleNet() {
     for (const peer of this.peers.values()) peer.link?.sampleStats();
+    // Reclaim slots held by relay clients that went silent. A relay client
+    // sends input-on-change plus a heartbeat (2s) plus a ping (3s), so going
+    // quiet past RELAY_STALE_MS means its socket died without a clean close
+    // (the DO normally sends relay-client-left, but a hard drop may not). The
+    // sweep frees the slot so the world doesn't accrue ghosts at scale.
+    const now = performance.now();
+    const stale = [];
+    for (const peer of this.peers.values()) {
+      if (peer.relay && now - (peer.lastSeen ?? now) > RELAY_STALE_MS) stale.push(peer.id);
+    }
+    for (const id of stale) this._dropPeer(id);
   }
 
   netInfo() {
-    const links = [...this.peers.values()].filter((p) => p.slot >= 0);
-    if (!links.length) return `net: host, 0 peers`;
-    const rtts = links.map((p) => p.link?.stats?.rttMs).filter((r) => r != null);
+    const active = [...this.peers.values()].filter((p) => p.slot >= 0);
+    if (!active.length) return `net: host, 0 peers`;
+    const direct = active.filter((p) => !p.relay);
+    const relay = active.filter((p) => p.relay);
+    const rtts = direct.map((p) => p.link?.stats?.rttMs).filter((r) => r != null);
     const avg = rtts.length ? Math.round(rtts.reduce((a, b) => a + b, 0) / rtts.length) : null;
     const worst = rtts.length ? Math.max(...rtts) : null;
-    return `net: host, ${links.length} peers · rtt ~${avg ?? '—'}ms (max ${worst ?? '—'})`;
+    const relayBit = relay.length ? ` +${relay.length} relay` : '';
+    return `net: host, ${direct.length} direct${relayBit} · rtt ~${avg ?? '—'}ms (max ${worst ?? '—'})`;
   }
 
   sendUiAction(json) {
@@ -504,10 +532,16 @@ export class RelayClientSession extends BaseSession {
 
   _onDown(m) {
     if (this.stopped) return;
-    // A control message (welcome/reject) arrives as {json}; game data as
+    // A control message (welcome/reject/pong) arrives as {json}; game data as
     // {data} (base64-encoded snapshot/event bytes).
     if (m.json) {
-      this._onWelcome?.(m.json);
+      if (m.json.t === 'pong') {
+        // Round-trip through the DO completed; smooth the RTT estimate.
+        const rtt = performance.now() - m.json.ts;
+        this.rttMs = this.rttMs === null ? rtt : Math.round(this.rttMs * 0.7 + rtt * 0.3);
+      } else {
+        this._onWelcome?.(m.json);
+      }
     } else if (typeof m.data === 'string') {
       this.game.apply_host_msg(b64decode(m.data), performance.now());
     }
@@ -527,11 +561,12 @@ export class RelayClientSession extends BaseSession {
   }
 
   _sampleNet() {
-    /* RTT for relay is the WS round-trip; not tracked yet */
+    /* RTT is sampled inline via ping/pong in update(); nothing to poll here. */
   }
 
   netInfo() {
-    return 'net: relayed';
+    const rtt = this.rttMs === null ? '—' : this.rttMs;
+    return `net: relayed · rtt ~${rtt}ms`;
   }
 
   update(now) {
@@ -546,6 +581,12 @@ export class RelayClientSession extends BaseSession {
       this._sendUp({ bin: this.game.encode_input(buttons) });
       this.lastButtons = buttons;
       this.lastInputSent = now;
+    }
+    // Measure the relay round-trip every RELAY_PING_MS so the HUD shows real
+    // latency and the host can later rebalance struggling clients.
+    if (now - this._lastPing > RELAY_PING_MS) {
+      this._lastPing = now;
+      this._sendUp({ t: 'ping', ts: now });
     }
     const save = this.game.take_pending_save();
     if (save) persist(save);
