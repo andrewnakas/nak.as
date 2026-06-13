@@ -132,6 +132,22 @@ export class RoomDO {
         if (target) this.send(target.ws, { t: 'signal', from: meta.id, payload: msg.payload });
         return;
       }
+      // A direct (WebRTC) client whose peer connection never came up — almost
+      // always a network that blocks UDP/TURN but passes this WebSocket — asks
+      // to be served over the relay tier instead. We flip it to relayed and tell
+      // the host, so a strict-network player still gets into the world rather
+      // than bouncing between hosts. (Idempotent if already relayed.)
+      case 'request-relay': {
+        if (!meta.joined || meta.host) return;
+        if (!meta.relayed) {
+          meta.relayed = true;
+          ws.serializeAttachment(meta);
+          const host = this.host();
+          if (host) this.send(host.ws, { t: 'relay-client-joined', id: meta.id, name: meta.name });
+        }
+        this.send(ws, { t: 'joined-relay', self_id: meta.id, host_id: this.host()?.meta.id });
+        return;
+      }
       // ---- relay tier: opaque game-data forwarding ----
       // Host -> a relay client. msg carries either `data` (base64 game bytes)
       // or `json` (a control message like welcome/reject). The DO forwards

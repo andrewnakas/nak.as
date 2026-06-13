@@ -115,6 +115,11 @@ export class HostSession extends BaseSession {
     signaling.on('peer-left', (m) => this.pendingNames.delete(m.id));
     signaling.on('signal', async (m) => {
       let peer = this.peers.get(m.from);
+      if (peer && (peer.relay || !peer.link)) {
+        // This peer fell back to the relay tier (its WebRTC link was closed).
+        // Ignore any straggler ICE signals — there's no data channel to feed.
+        return;
+      }
       if (!peer) {
         // First signal from a new joiner: answer their offer.
         const link = new PeerLink(signaling, m.from, false);
@@ -131,7 +136,19 @@ export class HostSession extends BaseSession {
 
     // ---- relay-tier clients (no WebRTC link; they talk through the DO) ----
     signaling.on('relay-client-joined', (m) => {
-      if (!this.peers.has(m.id)) {
+      const existing = this.peers.get(m.id);
+      if (existing) {
+        // This id may already have a half-built DIRECT peer (its WebRTC link
+        // failed and it's now falling back to relay). Convert it in place:
+        // close the dead link, keep its slot if one was already admitted, and
+        // re-route its transport to relay. Without this the host would keep
+        // sending snapshots into a dead data channel.
+        existing.link?.close();
+        existing.link = null;
+        existing.relay = true;
+        existing.lastSeen = performance.now();
+        if (m.name) existing.name = m.name;
+      } else {
         this.peers.set(m.id, {
           id: m.id,
           link: null,
@@ -160,6 +177,13 @@ export class HostSession extends BaseSession {
   _admit(peer, msg, reply) {
     if (msg.contentHash !== this.game.content_hash().toString(16)) {
       reply({ t: 'reject', reason: 'version mismatch — reload the page' });
+      return;
+    }
+    // Idempotent re-admit: a client that already holds a slot (e.g. it was
+    // admitted over WebRTC, then fell back to relay and re-sent hello) keeps
+    // its slot and character — don't allocate a second one or re-add the player.
+    if (peer.slot >= 0) {
+      reply({ t: 'welcome', slot: peer.slot, contentHash: msg.contentHash });
       return;
     }
     const slot = this._freeSlot();
@@ -566,7 +590,7 @@ export class RelayClientSession extends BaseSession {
       if (m.json.t === 'pong') {
         // Round-trip through the DO completed; smooth the RTT estimate.
         const rtt = performance.now() - m.json.ts;
-        this.rttMs = this.rttMs === null ? rtt : Math.round(this.rttMs * 0.7 + rtt * 0.3);
+        this.rttMs = this.rttMs === null ? Math.round(rtt) : Math.round(this.rttMs * 0.7 + rtt * 0.3);
       } else {
         this._onWelcome?.(m.json);
       }

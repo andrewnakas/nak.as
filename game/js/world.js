@@ -76,18 +76,39 @@ export class World {
         if (/version mismatch/i.test(err.message)) {
           return this._handleVersionMismatch();
         }
-        // Couldn't reach the host (ghost/stale host in this world). Don't
-        // bubble up and dump the player back to the menu — find another
-        // world instead. Mark this one so the lobby skips it.
+        // The direct WebRTC link didn't come up. Two causes look the same here:
+        // (a) our network blocks UDP/TURN (very common on strict/corporate/mobile
+        // networks that still pass this WebSocket), or (b) the host is a ghost.
+        // Try the RELAY tier to the same host first — it rides the working
+        // signaling socket, so case (a) players still get in. Only if relay also
+        // fails (no real host) do we re-find a world.
+        if (!this._triedRelay && reply.host_id) {
+          this._triedRelay = true;
+          setStatus('peer link blocked — connecting through the relay…', true);
+          try {
+            await this._requestRelayFallback();
+            this._refindCount = 0;
+            this._triedRelay = false;
+            setStatus('');
+            showWorld(this.code, false);
+            return;
+          } catch {
+            // relay didn't take either — fall through to re-find
+          }
+        }
+        // Couldn't reach the host at all (ghost/stale host in this world). Don't
+        // bubble up and dump the player back to the menu — find another world.
         if (this._refindCount < 4) {
           this._refindCount = (this._refindCount || 0) + 1;
+          this._triedRelay = false;
           setStatus('that world was unreachable — finding another…', true);
           this.code = await findWorld(this.code, this.version); // exclude the dead one
           return this._connect();
         }
-        // Repeatedly failing — likely our own network blocks WebRTC entirely.
+        // Repeatedly failing — likely our network blocks both WebRTC and the
+        // relay path (rare). Give clear guidance.
         setStatus(
-          "couldn't reach any world host. your network may block peer connections — try another network.",
+          "couldn't reach any world host. your network may block connections — try another network.",
           true,
         );
         throw err;
@@ -113,6 +134,19 @@ export class World {
     this.session = session;
     this._installInventory();
     hideConnecting();
+  }
+
+  /// WebRTC fallback: our direct link to the host failed (network blocks
+  /// UDP/TURN), so ask the room to serve us over the relay tier on the same
+  /// signaling socket. Resolves once we're ticking as a relay client; rejects
+  /// if no host is actually present (so the caller can re-find a world).
+  async _requestRelayFallback() {
+    // Tear down any half-built direct session first.
+    this.session?.stop();
+    this.session = null;
+    const reply = await this.signaling.request({ t: 'request-relay' }, ['joined-relay']);
+    if (!reply.host_id) throw new Error('no host to relay through');
+    await this._startRelayClient(reply.self_id);
   }
 
   /// Host runs a different build than us. Reload once to pull fresh assets
@@ -168,7 +202,15 @@ export class World {
     );
     setStatus('connecting to the world host…');
     showConnecting('connecting to the world…');
-    const slot = await session.connect(this.signaling, hostId, this.name);
+    let slot;
+    try {
+      slot = await session.connect(this.signaling, hostId, this.name);
+    } catch (err) {
+      // Close the half-open peer connection so it can't leak ICE candidates or
+      // fire a late onDisconnect that races the relay fallback.
+      session.stop();
+      throw err;
+    }
     game.set_local_slot(slot);
     session.start();
     this.session = session;
