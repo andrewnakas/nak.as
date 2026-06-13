@@ -22,6 +22,7 @@ export const game_set_input: (a: number, b: number, c: number) => void;
 export const game_set_local_slot: (a: number, b: number) => void;
 export const game_shop_json: (a: number, b: number, c: number, d: number) => void;
 export const game_snapshot_bytes: (a: number, b: number) => void;
+export const game_snapshot_bytes_for: (a: number, b: number, c: number) => void;
 export const game_state_hash: (a: number) => bigint;
 export const game_take_pending_save: (a: number, b: number) => void;
 export const game_tick: (a: number) => void;

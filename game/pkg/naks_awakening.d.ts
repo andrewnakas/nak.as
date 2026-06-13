@@ -53,9 +53,16 @@ export class Game {
      */
     shop_json(slot: number, npc: number): string;
     /**
-     * Serialized snapshot to broadcast.
+     * Serialized full snapshot (every player + active entities). For solo
+     * and small parties where broadcasting one snapshot to all is cheapest.
      */
     snapshot_bytes(): Uint8Array;
+    /**
+     * Serialized per-viewpoint snapshot (only what `slot`'s player can see).
+     * Bounds each client's bandwidth to its own screen — used for larger
+     * worlds so the host's uplink doesn't scale with total player count.
+     */
+    snapshot_bytes_for(slot: number): Uint8Array;
     state_hash(): bigint;
     /**
      * A save pushed by the host since the last call (client role).
@@ -103,6 +110,7 @@ export interface InitOutput {
     readonly game_set_local_slot: (a: number, b: number) => void;
     readonly game_shop_json: (a: number, b: number, c: number, d: number) => void;
     readonly game_snapshot_bytes: (a: number, b: number) => void;
+    readonly game_snapshot_bytes_for: (a: number, b: number, c: number) => void;
     readonly game_state_hash: (a: number) => bigint;
     readonly game_take_pending_save: (a: number, b: number) => void;
     readonly game_tick: (a: number) => void;

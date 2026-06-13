@@ -166,9 +166,17 @@ impl Game {
         self.sim.step();
     }
 
-    /// Serialized snapshot to broadcast.
+    /// Serialized full snapshot (every player + active entities). For solo
+    /// and small parties where broadcasting one snapshot to all is cheapest.
     pub fn snapshot_bytes(&self) -> Vec<u8> {
         protocol::encode(&H2C::Snapshot(self.sim.snapshot()))
+    }
+
+    /// Serialized per-viewpoint snapshot (only what `slot`'s player can see).
+    /// Bounds each client's bandwidth to its own screen — used for larger
+    /// worlds so the host's uplink doesn't scale with total player count.
+    pub fn snapshot_bytes_for(&self, slot: u8) -> Vec<u8> {
+        protocol::encode(&H2C::Snapshot(self.sim.snapshot_for(slot as usize)))
     }
 
     /// Net events since the last call, wrapped for the reliable channel.

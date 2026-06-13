@@ -10,6 +10,9 @@ const SNAPSHOT_EVERY = 3; // host ticks between snapshots (60/3 = 20 Hz)
 const INPUT_KEEPALIVE_MS = 100;
 const AUTOSAVE_TICKS = 900; // 15s
 const MAX_SLOTS = 32; // must match sim MAX_PLAYERS
+// Above this many peers, switch from one broadcast snapshot to per-client
+// filtered snapshots (more CPU per tick, far less bandwidth at scale).
+const PERCLIENT_THRESHOLD = 6;
 
 class BaseSession {
   constructor({ game, input, renderer, audio, debugEl }) {
@@ -52,8 +55,11 @@ class BaseSession {
         this.debugEl.textContent =
           `tick ${this.game.tick_count()}\n` +
           `hash ${this.game.state_hash().toString(16)}\n` +
-          `slot ${this.slot}`;
+          `slot ${this.slot}\n` +
+          (this.netInfo?.() ?? '');
       }
+      // Sample connection quality ~1/sec for the net HUD + telemetry.
+      if (this.game.tick_count() % 60 === 0) this._sampleNet?.();
       requestAnimationFrame(frame);
     };
     requestAnimationFrame(frame);
@@ -175,6 +181,19 @@ export class HostSession extends BaseSession {
     );
   }
 
+  _sampleNet() {
+    for (const peer of this.peers.values()) peer.link?.sampleStats();
+  }
+
+  netInfo() {
+    const links = [...this.peers.values()].filter((p) => p.slot >= 0);
+    if (!links.length) return `net: host, 0 peers`;
+    const rtts = links.map((p) => p.link?.stats?.rttMs).filter((r) => r != null);
+    const avg = rtts.length ? Math.round(rtts.reduce((a, b) => a + b, 0) / rtts.length) : null;
+    const worst = rtts.length ? Math.max(...rtts) : null;
+    return `net: host, ${links.length} peers · rtt ~${avg ?? '—'}ms (max ${worst ?? '—'})`;
+  }
+
   sendUiAction(json) {
     this.game.ui_action(0, json);
   }
@@ -187,9 +206,18 @@ export class HostSession extends BaseSession {
       acc -= TICK_MS;
       ticks++;
       if (this.peers.size && this.game.tick_count() % SNAPSHOT_EVERY === 0) {
-        const snap = this.game.snapshot_bytes();
-        for (const peer of this.peers.values()) {
-          if (peer.slot >= 0) peer.link.sendU(snap);
+        // Small party: one full snapshot for everyone (cheapest). Large party:
+        // per-client snapshots filtered to each client's screen, so the host's
+        // uplink scales with players-per-screen, not total players in the world.
+        if (this.peers.size <= PERCLIENT_THRESHOLD) {
+          const snap = this.game.snapshot_bytes();
+          for (const peer of this.peers.values()) {
+            if (peer.slot >= 0) peer.link.sendU(snap);
+          }
+        } else {
+          for (const peer of this.peers.values()) {
+            if (peer.slot >= 0) peer.link.sendU(this.game.snapshot_bytes_for(peer.slot));
+          }
         }
         const events = this.game.drain_events_bytes();
         if (events.length) {
@@ -277,6 +305,17 @@ export class ClientSession extends BaseSession {
       this.stop();
       this.onDisconnect?.();
     }
+  }
+
+  _sampleNet() {
+    this.link?.sampleStats();
+  }
+
+  netInfo() {
+    const s = this.link?.stats;
+    if (!s) return 'net: —';
+    const rtt = s.rttMs == null ? '—' : `${s.rttMs}ms`;
+    return `net: ${s.state} rtt ${rtt}${s.restarts ? ` (re×${s.restarts})` : ''}`;
   }
 
   sendUiAction(json) {

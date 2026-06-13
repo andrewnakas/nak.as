@@ -277,13 +277,34 @@ export class Game {
         }
     }
     /**
-     * Serialized snapshot to broadcast.
+     * Serialized full snapshot (every player + active entities). For solo
+     * and small parties where broadcasting one snapshot to all is cheapest.
      * @returns {Uint8Array}
      */
     snapshot_bytes() {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
             wasm.game_snapshot_bytes(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayU8FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export3(r0, r1 * 1, 1);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * Serialized per-viewpoint snapshot (only what `slot`'s player can see).
+     * Bounds each client's bandwidth to its own screen — used for larger
+     * worlds so the host's uplink doesn't scale with total player count.
+     * @param {number} slot
+     * @returns {Uint8Array}
+     */
+    snapshot_bytes_for(slot) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.game_snapshot_bytes_for(retptr, this.__wbg_ptr, slot);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var v1 = getArrayU8FromWasm0(r0, r1).slice();

@@ -2034,11 +2034,67 @@ impl Sim {
 
     // ---- snapshots ----
 
+    /// Full broadcast snapshot (every player + entities on any active screen).
+    /// Used for solo/small parties where one snapshot for all is cheapest.
     pub fn snapshot(&self) -> SnapshotData {
+        self.snapshot_filtered(None)
+    }
+
+    /// Per-viewpoint snapshot for scale: a client only needs full detail for
+    /// players and entities on (or scrolling into) its own screen. This bounds
+    /// each client's bandwidth to "what it can see" regardless of how many
+    /// players are elsewhere in the world. `viewpoint` is the client's slot.
+    pub fn snapshot_for(&self, viewpoint: usize) -> SnapshotData {
+        self.snapshot_filtered(Some(viewpoint))
+    }
+
+    /// The set of screens the viewpoint player can see (their screen plus the
+    /// one they're scrolling from), used as the interest region.
+    fn interest_screens(&self, viewpoint: Option<usize>) -> Vec<(i32, i32)> {
+        let mut screens: Vec<(i32, i32)> = Vec::new();
+        let consider = |p: &Player, screens: &mut Vec<(i32, i32)>| {
+            screens.push((p.sx, p.sy));
+            if let Some(tr) = p.transition {
+                let (dx, dy) = match tr.dir {
+                    0 => (0, 1),
+                    1 => (0, -1),
+                    2 => (-1, 0),
+                    _ => (1, 0),
+                };
+                screens.push((p.sx - dx, p.sy - dy));
+            }
+        };
+        match viewpoint {
+            Some(slot) => {
+                if let Some(Some(p)) = self.players.get(slot) {
+                    consider(p, &mut screens);
+                }
+            }
+            None => {
+                for p in self.players.iter().flatten() {
+                    consider(p, &mut screens);
+                }
+            }
+        }
+        screens
+    }
+
+    fn snapshot_filtered(&self, viewpoint: Option<usize>) -> SnapshotData {
+        let screens = self.interest_screens(viewpoint);
+        // A player is included if it's the viewpoint itself or shares a visible
+        // screen. (With viewpoint=None this is every player.)
+        let visible_player = |slot: usize, p: &Player| -> bool {
+            match viewpoint {
+                None => true,
+                Some(vp) => slot == vp || screens.contains(&(p.sx, p.sy)),
+            }
+        };
+
         let players: Vec<PlayerSnap> = self
             .players
             .iter()
             .enumerate()
+            .filter(|(slot, p)| p.as_ref().is_some_and(|p| visible_player(*slot, p)))
             .filter_map(|(slot, p)| {
                 p.as_ref().map(|p| PlayerSnap {
                     slot: slot as u8,
@@ -2100,21 +2156,8 @@ impl Sim {
             })
             .collect();
 
-        // Interest: entities on any screen that has (or is scrolling from) a player.
-        let mut screens: Vec<(i32, i32)> = Vec::new();
-        for p in self.players.iter().flatten() {
-            screens.push((p.sx, p.sy));
-            if let Some(tr) = p.transition {
-                let (dx, dy) = match tr.dir {
-                    0 => (0, 1),
-                    1 => (0, -1),
-                    2 => (-1, 0),
-                    _ => (1, 0),
-                };
-                screens.push((p.sx - dx, p.sy - dy));
-            }
-        }
-
+        // Interest: entities on a screen the viewpoint can see (or, for the
+        // broadcast snapshot, any screen with a player).
         let entities = self
             .entities
             .iter()
@@ -3618,6 +3661,38 @@ mod tests {
         }
         let p = sim.players[0].as_ref().unwrap();
         assert!(p.skills[defs::SKILL_HUNTING] > 0, "hunting xp awarded");
+    }
+
+    #[test]
+    fn per_viewpoint_snapshot_filters_by_screen() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 7).unwrap();
+        // Two players: slot 0 on screen (0,0), slot 1 moved to screen (1,0).
+        sim.add_player(0);
+        sim.add_player(1);
+        sim.players[1].as_mut().unwrap().sx = 1;
+
+        // Broadcast snapshot includes both players.
+        let full = sim.snapshot();
+        assert_eq!(full.players.len(), 2);
+
+        // Player 0's viewpoint: only sees itself (slot 1 is on a far screen).
+        let v0 = sim.snapshot_for(0);
+        assert_eq!(v0.players.len(), 1);
+        assert_eq!(v0.players[0].slot, 0);
+        // And only entities on screen 0 (the thornling + gel live on screen 0).
+        assert!(v0.entities.iter().all(|e| e.sx == 0));
+
+        // Player 1's viewpoint: only itself, only screen-1 entities (none here).
+        let v1 = sim.snapshot_for(1);
+        assert_eq!(v1.players.len(), 1);
+        assert_eq!(v1.players[0].slot, 1);
+        assert!(v1.entities.iter().all(|e| e.sx == 1));
+
+        // Move slot 1 back onto screen 0: now player 0 sees both.
+        sim.players[1].as_mut().unwrap().sx = 0;
+        let v0b = sim.snapshot_for(0);
+        assert_eq!(v0b.players.len(), 2);
     }
 
     #[test]
