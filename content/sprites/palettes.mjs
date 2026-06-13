@@ -1,11 +1,23 @@
 // 4-shade palettes in GBC spirit: each tile/sprite picks one ramp, index 0-3
 // maps dark -> light. '.' in sprite grids = transparent.
+//
+// Muted Game Boy Color direction: desaturated, slightly warm/dusty ramps
+// with closer mid-tones — the sophisticated look of a good GBC cart rather
+// than bright NES-ish primaries. Lower saturation, gentler value steps.
 
 export const PALETTES = {
-  grass: ['#0a1a0a', '#1f5c33', '#4eb04e', '#a8e068'],
-  water: ['#0a1a33', '#1f4c8c', '#3f8cd9', '#a8d8f0'],
-  sand: ['#3d2c12', '#8c6d33', '#d9b566', '#f0e0a8'],
-  wood: ['#2a160a', '#6d3f1f', '#b07033', '#e0b070'],
-  stone: ['#1a1a22', '#4c4c5c', '#8c8ca0', '#d0d0e0'],
-  hero: ['#101010', '#1f7a3d', '#e0a878', '#f8f0e0'],
+  // soft sage/olive greens, never neon
+  grass: ['#1c2b1e', '#3a4f37', '#6f8a5b', '#aebd8f'],
+  // dusty teal water, low chroma
+  water: ['#1b2a36', '#34566a', '#6a93a6', '#aecbd2'],
+  // pale warm sand, muted ochre
+  sand: ['#473a26', '#8a7350', '#c4ab7e', '#e7dcc0'],
+  // weathered driftwood browns
+  wood: ['#2c2018', '#5a4231', '#977049', '#c8a987'],
+  // cool slate stone, faint lavender tint
+  stone: ['#222530', '#454a5c', '#7c8295', '#bcc1cf'],
+  // the hero: charcoal outline, deep teal cloak, warm skin, bone highlight
+  hero: ['#16181d', '#2f6f6a', '#d49b74', '#efe6d2'],
+  // accent ramp for cloth/flags/banners (dusty rose)
+  cloth: ['#241820', '#5e3a44', '#9c6470', '#d3a3a8'],
 };

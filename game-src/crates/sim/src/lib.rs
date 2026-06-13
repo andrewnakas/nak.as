@@ -67,10 +67,11 @@ const ENEMY_IFRAMES: u8 = 10;
 const RESPAWN_TICKS: u32 = 120;
 const ENEMY_RESPAWN_TICKS: u32 = 1800; // screen empty 30s -> enemies return
 
-/// Sprite is 16x16; movement collides on a feet box near the bottom.
-const FEET_X0: i32 = 3;
-const FEET_X1: i32 = 12;
-const FEET_Y0: i32 = 10;
+/// Sprite is 16x16; movement collides on a small feet box near the bottom
+/// (forgiving, LA-style: you slip past corners instead of snagging).
+const FEET_X0: i32 = 5;
+const FEET_X1: i32 = 10;
+const FEET_Y0: i32 = 11;
 const FEET_Y1: i32 = 15;
 
 /// Valid sprite-position ranges in screen space (playfield is y 16..144).
@@ -920,19 +921,36 @@ impl Sim {
         }
 
         if let Some(dir) = tdir {
-            if self.world.screen_at(nsx, nsy).is_some() {
+            let dest = self.world.screen_at(nsx, nsy);
+            let (dx_, dy_) = match dir {
+                2 => (MAX_X, pl.y),
+                3 => (MIN_X, pl.y),
+                1 => (pl.x, MAX_Y),
+                _ => (pl.x, MIN_Y),
+            };
+            // Only cross if the landing spot is walkable — walking off an
+            // open edge into a rock on the neighbor screen would trap you.
+            let clear = dest.is_some_and(|s| self.feet_clear_on(s, dx_, dy_));
+            if clear {
                 pl.sx = nsx;
                 pl.sy = nsy;
-                match dir {
-                    2 => pl.x = MAX_X,
-                    3 => pl.x = MIN_X,
-                    1 => pl.y = MAX_Y,
-                    _ => pl.y = MIN_Y,
-                }
+                pl.x = dx_;
+                pl.y = dy_;
                 pl.transition = Some(Transition { dir, t: 0 });
             } else {
                 pl.x = pl.x.clamp(MIN_X, MAX_X);
                 pl.y = pl.y.clamp(MIN_Y, MAX_Y);
+            }
+        }
+
+        // Belt and braces: if anything still left us inside a wall (bad
+        // warp target, old save), slide to the nearest clear spot.
+        if let Some(screen) = self.world.screen_at(pl.sx, pl.sy) {
+            if !self.feet_clear_on(screen, pl.x, pl.y) {
+                if let Some((ux, uy)) = self.find_clear_near(screen, pl.x, pl.y) {
+                    pl.x = ux;
+                    pl.y = uy;
+                }
             }
         }
 
@@ -1578,12 +1596,34 @@ impl Sim {
     }
 
     fn feet_clear(&self, screen: &world::Screen, x: Fx, y: Fx) -> bool {
+        self.feet_clear_on(screen, x, y)
+    }
+
+    fn feet_clear_on(&self, screen: &world::Screen, x: Fx, y: Fx) -> bool {
         let px = to_px(x);
         let py = to_px(y);
         !(self.effective_solid(screen, px + FEET_X0, py + FEET_Y0)
             || self.effective_solid(screen, px + FEET_X1, py + FEET_Y0)
             || self.effective_solid(screen, px + FEET_X0, py + FEET_Y1)
             || self.effective_solid(screen, px + FEET_X1, py + FEET_Y1))
+    }
+
+    /// Nearest walkable position to (x, y), searched in growing rings.
+    fn find_clear_near(&self, screen: &world::Screen, x: Fx, y: Fx) -> Option<(Fx, Fx)> {
+        for r in 1..=10 {
+            let step = fx(4) * r;
+            for (ddx, ddy) in [
+                (0, -1), (0, 1), (-1, 0), (1, 0),
+                (-1, -1), (1, -1), (-1, 1), (1, 1),
+            ] {
+                let nx = (x + ddx * step).clamp(MIN_X, MAX_X);
+                let ny = (y + ddy * step).clamp(MIN_Y, MAX_Y);
+                if self.feet_clear_on(screen, nx, ny) {
+                    return Some((nx, ny));
+                }
+            }
+        }
+        None
     }
 
     // ---- ui actions (host applies; clients send C2H::UiAction) ----

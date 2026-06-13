@@ -13,9 +13,9 @@ const KIND_GLYPH = 4;
 const FLAG_FLIP_X = 1;
 const FLAG_FLIP_Y = 2;
 
-// Default GBC-style 4-shade ramp; real per-layer palettes arrive with the
-// sprite pipeline in Phase 1.
-const SHADES = ['#0f380f', '#306230', '#8bac0f', '#9bbc0e'];
+// HUD/transition rects use this muted ramp (matches palettes.mjs direction):
+// dark slate -> deep teal -> sage -> bone. Index 0 is the HUD bar & letterbox.
+const SHADES = ['#16181d', '#2f5b4a', '#6f8a5b', '#efe6d2'];
 
 export class Renderer {
   constructor(canvas) {
