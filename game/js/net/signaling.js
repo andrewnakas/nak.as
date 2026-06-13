@@ -32,14 +32,20 @@ export class Signaling {
     });
   }
 
-  /// One request/response over the socket: send, await a response type.
-  request(msg, okType, timeoutMs = 8000) {
+  /// Send a message and await any of `okTypes`; rejects on 'error'.
+  /// The matched handler is left in place only briefly — callers that need
+  /// ongoing events should register them via on() before/after.
+  request(msg, okTypes, timeoutMs = 12000) {
+    const types = Array.isArray(okTypes) ? okTypes : [okTypes];
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('signaling timeout')), timeoutMs);
-      this.on(okType, (m) => {
+      const done = (m) => {
         clearTimeout(timer);
+        for (const t of types) this.handlers.delete(t);
+        this.handlers.delete('error');
         resolve(m);
-      });
+      };
+      for (const t of types) this.on(t, done);
       this.on('error', (m) => {
         clearTimeout(timer);
         reject(new Error(m.msg ?? m.code));

@@ -540,7 +540,8 @@ async function respondRequest(db, accountId, username, accept) {
 __name(respondRequest, "respondRequest");
 
 // src/room.js
-var MAX_MEMBERS = 4;
+var CONNECT_CAP = 24;
+var WORLD_CAP = 150;
 var RoomDO = class {
   static {
     __name(this, "RoomDO");
@@ -550,6 +551,9 @@ var RoomDO = class {
   }
   async fetch(request) {
     if (request.headers.get("Upgrade") !== "websocket") {
+      if (new URL(request.url).pathname.endsWith("/count")) {
+        return Response.json({ count: this.joinedCount(), cap: CONNECT_CAP });
+      }
       return new Response("expected websocket", { status: 426 });
     }
     const pair = new WebSocketPair();
@@ -558,12 +562,22 @@ var RoomDO = class {
       id: crypto.randomUUID().slice(0, 8),
       name: null,
       host: false,
-      joined: false
+      joined: false,
+      joinedAt: 0
     });
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
   members() {
     return this.state.getWebSockets().map((ws) => ({ ws, meta: ws.deserializeAttachment() }));
+  }
+  joined() {
+    return this.members().filter((m) => m.meta.joined);
+  }
+  joinedCount() {
+    return this.joined().length;
+  }
+  host() {
+    return this.joined().find((m) => m.meta.host);
   }
   send(ws, msg) {
     try {
@@ -572,8 +586,8 @@ var RoomDO = class {
     }
   }
   broadcast(msg, exceptId) {
-    for (const { ws, meta } of this.members()) {
-      if (meta.joined && meta.id !== exceptId) this.send(ws, msg);
+    for (const { ws, meta } of this.joined()) {
+      if (meta.id !== exceptId) this.send(ws, msg);
     }
   }
   webSocketMessage(ws, raw) {
@@ -584,41 +598,43 @@ var RoomDO = class {
       return this.send(ws, { t: "error", code: "bad-json" });
     }
     const meta = ws.deserializeAttachment();
-    const all = this.members();
-    const joined = all.filter((m) => m.meta.joined);
     switch (msg.t) {
-      case "create": {
-        if (joined.some((m) => m.meta.host)) {
-          return this.send(ws, { t: "error", code: "exists", msg: "party already exists" });
-        }
-        Object.assign(meta, { host: true, joined: true, name: String(msg.name ?? "host").slice(0, 16) });
-        ws.serializeAttachment(meta);
-        return this.send(ws, { t: "created", self_id: meta.id });
-      }
+      // Join the world. The first member becomes host; everyone else
+      // connects to the current host. Full worlds reject (lobby retries next).
       case "join": {
-        const host = joined.find((m) => m.meta.host);
-        if (!host) {
-          return this.send(ws, { t: "error", code: "no-party", msg: "no such party" });
+        const joined = this.joined();
+        if (joined.length >= WORLD_CAP) {
+          return this.send(ws, { t: "error", code: "full", msg: "world is full" });
         }
-        if (joined.length >= MAX_MEMBERS) {
-          return this.send(ws, { t: "error", code: "full", msg: "party is full" });
+        const host = this.host();
+        const becomeHost = !host;
+        if (host && joined.length >= CONNECT_CAP) {
+          return this.send(ws, { t: "error", code: "host-full", msg: "host saturated" });
         }
-        Object.assign(meta, { joined: true, name: String(msg.name ?? "player").slice(0, 16) });
-        ws.serializeAttachment(meta);
-        this.broadcast({ t: "peer-joined", id: meta.id, name: meta.name }, meta.id);
-        return this.send(ws, {
-          t: "joined",
-          self_id: meta.id,
-          host_id: host.meta.id,
-          peers: joined.map((m) => ({ id: m.meta.id, name: m.meta.name }))
+        Object.assign(meta, {
+          joined: true,
+          host: becomeHost,
+          name: String(msg.name ?? "player").slice(0, 16),
+          joinedAt: this.nextSeq()
         });
+        ws.serializeAttachment(meta);
+        if (becomeHost) {
+          this.send(ws, { t: "host", self_id: meta.id });
+        } else {
+          this.broadcast({ t: "peer-joined", id: meta.id, name: meta.name }, meta.id);
+          this.send(ws, {
+            t: "joined",
+            self_id: meta.id,
+            host_id: host.meta.id,
+            peers: this.joined().map((m) => ({ id: m.meta.id, name: m.meta.name, host: m.meta.host }))
+          });
+        }
+        return;
       }
       case "signal": {
         if (!meta.joined) return;
-        const target = all.find((m) => m.meta.id === msg.to && m.meta.joined);
-        if (target) {
-          this.send(target.ws, { t: "signal", from: meta.id, payload: msg.payload });
-        }
+        const target = this.joined().find((m) => m.meta.id === msg.to);
+        if (target) this.send(target.ws, { t: "signal", from: meta.id, payload: msg.payload });
         return;
       }
       case "leave":
@@ -629,12 +645,93 @@ var RoomDO = class {
   }
   webSocketClose(ws) {
     const meta = ws.deserializeAttachment();
-    if (meta.joined) {
-      this.broadcast(meta.host ? { t: "host-left" } : { t: "peer-left", id: meta.id }, meta.id);
+    if (!meta.joined) return;
+    if (meta.host) {
+      const survivors = this.joined().filter((m) => m.meta.id !== meta.id);
+      survivors.sort((a, b) => a.meta.joinedAt - b.meta.joinedAt);
+      const next = survivors[0];
+      if (next) {
+        next.meta.host = true;
+        next.ws.serializeAttachment(next.meta);
+        this.send(next.ws, { t: "you-are-host", peers: survivors.map((m) => ({ id: m.meta.id, name: m.meta.name })) });
+        this.broadcast({ t: "host-migrated", host_id: next.meta.id }, next.meta.id);
+      }
+    } else {
+      this.broadcast({ t: "peer-left", id: meta.id }, meta.id);
     }
   }
   webSocketError(ws) {
     this.webSocketClose(ws);
+  }
+  // Monotonic join sequence (stored on the DO via storage-free counter on
+  // the latest joinedAt; good enough for ordering migrations).
+  nextSeq() {
+    const max = Math.max(0, ...this.members().map((m) => m.meta.joinedAt || 0));
+    return max + 1;
+  }
+};
+
+// src/lobby.js
+var SOFT_CAP = 24;
+var MAX_WORLDS = 64;
+var LobbyDO = class {
+  static {
+    __name(this, "LobbyDO");
+  }
+  constructor(state, env) {
+    this.state = state;
+    this.env = env;
+  }
+  async fetch(request) {
+    const url = new URL(request.url);
+    if (url.pathname.endsWith("/find")) {
+      const world = await this.findWorld();
+      return Response.json(world);
+    }
+    if (url.pathname.endsWith("/worlds")) {
+      const worlds = await this.state.storage.get("worlds") ?? [];
+      const live = await Promise.all(worlds.map((id) => this.count(id).then((c) => ({ id, count: c }))));
+      return Response.json({ worlds: live.filter((w) => w.count > 0) });
+    }
+    return new Response("not found", { status: 404 });
+  }
+  /// Ask a RoomDO for its current occupancy (0 if unreachable).
+  async count(id) {
+    try {
+      const room = this.env.ROOMS.get(this.env.ROOMS.idFromName(id));
+      const r = await room.fetch("https://room/count");
+      const { count } = await r.json();
+      return count;
+    } catch {
+      return 0;
+    }
+  }
+  /// Return { code } of a world with room, creating a new one if needed.
+  async findWorld() {
+    let worlds = await this.state.storage.get("worlds") ?? [];
+    for (const id of worlds) {
+      const c = await this.count(id);
+      if (c < SOFT_CAP) return { code: id };
+    }
+    if (worlds.length >= MAX_WORLDS) {
+      let best = worlds[0];
+      let bestCount = Infinity;
+      for (const id of worlds) {
+        const c = await this.count(id);
+        if (c < bestCount) {
+          best = id;
+          bestCount = c;
+        }
+      }
+      return { code: best };
+    }
+    const code = this.newWorldId(worlds.length + 1);
+    worlds = [...worlds, code];
+    await this.state.storage.put("worlds", worlds);
+    return { code };
+  }
+  newWorldId(n) {
+    return `BRACK${String(n).padStart(3, "0")}`;
   }
 };
 
@@ -711,13 +808,23 @@ var src_default = {
       await deleteSession(db, request);
       return json(request, 200, { ok: true });
     }
+    const lobby = /* @__PURE__ */ __name(() => env.LOBBY.get(env.LOBBY.idFromName("global")), "lobby");
+    if (method === "POST" && url.pathname === "/find-world") {
+      const r = await lobby().fetch("https://lobby/find");
+      const world = await r.json();
+      return json(request, 200, world);
+    }
+    if (method === "GET" && url.pathname === "/worlds") {
+      const r = await lobby().fetch("https://lobby/worlds");
+      return json(request, 200, await r.json());
+    }
     if (method === "POST" && url.pathname === "/party") {
       let code = "";
       const bytes = crypto.getRandomValues(new Uint8Array(5));
       for (const b of bytes) code += PARTY_ALPHABET[b % PARTY_ALPHABET.length];
       return json(request, 200, { code });
     }
-    const room = url.pathname.match(/^\/ws\/room\/([A-Z2-9]{5})$/);
+    const room = url.pathname.match(/^\/ws\/room\/([A-Z0-9]{5,9})$/);
     if (room) {
       if (request.headers.get("Upgrade") !== "websocket") {
         return json(request, 426, { error: "expected websocket" });
@@ -816,7 +923,7 @@ var jsonError = /* @__PURE__ */ __name(async (request, env, _ctx, middlewareCtx)
 }, "jsonError");
 var middleware_miniflare3_json_error_default = jsonError;
 
-// .wrangler/tmp/bundle-HcGfIf/middleware-insertion-facade.js
+// .wrangler/tmp/bundle-5r3svB/middleware-insertion-facade.js
 var __INTERNAL_WRANGLER_MIDDLEWARE__ = [
   middleware_ensure_req_body_drained_default,
   middleware_miniflare3_json_error_default
@@ -848,7 +955,7 @@ function __facade_invoke__(request, env, ctx, dispatch, finalMiddleware) {
 }
 __name(__facade_invoke__, "__facade_invoke__");
 
-// .wrangler/tmp/bundle-HcGfIf/middleware-loader.entry.ts
+// .wrangler/tmp/bundle-5r3svB/middleware-loader.entry.ts
 var __Facade_ScheduledController__ = class ___Facade_ScheduledController__ {
   constructor(scheduledTime, cron, noRetry) {
     this.scheduledTime = scheduledTime;
@@ -945,6 +1052,7 @@ if (typeof middleware_insertion_facade_default === "object") {
 }
 var middleware_loader_entry_default = WRAPPED_ENTRY;
 export {
+  LobbyDO,
   RoomDO,
   __INTERNAL_WRANGLER_MIDDLEWARE__,
   middleware_loader_entry_default as default

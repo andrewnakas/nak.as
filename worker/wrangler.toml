@@ -12,6 +12,10 @@ routes = [
 name = "ROOMS"
 class_name = "RoomDO"
 
+[[durable_objects.bindings]]
+name = "LOBBY"
+class_name = "LobbyDO"
+
 # `wrangler dev` runs a local sqlite copy regardless of the id.
 [[d1_databases]]
 binding = "DB"
@@ -22,3 +26,7 @@ migrations_dir = "migrations"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["RoomDO"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["LobbyDO"]

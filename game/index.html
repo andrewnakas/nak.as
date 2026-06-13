@@ -94,6 +94,8 @@
     text-align: center;
   }
   #menu input::placeholder { color: #4c5c4c; }
+  .tagline { font-size: 11px; color: var(--gb-light); opacity: 0.8; margin-top: -6px; margin-bottom: 4px; }
+  #menu-enter { font-size: 15px !important; }
   .join-row { display: flex; gap: 6px; }
   .join-row input { width: 110px; text-transform: uppercase; }
   .join-row button { min-width: 96px; }
@@ -228,13 +230,9 @@
   </div>
   <div id="menu">
     <h1>NAK'S AWAKENING</h1>
+    <div class="tagline">a tiny co-op world you wander into</div>
     <input id="menu-name" maxlength="16" placeholder="your name">
-    <button id="menu-solo">PLAY SOLO</button>
-    <button id="menu-host">HOST A PARTY</button>
-    <div class="join-row">
-      <input id="menu-code" maxlength="5" placeholder="CODE">
-      <button id="menu-join">JOIN</button>
-    </div>
+    <button id="menu-enter">ENTER THE WORLD</button>
     <div id="auth-box">
       <div id="auth-form">
         <input id="auth-user" maxlength="16" placeholder="username" autocomplete="username">

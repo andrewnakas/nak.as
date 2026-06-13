@@ -60,6 +60,13 @@ export async function createParty() {
   return (await r.json()).code;
 }
 
+/// Ask the lobby for a world to auto-join. Returns its code.
+export async function findWorld() {
+  const r = await fetch(`${CONFIG.apiBase}/find-world`, { method: 'POST' });
+  if (!r.ok) throw new Error(`couldn't reach the world server (HTTP ${r.status})`);
+  return (await r.json()).code;
+}
+
 export const characters = {
   list: () => call('GET', '/characters').then((d) => d.characters),
   get: (id) => call('GET', `/characters/${id}`),

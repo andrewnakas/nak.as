@@ -14,6 +14,7 @@ import { createCharacter, getCharacter, listCharacters, updateCharacter } from '
 import { listFriends, respondRequest, sendRequest } from './friends.js';
 
 export { RoomDO } from './room.js';
+export { LobbyDO } from './lobby.js';
 
 const PARTY_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no 0/O/1/I/L
 
@@ -105,8 +106,22 @@ export default {
       return json(request, 200, { ok: true });
     }
 
-    // ---- party (no auth required; guests can play together) ----
+    // ---- worlds / signaling (no auth required; guests play too) ----
 
+    const lobby = () => env.LOBBY.get(env.LOBBY.idFromName('global'));
+
+    // Matchmaking: hand back a world to auto-join.
+    if (method === 'POST' && url.pathname === '/find-world') {
+      const r = await lobby().fetch('https://lobby/find');
+      const world = await r.json();
+      return json(request, 200, world);
+    }
+    if (method === 'GET' && url.pathname === '/worlds') {
+      const r = await lobby().fetch('https://lobby/worlds');
+      return json(request, 200, await r.json());
+    }
+
+    // Legacy party code (still usable for private parties).
     if (method === 'POST' && url.pathname === '/party') {
       let code = '';
       const bytes = crypto.getRandomValues(new Uint8Array(5));
@@ -114,7 +129,9 @@ export default {
       return json(request, 200, { code });
     }
 
-    const room = url.pathname.match(/^\/ws\/room\/([A-Z2-9]{5})$/);
+    // World/room signaling socket. Accepts world ids (BRACK###) and legacy
+    // 5-char party codes.
+    const room = url.pathname.match(/^\/ws\/room\/([A-Z0-9]{5,9})$/);
     if (room) {
       if (request.headers.get('Upgrade') !== 'websocket') {
         return json(request, 426, { error: 'expected websocket' });
