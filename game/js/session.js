@@ -212,16 +212,19 @@ export class HostSession extends BaseSession {
   /// itself (slot 0) and its own id so clients can voice-chat the host too.
   /// Relay clients are excluded — they have no WebRTC and can't join the mesh.
   _broadcastVoiceRoster() {
-    const entries = [{ slot: 0, id: this.selfId }];
+    const entries = [{ slot: 0, id: this.selfId, name: this.selfName ?? 'host' }];
     for (const peer of this.peers.values()) {
       if (peer.slot >= 0 && !peer.relay && peer.id) {
-        entries.push({ slot: peer.slot, id: peer.id });
+        entries.push({ slot: peer.slot, id: peer.id, name: peer.name ?? 'player' });
       }
     }
     const msg = { t: 'voice-roster', entries };
     for (const peer of this.peers.values()) {
       if (peer.slot >= 0 && !peer.relay) peer.link?.sendR(msg);
     }
+    // The host also consumes the roster locally (for its own party UI), the
+    // same path clients take via onVoiceRoster.
+    this.onVoiceRoster?.(entries);
   }
 
   _handleReliable(peer, text) {

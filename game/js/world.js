@@ -193,6 +193,8 @@ export class World {
         if (slot === localSlot) self = { sx, sy };
         else others.push({ sx, sy, party: this._party?.has(slot) ?? false });
       }
+      // Auto-follow a party member across screen changes.
+      this._followTick(v, localSlot);
       if (self) this._map.visit(self.sx, self.sy);
       // Throttle the actual draw to ~6/s; visit() already redraws on discovery.
       const now = performance.now();
@@ -221,10 +223,14 @@ export class World {
   _startVoice(localSlot) {
     if (this._voice || !navigator.mediaDevices?.getUserMedia) return;
     // slot -> signaling id, kept current from the host roster (client) or our
-    // own peer map (host).
+    // own peer map (host). `_rosterEntries` keeps the full {slot,id,name} list
+    // for the party UI; `_slotToId` is the id lookup the voice mesh needs.
     this._slotToId = new Map();
+    this._rosterEntries = [];
     this._voiceRoster = (entries) => {
       this._slotToId = new Map(entries.map((e) => [e.slot, e.id]));
+      this._rosterEntries = entries;
+      this._onRosterUpdate?.();
     };
 
     const localPos = () => {
@@ -275,16 +281,120 @@ export class World {
     });
   }
 
+  /// Stand up the party system: a clickable world roster (invite players),
+  /// invite/accept prompts over signaling, and the derived party set that
+  /// drives always-on voice, minimap coloring, and warp/follow.
+  _startParty(localSlot) {
+    this._localSlot = localSlot;
+    const idToSlot = (id) => this._rosterEntries.find((e) => e.id === id)?.slot;
+    const nameOf = (id) => this._rosterEntries.find((e) => e.id === id)?.name ?? 'player';
+
+    this._party = new Set(); // member SLOTS (consumed by minimap + voice)
+    import('./net/party.js').then(({ Party }) => {
+      this._partyMgr = new Party({
+        signaling: this.signaling,
+        selfId: this.selfId,
+        nameOf,
+        onChange: () => {
+          // Re-derive the slot set from member ids, then push to voice/minimap.
+          const slots = new Set();
+          for (const id of this._partyMgr.members) {
+            const s = idToSlot(id);
+            if (s != null) slots.add(s);
+          }
+          this._party = slots;
+          this._voice?.setAlwaysHear?.([...slots]);
+          this._renderRoster?.();
+        },
+        onInvite: ({ id, name }) => {
+          import('./ui.js').then(({ confirmToast }) =>
+            confirmToast(`${name} invites you to a party`, 'JOIN', 'NO', (ok) =>
+              ok ? this._partyMgr.accept(id) : this._partyMgr.decline(id),
+            ),
+          );
+        },
+      });
+      // When the roster changes (someone joins/leaves), re-resolve party slots
+      // and redraw the clickable list.
+      this._onRosterUpdate = () => {
+        this._partyMgr.onChange();
+        this._renderRoster?.();
+      };
+      this._installRosterUI();
+    });
+  }
+
+  /// Build the clickable world-roster panel: every other player is a row with
+  /// an INVITE button (or a party badge), plus WARP/FOLLOW for party members.
+  _installRosterUI() {
+    import('./ui.js').then(({ installPartyRoster }) => {
+      this._renderRoster = installPartyRoster({
+        roster: () => this._rosterEntries,
+        localSlot: () => this._localSlot,
+        party: () => this._party,
+        slotToId: (slot) => this._slotToId.get(slot),
+        invite: (id) => this._partyMgr?.invite(id),
+        leave: () => this._partyMgr?.leave(),
+        warpTo: (slot) => this._warpToMember(slot),
+        follow: (slot) => this._toggleFollow(slot),
+        following: () => this._followSlot,
+      });
+      this._renderRoster();
+    });
+  }
+
+  /// Teleport our local player to a party member (sim 'warp' ui_action; the
+  /// host resolves the target's live position authoritatively).
+  _warpToMember(slot) {
+    this.session?.sendUiAction(JSON.stringify({ action: 'warp', a: slot }));
+  }
+
+  /// Toggle auto-follow of a party member. While following, we warp to them
+  /// whenever they cross into a screen different from ours (see _followTick).
+  _toggleFollow(slot) {
+    this._followSlot = this._followSlot === slot ? null : slot;
+    this._followLastScreen = null;
+  }
+
+  /// Called from the minimap frame loop. If following a member, warp when they
+  /// change screens (and aren't already with us). Throttled to avoid spamming.
+  _followTick(visible, localSlot) {
+    if (this._followSlot == null) return;
+    let me = null;
+    let them = null;
+    for (let i = 0; i + 5 <= visible.length; i += 5) {
+      if (visible[i] === localSlot) me = { sx: visible[i + 1], sy: visible[i + 2] };
+      else if (visible[i] === this._followSlot) them = { sx: visible[i + 1], sy: visible[i + 2] };
+    }
+    // Stop following if they've left the world (no longer in the roster).
+    if (!this._party?.has(this._followSlot)) {
+      this._followSlot = null;
+      return;
+    }
+    if (!them || !me) return;
+    const theirScreen = `${them.sx},${them.sy}`;
+    const sameScreen = me.sx === them.sx && me.sy === them.sy;
+    const now = performance.now();
+    if (!sameScreen && theirScreen !== this._followLastScreen && now - (this._followAt || 0) > 1500) {
+      this._followLastScreen = theirScreen;
+      this._followAt = now;
+      this._warpToMember(this._followSlot);
+    }
+  }
+
   async _startHost() {
     const save = await this._save();
     const game = new Game(this.deps.worldJson, ROLE_HOST, randomSeed());
     const session = new HostSession({ ...this.deps, game }, { save });
     session.selfId = this.selfId;
+    session.selfName = this.name;
     session.attachSignaling(this.signaling);
     session.start();
     this.session = session;
     this._installInventory();
     this._startVoice(0);
+    session.onVoiceRoster = (entries) => this._voiceRoster?.(entries);
+    this._startParty(0);
     this._startMinimap(0);
   }
 
@@ -324,6 +434,7 @@ export class World {
     // channel; feed it to the mesh so we can build voice links to nearby peers.
     session.onVoiceRoster = (entries) => this._voiceRoster?.(entries);
     this._startVoice(slot);
+    this._startParty(slot);
     this._startMinimap(slot);
     // Connected cleanly — clear the one-shot reload guard so a future deploy
     // can trigger a refresh again.

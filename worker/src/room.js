@@ -141,6 +141,23 @@ export class RoomDO {
         if (target) this.send(target.ws, { t: 'voice-signal', from: meta.id, payload: msg.payload });
         return;
       }
+      // Party invites/accepts/leaves: a small control message relayed between
+      // two joined members (pure passthrough, like 'signal'). `kind` is the
+      // party verb (invite/accept/decline/leave); `name` rides along for the UI.
+      case 'party': {
+        if (!meta.joined) return;
+        const target = this.joined().find((m) => m.meta.id === msg.to);
+        if (target) {
+          this.send(target.ws, {
+            t: 'party',
+            from: meta.id,
+            name: meta.name,
+            kind: msg.kind,
+            members: msg.members,
+          });
+        }
+        return;
+      }
       // A direct (WebRTC) client whose peer connection never came up — almost
       // always a network that blocks UDP/TURN but passes this WebSocket — asks
       // to be served over the relay tier instead. We flip it to relayed and tell

@@ -249,6 +249,117 @@ export function toast(msg) {
   setTimeout(() => el.remove(), 2700);
 }
 
+/// A toast with two buttons (e.g. a party invite). `cb(true)` on the yes
+/// button, `cb(false)` on no or timeout. Auto-dismisses after ~15s (declines).
+export function confirmToast(msg, yesLabel, noLabel, cb) {
+  const el = document.createElement('div');
+  el.className = 'toast confirm';
+  const span = document.createElement('span');
+  span.textContent = msg;
+  el.appendChild(span);
+  let done = false;
+  const finish = (ok) => {
+    if (done) return;
+    done = true;
+    clearTimeout(timer);
+    el.remove();
+    cb(ok);
+  };
+  for (const [label, ok] of [[yesLabel, true], [noLabel, false]]) {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.onclick = () => finish(ok);
+    el.appendChild(b);
+  }
+  const timer = setTimeout(() => finish(false), 15000);
+  $('#toasts').appendChild(el);
+}
+
+/// Party roster panel: a 👥 toggle that opens a clickable list of everyone in
+/// the world. Each non-self row offers INVITE (or shows a party badge with
+/// WARP/FOLLOW for members) plus a LEAVE PARTY button when you're in one.
+/// `cfg` provides accessors/actions from World. Returns a render() to call when
+/// the roster or party set changes.
+export function installPartyRoster(cfg) {
+  const btn = $('#party-toggle');
+  const panel = $('#party-panel');
+  if (!btn || !panel) return () => {};
+  const wrap = $('#av-controls');
+  if (wrap) wrap.hidden = false;
+
+  let open = false;
+  if (!btn._wired) {
+    btn._wired = true;
+    btn.addEventListener('click', () => {
+      open = !open;
+      btn.classList.toggle('on', open);
+      panel.hidden = !open;
+      if (open) render();
+    });
+  }
+
+  const render = () => {
+    const inParty = cfg.party().size > 0;
+    btn.textContent = inParty ? `👥 party · ${cfg.party().size + 1}` : '👥 party';
+    if (!open) return;
+    panel.textContent = '';
+    const entries = cfg.roster();
+    const others = entries.filter((e) => e.slot !== cfg.localSlot());
+    if (!others.length) {
+      const hint = document.createElement('div');
+      hint.className = 'phint';
+      hint.textContent = 'no one else here yet.';
+      panel.appendChild(hint);
+    }
+    for (const e of others) {
+      const member = cfg.party().has(e.slot);
+      const row = document.createElement('div');
+      row.className = 'prow';
+      const name = document.createElement('span');
+      name.className = member ? 'pname member' : 'pname';
+      name.textContent = (member ? '★ ' : '') + e.name;
+      row.appendChild(name);
+      if (member) {
+        const warp = document.createElement('button');
+        warp.textContent = 'WARP';
+        warp.onclick = () => cfg.warpTo(e.slot);
+        row.appendChild(warp);
+        const follow = document.createElement('button');
+        const following = cfg.following() === e.slot;
+        follow.textContent = 'FOLLOW';
+        follow.classList.toggle('on', following);
+        follow.onclick = () => {
+          cfg.follow(e.slot);
+          render();
+        };
+        row.appendChild(follow);
+      } else {
+        const id = cfg.slotToId(e.slot);
+        const inv = document.createElement('button');
+        inv.textContent = 'INVITE';
+        inv.disabled = !id;
+        inv.onclick = () => {
+          if (!id) return;
+          cfg.invite(id);
+          toast(`invited ${e.name}`);
+        };
+        row.appendChild(inv);
+      }
+      panel.appendChild(row);
+    }
+    if (inParty) {
+      const leave = document.createElement('button');
+      leave.textContent = 'LEAVE PARTY';
+      leave.onclick = () => {
+        cfg.leave();
+        render();
+      };
+      panel.appendChild(leave);
+    }
+  };
+  return render;
+}
+
 /// The currently-active inventory overlay (last one constructed). The mobile
 /// ☰ button toggles whichever this is, so it survives host migration.
 let activeInventory = null;

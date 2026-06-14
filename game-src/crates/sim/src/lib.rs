@@ -2205,6 +2205,41 @@ impl Sim {
                     self.emit_toast(slot, "PACK IS FULL");
                 }
             }
+            // Warp to a party member: a = target slot. Copies the target's live
+            // position (only to a living, non-transitioning player). The JS party
+            // layer gates this to actual party members; the sim just teleports.
+            "warp" => {
+                let target = act.a as usize;
+                if target == slot || target >= MAX_PLAYERS {
+                    return;
+                }
+                let dest = self.players.get(target).and_then(|t| t.as_ref()).and_then(|t| {
+                    (t.dead_t == 0 && t.transition.is_none()).then_some((t.sx, t.sy, t.x, t.y))
+                });
+                let Some((tsx, tsy, tx, ty)) = dest else {
+                    self.emit_toast(slot, "CANNOT REACH THEM");
+                    self.players[slot] = Some(p);
+                    return;
+                };
+                p.sx = tsx;
+                p.sy = tsy;
+                p.x = tx.clamp(MIN_X, MAX_X);
+                p.y = ty.clamp(MIN_Y, MAX_Y);
+                p.transition = None;
+                p.fishing = None;
+                p.iframes = p.iframes.max(30);
+                // Nudge off a wall/water if we landed somewhere we can't stand.
+                let board = has_surfboard(&self.defs, &p);
+                if let Some(screen) = self.world.screen_at(p.sx, p.sy) {
+                    if !self.feet_clear_on(screen, p.x, p.y, board) {
+                        if let Some((ux, uy)) = self.find_clear_near(screen, p.x, p.y, board) {
+                            p.x = ux;
+                            p.y = uy;
+                        }
+                    }
+                }
+                self.emit_cue(p.sx, p.sy, cues::ITEM);
+            }
             _ => {}
         }
         self.players[slot] = Some(p);
@@ -3782,6 +3817,37 @@ mod tests {
             sim.players[0].as_ref().unwrap().wave_boost > 0,
             "overlapping a wave while surfing grants a speed boost"
         );
+    }
+
+    #[test]
+    fn warp_teleports_to_a_party_member() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 3).unwrap();
+        sim.add_player(0);
+        sim.add_player(1);
+        // Move player 1 to a distinct, walkable spot on screen (1,0).
+        {
+            let p1 = sim.players[1].as_mut().unwrap();
+            p1.sx = 1;
+            p1.sy = 0;
+            p1.x = fx(48);
+            p1.y = fx(64);
+        }
+        // Player 0 warps to player 1.
+        sim.ui_action(0, r#"{"action":"warp","a":1}"#);
+        let p0 = sim.players[0].as_ref().unwrap();
+        assert_eq!((p0.sx, p0.sy), (1, 0), "warped to the target's screen");
+        assert!(to_px(p0.x) < 90 && to_px(p0.y) < 90, "landed near the target");
+
+        // Warping to a dead target is refused (position unchanged).
+        let before = {
+            let p = sim.players[0].as_ref().unwrap();
+            (p.sx, p.sy)
+        };
+        sim.players[1].as_mut().unwrap().dead_t = 60;
+        sim.ui_action(0, r#"{"action":"warp","a":1}"#);
+        let p0 = sim.players[0].as_ref().unwrap();
+        assert_eq!((p0.sx, p0.sy), before, "no warp to a dead member");
     }
 
     #[test]

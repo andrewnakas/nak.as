@@ -397,7 +397,7 @@
     gap: 4px;
     pointer-events: auto;
   }
-  #voice-toggle, #music-toggle {
+  #voice-toggle, #music-toggle, #party-toggle {
     font-family: inherit;
     font-size: 10px;
     letter-spacing: 0.5px;
@@ -407,6 +407,49 @@
     border: 1px solid var(--gb-light);
     border-radius: 4px;
     cursor: pointer;
+  }
+  #party-toggle.on { color: #16181d; background: #c99a46; border-color: #efe6d2; }
+  #party-panel {
+    position: absolute;
+    top: 34px;
+    right: 6px;
+    z-index: 6;
+    width: 168px;
+    max-height: 50%;
+    overflow-y: auto;
+    padding: 6px;
+    font-size: 10px;
+    color: var(--gb-lightest);
+    background: rgba(22, 24, 29, 0.92);
+    border: 1px solid var(--gb-light);
+    border-radius: 4px;
+    pointer-events: auto;
+  }
+  #party-panel .prow {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 0;
+  }
+  #party-panel .prow .pname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #party-panel .prow .pname.member { color: #e0c071; }
+  #party-panel button {
+    font-family: inherit;
+    font-size: 9px;
+    padding: 2px 5px;
+    color: var(--gb-lightest);
+    background: rgba(40, 44, 52, 0.9);
+    border: 1px solid var(--gb-light);
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  #party-panel button.on { color: #16181d; background: #c99a46; }
+  #party-panel .phint { color: #8c9c84; padding: 2px 0; }
+  .toast.confirm { display: flex; gap: 6px; align-items: center; }
+  .toast.confirm button {
+    font-family: inherit; font-size: 10px; padding: 2px 7px; cursor: pointer;
+    color: var(--gb-lightest); background: rgba(40,44,52,0.9);
+    border: 1px solid var(--gb-light); border-radius: 3px;
   }
   #music-toggle.off { opacity: 0.5; text-decoration: line-through; }
   #music-vol {
@@ -446,9 +489,11 @@
       <div id="connecting">connecting to the world…</div>
       <div id="av-controls" hidden>
         <button id="voice-toggle" title="Proximity voice chat">🎙 voice off</button>
+        <button id="party-toggle" title="Party: invite players, warp & follow">👥 party</button>
         <button id="music-toggle" title="Music on/off">🎵</button>
         <input id="music-vol" type="range" min="0" max="100" value="100" title="Music volume">
       </div>
+      <div id="party-panel" hidden></div>
       <canvas id="minimap" title="Map (click to expand)" hidden></canvas>
     </div>
     <div id="hud-text">
