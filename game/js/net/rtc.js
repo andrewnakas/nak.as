@@ -14,6 +14,10 @@
 // cross-NAT pairs (phone on cellular ↔ home computer) still connect. TURN is
 // the fallback the browser uses only when STUN fails. TCP/443 TURN punches
 // through restrictive corporate firewalls that block UDP entirely.
+//
+// This is the SYNCHRONOUS FALLBACK. The live config is fetched from the worker
+// `/ice` endpoint (getIceConfig), which mints managed Cloudflare TURN
+// credentials when configured — far more reliable than the free relay below.
 export const ICE_CONFIG = {
   iceServers: [
     {
@@ -39,6 +43,53 @@ export const ICE_CONFIG = {
   iceCandidatePoolSize: 2,
 };
 
+// `?relay` forces every connection through TURN (iceTransportPolicy:'relay').
+// A debugging aid: if voice/game works with ?relay but not without, the direct
+// path is being blocked (broken hairpin on a shared router, mDNS host-candidate
+// failure, or a NAT that won't hole-punch) — i.e. TURN is doing its job and the
+// issue is the LAN path, not the relay.
+const FORCE_RELAY = (() => {
+  try {
+    return new URLSearchParams(location.search).has('relay');
+  } catch {
+    return false;
+  }
+})();
+
+let _iceConfigPromise = null;
+
+// Fetch the live ICE config from the worker once, cache it, and fall back to
+// the static config if the fetch fails. Both the game link and voice mesh call
+// this so they share the same (managed-TURN) servers.
+export async function getIceConfig() {
+  if (!_iceConfigPromise) {
+    _iceConfigPromise = (async () => {
+      let cfg = ICE_CONFIG;
+      try {
+        const { CONFIG } = await import('../config.js');
+        const r = await fetch(`${CONFIG.apiBase}/ice`, { method: 'GET' });
+        if (r.ok) {
+          const data = await r.json();
+          if (Array.isArray(data.iceServers) && data.iceServers.length) {
+            cfg = { iceServers: data.iceServers, iceCandidatePoolSize: 2 };
+          }
+        }
+      } catch {
+        // offline / endpoint down — static fallback already in `cfg`.
+      }
+      if (FORCE_RELAY) cfg = { ...cfg, iceTransportPolicy: 'relay' };
+      return cfg;
+    })();
+  }
+  return _iceConfigPromise;
+}
+
+// Synchronous best-effort config for call sites created before the async fetch
+// resolves (the static fallback, plus the relay override when debugging).
+export function iceConfigSync() {
+  return FORCE_RELAY ? { ...ICE_CONFIG, iceTransportPolicy: 'relay' } : ICE_CONFIG;
+}
+
 export const CONNECT_TIMEOUT_MS = 15000;
 // How long a `disconnected` state may persist (while we ICE-restart) before
 // we declare the link dead. WebRTC often recovers a blip within a second or
@@ -49,10 +100,10 @@ const DISCONNECT_GRACE_MS = 6000;
 const MAX_SEND_BUFFER = 256 * 1024;
 
 export class PeerLink {
-  constructor(signaling, remoteId, isOfferer) {
+  constructor(signaling, remoteId, isOfferer, iceConfig) {
     this.remoteId = remoteId;
     this.isOfferer = isOfferer;
-    this.pc = new RTCPeerConnection(ICE_CONFIG);
+    this.pc = new RTCPeerConnection(iceConfig ?? iceConfigSync());
     this.u = null;
     this.r = null;
     this.onU = null; // fn(ArrayBuffer)

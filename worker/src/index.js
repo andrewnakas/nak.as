@@ -50,6 +50,60 @@ async function readJson(request) {
   }
 }
 
+// Public STUN + free-TURN fallback, used when no managed TURN is configured.
+// STUN finds the public-reflexive path; TURN relays when that fails (strict
+// NAT, CGNAT, or a hotspot router that can't hairpin two of its own clients).
+const FALLBACK_ICE = [
+  {
+    urls: [
+      'stun:stun.cloudflare.com:3478',
+      'stun:stun.l.google.com:19302',
+      'stun:stun1.l.google.com:19302',
+    ],
+  },
+  {
+    urls: [
+      'turn:openrelay.metered.ca:80',
+      'turn:openrelay.metered.ca:443',
+      'turn:openrelay.metered.ca:443?transport=tcp',
+      'turns:openrelay.metered.ca:443?transport=tcp',
+    ],
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+];
+
+// Build the ICE server list. With Cloudflare Realtime TURN configured
+// (TURN_KEY_ID + TURN_API_TOKEN secrets) we mint short-lived credentials so
+// every pair has a reliable relay; otherwise we return the free fallback.
+async function iceServers(env) {
+  const keyId = env.TURN_KEY_ID;
+  const token = env.TURN_API_TOKEN;
+  if (!keyId || !token) return FALLBACK_ICE;
+  try {
+    const r = await fetch(
+      `https://rtc.live.cloudflare.com/v1/turn/keys/${keyId}/credentials/generate`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        // 24h TTL: comfortably outlives a play session; a fresh page load mints
+        // new creds anyway (the 5-minute edge cache is just to dedup bursts).
+        body: JSON.stringify({ ttl: 86400 }),
+      },
+    );
+    if (!r.ok) return FALLBACK_ICE;
+    const data = await r.json();
+    // Cloudflare returns { iceServers: { urls:[...], username, credential } }.
+    // Keep a public STUN too so the host-candidate / reflexive path is tried
+    // before falling back to the (metered) relay.
+    const cf = data.iceServers;
+    if (!cf) return FALLBACK_ICE;
+    return [{ urls: 'stun:stun.cloudflare.com:3478' }, cf];
+  } catch {
+    return FALLBACK_ICE;
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -125,6 +179,23 @@ export default {
     if (method === 'GET' && url.pathname === '/worlds') {
       const r = await lobby().fetch('https://lobby/worlds');
       return json(request, 200, await r.json());
+    }
+
+    // ICE servers for WebRTC (game + voice). Mints short-lived Cloudflare
+    // Realtime TURN credentials when configured (secrets TURN_KEY_ID +
+    // TURN_API_TOKEN), so cross-NAT and hairpin-broken pairs always have a
+    // working relay. Falls back to STUN + the free openrelay TURN otherwise.
+    // No auth: guests use voice too. Cached briefly at the edge.
+    if (method === 'GET' && url.pathname === '/ice') {
+      const ice = await iceServers(env);
+      return new Response(JSON.stringify({ iceServers: ice }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'public, max-age=300',
+          ...corsHeaders(request),
+        },
+      });
     }
 
     // Legacy party code (still usable for private parties).

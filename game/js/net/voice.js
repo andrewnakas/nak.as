@@ -17,10 +17,13 @@
 // Privacy: the mic is OFF until the player explicitly enables voice (toggle).
 // We never capture audio without that opt-in.
 
-import { ICE_CONFIG } from './rtc.js';
+import { getIceConfig, iceConfigSync } from './rtc.js';
 
 const VOICE_RANGE_PX = 360; // distance at which a non-party voice fades to silence
 const PROXIMITY_HZ = 4; // how often to re-evaluate proximity / volumes
+// A voice link that never reaches `connected` within this window is torn down
+// and retried, so a one-off ICE failure self-heals instead of sitting dead.
+const VOICE_CONNECT_TIMEOUT_MS = 12000;
 
 export class VoiceMesh {
   /// signaling: the world's Signaling socket (carries voice-signal).
@@ -38,6 +41,8 @@ export class VoiceMesh {
     this.peers = new Map(); // remoteId -> VoicePeer
     this._timer = null;
     this._selfId = null;
+    // Managed-TURN ICE config (fetched on enable); static fallback until then.
+    this._iceConfig = iceConfigSync();
 
     // All voice routes through one gain so a master mute is instant.
     this.master = this.ctx.createGain();
@@ -68,10 +73,17 @@ export class VoiceMesh {
   status() {
     if (!this.enabled) return 'voice: off';
     const mic = this.micStream ? 'mic✓' : 'mic✗';
+    const turn = this._iceConfig?.iceServers?.some((s) =>
+      (Array.isArray(s.urls) ? s.urls : [s.urls]).some((u) => String(u).startsWith('turn')),
+    )
+      ? 'turn✓'
+      : 'turn✗';
+    const policy = this._iceConfig?.iceTransportPolicy === 'relay' ? ' relay-only' : '';
     const peers = [...this.peers.values()].map(
-      (p) => `${p.remoteId.slice(0, 4)}:${p.pc?.connectionState ?? '?'}/${p.pc?.iceConnectionState ?? '?'}`,
+      (p) =>
+        `${p.remoteId.slice(0, 4)}:${p.pc?.connectionState ?? '?'}/${p.pc?.iceConnectionState ?? '?'}${p.candType ? '/' + p.candType : ''}`,
     );
-    return `voice: ${mic} peers[${peers.join(' ')}]`;
+    return `voice: ${mic} ${turn}${policy} peers[${peers.join(' ')}]`;
   }
 
   /// Turn the mic on (asks permission the first time) and start meshing.
@@ -81,6 +93,8 @@ export class VoiceMesh {
     if (this.enabled) return;
     // Resume audio inside the gesture (iOS requires this synchronously-ish).
     if (this.ctx.state === 'suspended') await this.ctx.resume().catch(() => {});
+    // Fetch managed-TURN credentials so cross-NAT / hairpin-broken pairs relay.
+    this._iceConfig = await getIceConfig().catch(() => iceConfigSync());
     if (!this.micStream) {
       this.micStream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -171,7 +185,10 @@ export class VoiceMesh {
       ctx: this.ctx,
       master: this.master,
       micStream: this.micStream,
+      iceConfig: this._iceConfig,
       send: (payload) => this.signaling.send({ t: 'voice-signal', to: remoteId, payload }),
+      // A dead link drops, then the next proximity tick re-offers it (with a
+      // fresh ICE gather) — so a transient failure self-heals.
       onClosed: () => this._drop(remoteId),
     });
     this.peers.set(remoteId, peer);
@@ -200,14 +217,17 @@ export class VoiceMesh {
 // One voice-only WebRTC connection to a nearby player, with a spatializer on
 // the inbound audio so the speaker is positioned by their in-game location.
 class VoicePeer {
-  constructor({ remoteId, initiator, ctx, master, micStream, send, onClosed }) {
+  constructor({ remoteId, initiator, ctx, master, micStream, send, onClosed, iceConfig }) {
     this.remoteId = remoteId;
     this.ctx = ctx;
     this.send = send;
     this.onClosed = onClosed;
+    this.initiator = initiator;
     this._pendingIce = [];
     this._chain = Promise.resolve();
-    this.pc = new RTCPeerConnection(ICE_CONFIG);
+    this._restarted = false;
+    this._dead = false;
+    this.pc = new RTCPeerConnection(iceConfig ?? iceConfigSync());
 
     // Outbound: our mic. (Track may be disabled when muted; silence flows.)
     // If the mic isn't ready yet (permission still resolving), attachMic() wires
@@ -280,12 +300,70 @@ class VoicePeer {
     this.pc.onicecandidate = (e) => {
       if (e.candidate) this.send({ ice: e.candidate });
     };
-    this.pc.onconnectionstatechange = () => {
+    const onState = () => this._onStateChange();
+    this.pc.onconnectionstatechange = onState;
+    // iceConnectionState is more granular on some browsers (Firefox); watch both.
+    this.pc.oniceconnectionstatechange = onState;
+
+    // Watchdog: if we never reach `connected`, tear down so the mesh re-offers
+    // with a fresh ICE gather instead of leaving a permanently-stuck link.
+    this._watchdog = setTimeout(() => {
       const s = this.pc.connectionState;
-      if (s === 'failed' || s === 'closed') this.onClosed?.();
-    };
+      if (s !== 'connected' && s !== 'completed') this._die();
+    }, VOICE_CONNECT_TIMEOUT_MS);
 
     if (initiator) this._makeOffer();
+  }
+
+  _onStateChange() {
+    const cs = this.pc.connectionState;
+    const ice = this.pc.iceConnectionState;
+    if (cs === 'connected' || ice === 'connected' || ice === 'completed') {
+      clearTimeout(this._watchdog);
+      this._watchdog = null;
+      this._sampleCandType();
+      return;
+    }
+    if (cs === 'failed' || ice === 'failed') {
+      // One ICE restart attempt (initiator) before giving up — recovers a
+      // dropped candidate path without a full re-handshake. Then the mesh's
+      // proximity tick rebuilds the peer entirely if it still can't connect.
+      if (this.initiator && !this._restarted && !this._dead) {
+        this._restarted = true;
+        this._makeOffer(true);
+        return;
+      }
+      this._die();
+      return;
+    }
+    if (cs === 'closed') this._die();
+  }
+
+  _die() {
+    if (this._dead) return;
+    this._dead = true;
+    clearTimeout(this._watchdog);
+    this.onClosed?.();
+  }
+
+  /// Record how this link actually connected (host = LAN, srflx = STUN/public,
+  /// relay = TURN). Shown in the debug overlay so a tester can see whether a
+  /// pair went LAN-direct or had to relay — the key NAT-traversal signal.
+  async _sampleCandType() {
+    try {
+      const report = await this.pc.getStats();
+      let localId = null;
+      for (const s of report.values()) {
+        if (s.type === 'candidate-pair' && s.nominated && s.state === 'succeeded') {
+          localId = s.localCandidateId;
+        }
+      }
+      for (const s of report.values()) {
+        if (s.id === localId && s.candidateType) this.candType = s.candidateType;
+      }
+    } catch {
+      /* getStats unavailable */
+    }
   }
 
   /// Add (or replace into) our outbound mic track. Safe to call once the mic
@@ -301,9 +379,9 @@ class VoicePeer {
     this._micAdded = true;
   }
 
-  _makeOffer() {
+  _makeOffer(restart = false) {
     this._chain = this._chain
-      .then(() => this.pc.createOffer())
+      .then(() => this.pc.createOffer(restart ? { iceRestart: true } : undefined))
       .then((o) => this.pc.setLocalDescription(o))
       .then(() => this.send({ sdp: this.pc.localDescription }))
       .catch(() => {});
@@ -358,6 +436,8 @@ class VoicePeer {
   }
 
   close() {
+    this._dead = true;
+    clearTimeout(this._watchdog);
     try {
       if (this._el) {
         this._el.pause();

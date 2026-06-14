@@ -225,6 +225,122 @@
   .inv-row button:hover { border-color: var(--gb-light); }
   .inv-row button.active { background: var(--gb-dark); border-color: var(--gb-light); }
   .inv-empty { color: #6c7c6c; font-size: 12px; padding: 16px 4px; text-align: center; }
+
+  /* ---- BotW-style visual inventory: category chips + icon grid + detail ---- */
+  .inv-cats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: 2px 0 8px;
+  }
+  .inv-cat {
+    font: inherit;
+    font-size: 10px;
+    letter-spacing: 0.5px;
+    color: var(--gb-light);
+    background: var(--gb-darkest);
+    border: 1px solid var(--gb-dark);
+    border-radius: 4px;
+    padding: 5px 8px;
+    cursor: pointer;
+  }
+  .inv-cat .badge-n { color: #8c9c84; }
+  .inv-cat.active { color: #16181d; background: var(--gb-light); border-color: var(--gb-lightest); }
+  .inv-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(54px, 1fr));
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  .inv-cell {
+    position: relative;
+    aspect-ratio: 1 / 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.28);
+    border: 2px solid var(--gb-dark);
+    border-radius: 6px;
+    cursor: pointer;
+    overflow: hidden;
+  }
+  .inv-cell:hover { border-color: var(--gb-light); }
+  .inv-cell.selected { border-color: var(--gb-lightest); background: rgba(139, 172, 15, 0.14); }
+  .inv-cell.equipped { border-color: #c99a46; box-shadow: inset 0 0 0 1px #c99a46; }
+  .inv-cell img {
+    width: 80%; height: 80%;
+    image-rendering: pixelated;
+  }
+  .inv-cell .qty {
+    position: absolute;
+    right: 2px; bottom: 1px;
+    font-size: 10px;
+    color: var(--gb-lightest);
+    text-shadow: 0 1px 2px #000, 0 0 2px #000;
+  }
+  .inv-cell .slotbadge {
+    position: absolute;
+    left: 2px; top: 1px;
+    font-size: 9px;
+    font-weight: bold;
+    color: #16181d;
+    background: #c99a46;
+    border-radius: 3px;
+    padding: 0 3px;
+    line-height: 1.4;
+  }
+  .inv-cell .modbadge {
+    position: absolute;
+    right: 2px; top: 1px;
+    font-size: 9px;
+    color: #16181d;
+    background: #6f8a5b;
+    border-radius: 3px;
+    padding: 0 3px;
+    line-height: 1.4;
+  }
+  .inv-cell .durbar {
+    position: absolute;
+    left: 3px; right: 3px; bottom: 2px;
+    height: 3px;
+    border-radius: 2px;
+    background: rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+  }
+  .inv-cell .durbar > span { display: block; height: 100%; background: #8bac0f; }
+  .inv-detail {
+    display: flex;
+    gap: 10px;
+    padding: 10px;
+    margin-top: 4px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--gb-dark);
+    border-radius: 6px;
+  }
+  .inv-detail .dicon {
+    width: 56px; height: 56px;
+    flex: 0 0 auto;
+    image-rendering: pixelated;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 4px;
+  }
+  .inv-detail .dbody { flex: 1; min-width: 0; }
+  .inv-detail .dname { color: var(--gb-lightest); font-size: 13px; letter-spacing: 0.5px; }
+  .inv-detail .dsub { color: #8c9c84; font-size: 10px; margin: 2px 0 8px; line-height: 1.5; }
+  .inv-detail .dsub .tag { color: #c0d090; }
+  .inv-detail .dactions { display: flex; flex-wrap: wrap; gap: 6px; }
+  .inv-detail .dactions button {
+    font: inherit;
+    font-size: 11px;
+    padding: 6px 11px;
+    color: var(--gb-lightest);
+    background: var(--gb-darkest);
+    border: 1px solid var(--gb-dark);
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .inv-detail .dactions button:hover { border-color: var(--gb-light); }
+  .inv-detail .dactions button.active { background: var(--gb-dark); border-color: #c99a46; color: #e0c071; }
   #toasts {
     position: fixed;
     bottom: 84px;

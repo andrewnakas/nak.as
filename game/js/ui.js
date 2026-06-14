@@ -376,6 +376,8 @@ export class InventoryUI {
     this.tab = 'items'; // 'items' | 'quests' | 'skills'
     this.fuseFrom = null; // weapon index awaiting a material pick
     this.attachFrom = null; // gear index awaiting a body-part pick
+    this.cat = 'weapons'; // active category in the visual items grid
+    this.sel = null; // selected inventory index (shown in the detail panel)
     activeInventory = this;
 
     window.addEventListener('keydown', (e) => {
@@ -508,15 +510,191 @@ export class InventoryUI {
       }
     }
 
-    // The pack itself.
-    list.appendChild(this._section('PACK'));
+    // The pack itself — a BotW-style visual grid grouped by category, with a
+    // detail panel for the selected item.
     if (!state.inventory.length) {
+      list.appendChild(this._section('PACK'));
       list.appendChild(this._empty('empty — punch a tree to break off a stick.'));
       return;
     }
-    for (const item of state.inventory) {
-      const row = this._itemRow(item, state);
-      list.appendChild(row);
+    this._renderPackGrid(list, state);
+  }
+
+  /// Categories for the visual grid. `match` decides which items fall in each;
+  /// order defines the chip order.
+  static get CATEGORIES() {
+    return [
+      { key: 'weapons', label: 'WEAPONS', match: (it) => it.kind === 'sword' },
+      { key: 'gear', label: 'BOWS & SHIELDS', match: (it) => it.kind === 'bow' || it.kind === 'shield' },
+      { key: 'tools', label: 'TOOLS', match: (it) => it.kind === 'rod' || it.kind === 'bomb' || it.kind === 'arrow' },
+      { key: 'materials', label: 'MATERIALS', match: (it) => it.kind === 'material' },
+      { key: 'parts', label: 'BODY PARTS', match: (it) => it.kind === 'bodypart' },
+      { key: 'food', label: 'FOOD', match: (it) => it.kind === 'food' },
+    ];
+  }
+
+  _renderPackGrid(list, state) {
+    const cats = InventoryUI.CATEGORIES;
+    const inCat = (cat, it) => cats.find((c) => c.key === cat)?.match(it);
+
+    // Category chips (only those with items; counts shown). Keep `this.cat`
+    // valid — fall back to the first non-empty category.
+    const nonEmpty = cats.filter((c) => state.inventory.some((it) => c.match(it)));
+    if (!nonEmpty.some((c) => c.key === this.cat)) this.cat = nonEmpty[0]?.key ?? 'weapons';
+
+    const chips = document.createElement('div');
+    chips.className = 'inv-cats';
+    for (const c of nonEmpty) {
+      const n = state.inventory.filter((it) => c.match(it)).length;
+      const chip = document.createElement('button');
+      chip.className = 'inv-cat' + (c.key === this.cat ? ' active' : '');
+      chip.innerHTML = `${c.label} <span class="badge-n">${n}</span>`;
+      chip.onclick = () => {
+        this.cat = c.key;
+        this.sel = null;
+        this.render();
+      };
+      chips.appendChild(chip);
+    }
+    list.appendChild(chips);
+
+    // The icon grid for the active category.
+    const items = state.inventory.filter((it) => inCat(this.cat, it));
+    const grid = document.createElement('div');
+    grid.className = 'inv-grid';
+    // Default selection to the first item in the category if nothing valid.
+    if (!items.some((it) => it.i === this.sel)) this.sel = items[0]?.i ?? null;
+    for (const item of items) {
+      grid.appendChild(this._cell(item, state));
+    }
+    list.appendChild(grid);
+
+    // Detail panel for the selected item.
+    const sel = state.inventory.find((it) => it.i === this.sel);
+    if (sel) list.appendChild(this._detail(sel, state));
+  }
+
+  /// One icon tile in the grid, with qty / durability / equipped / mod badges.
+  _cell(item, state) {
+    const cell = document.createElement('div');
+    cell.className = 'inv-cell';
+    if (item.i === this.sel) cell.classList.add('selected');
+    const equipped = state.equip_a === item.i || state.equip_b === item.i;
+    if (equipped) cell.classList.add('equipped');
+
+    const img = document.createElement('img');
+    img.src = this.session.renderer.spriteIcon(item.sprite, 3);
+    cell.appendChild(img);
+
+    // Equipped slot badge (A / B).
+    if (state.equip_a === item.i) cell.appendChild(this._badge('slotbadge', 'A'));
+    else if (state.equip_b === item.i) cell.appendChild(this._badge('slotbadge', 'B'));
+
+    // A "+"/"«»" mod badge when crafted or has a body part attached.
+    if (item.fused || item.attached) cell.appendChild(this._badge('modbadge', item.attached ? '✦' : '+'));
+
+    // Stack count for consumables/materials; durability bar for gear.
+    const gear = ['sword', 'bow', 'shield', 'rod'].includes(item.kind);
+    if (gear && item.max_dur) {
+      const bar = document.createElement('div');
+      bar.className = 'durbar';
+      const fill = document.createElement('span');
+      fill.style.width = `${Math.max(0, Math.min(100, (item.dur / item.max_dur) * 100))}%`;
+      bar.appendChild(fill);
+      cell.appendChild(bar);
+    } else if (item.qty > 1) {
+      const qty = document.createElement('span');
+      qty.className = 'qty';
+      qty.textContent = `×${item.qty}`;
+      cell.appendChild(qty);
+    }
+
+    cell.onclick = () => {
+      this.sel = item.i;
+      this.render();
+    };
+    return cell;
+  }
+
+  _badge(cls, text) {
+    const b = document.createElement('span');
+    b.className = cls;
+    b.textContent = text;
+    return b;
+  }
+
+  /// The detail panel: big icon, name, stats line, and the item's actions.
+  _detail(item, state) {
+    const panel = document.createElement('div');
+    panel.className = 'inv-detail';
+
+    const icon = document.createElement('img');
+    icon.className = 'dicon';
+    icon.src = this.session.renderer.spriteIcon(item.sprite, 4);
+    panel.appendChild(icon);
+
+    const body = document.createElement('div');
+    body.className = 'dbody';
+    const name = document.createElement('div');
+    name.className = 'dname';
+    name.textContent = item.label;
+    body.appendChild(name);
+
+    // Stats / mods line.
+    const bits = [];
+    const gear = ['sword', 'bow', 'shield', 'rod'].includes(item.kind);
+    if (gear) bits.push(`durability ${item.dur}/${item.max_dur}`);
+    if (item.kind === 'food') bits.push(`heals ${item.heal / 2}♥`);
+    if (item.qty > 1) bits.push(`×${item.qty}`);
+    if (item.fused) bits.push(`crafted: <span class="tag">${item.fused}</span>`);
+    if (item.attached) bits.push(`attached: <span class="tag">${item.attached}</span>`);
+    const sub = document.createElement('div');
+    sub.className = 'dsub';
+    sub.innerHTML = bits.join(' · ') || '—';
+    body.appendChild(sub);
+
+    const actions = document.createElement('div');
+    actions.className = 'dactions';
+    this._fillActions(actions, item, state);
+    body.appendChild(actions);
+    panel.appendChild(body);
+    return panel;
+  }
+
+  /// Build the action buttons for the detail panel (equip / eat / craft /
+  /// attach / detach), matching the item's kind.
+  _fillActions(box, item, state) {
+    if (item.kind === 'sword')
+      box.appendChild(
+        this.button(state.equip_a === item.i ? 'EQUIPPED (A)' : 'EQUIP (A)', state.equip_a === item.i, () =>
+          this.action({ action: 'equip_a', a: item.i }),
+        ),
+      );
+    if (['bow', 'shield', 'bomb', 'rod'].includes(item.kind))
+      box.appendChild(
+        this.button(state.equip_b === item.i ? 'EQUIPPED (B)' : 'EQUIP (B)', state.equip_b === item.i, () =>
+          this.action({ action: 'equip_b', a: item.i }),
+        ),
+      );
+    if (item.kind === 'food')
+      box.appendChild(this.button('EAT', false, () => this.action({ action: 'eat', a: item.i })));
+    if (['sword', 'bow', 'shield'].includes(item.kind) && !item.fused)
+      box.appendChild(
+        this.button('CRAFT', false, () => {
+          this.fuseFrom = item.i;
+          this.render();
+        }),
+      );
+    if (['sword', 'bow', 'shield'].includes(item.kind)) {
+      if (item.attached)
+        box.appendChild(this.button('DETACH', false, () => this.action({ action: 'detach', a: item.i })));
+      else
+        box.appendChild(
+          this.button('ATTACH', false, () => {
+            this.attachFrom = item.i;
+            this.render();
+          }),
+        );
     }
   }
 

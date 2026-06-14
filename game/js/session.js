@@ -2,7 +2,7 @@
 // the same authoritative code path runs alone or with a party.
 
 import { TICK_MS, MAX_CATCHUP_TICKS } from './config.js';
-import { PeerLink } from './net/rtc.js';
+import { PeerLink, getIceConfig } from './net/rtc.js';
 import { toast } from './ui.js';
 import { persist } from './saves.js';
 
@@ -124,15 +124,25 @@ export class HostSession extends BaseSession {
         return;
       }
       if (!peer) {
-        // First signal from a new joiner: answer their offer.
-        const link = new PeerLink(signaling, m.from, false);
-        peer = { id: m.from, link, slot: -1, name: this.pendingNames.get(m.from) ?? 'player', relay: false };
-        this.peers.set(m.from, peer);
-        link.onR = (text) => this._handleReliable(peer, text);
-        link.onU = (data) => {
-          if (peer.slot >= 0) this.game.handle_client_msg(peer.slot, new Uint8Array(data));
-        };
-        link.onClosed = () => this._dropPeer(m.from);
+        // First signal from a new joiner: answer their offer (managed-TURN ICE).
+        // Resolve the ICE config BEFORE the get/set critical section so there's
+        // no await between the existence check and peers.set — otherwise two
+        // rapid signals from the same joiner would each build a PeerLink and the
+        // second set() would orphan the first. (getIceConfig is cached.)
+        const iceConfig = await getIceConfig();
+        peer = this.peers.get(m.from);
+        if (!peer) {
+          const link = new PeerLink(signaling, m.from, false, iceConfig);
+          peer = { id: m.from, link, slot: -1, name: this.pendingNames.get(m.from) ?? 'player', relay: false };
+          this.peers.set(m.from, peer);
+          link.onR = (text) => this._handleReliable(peer, text);
+          link.onU = (data) => {
+            if (peer.slot >= 0) this.game.handle_client_msg(peer.slot, new Uint8Array(data));
+          };
+          link.onClosed = () => this._dropPeer(m.from);
+        } else if (peer.relay || !peer.link) {
+          return; // became a relay client while we awaited
+        }
       }
       await peer.link.handleSignal(m.payload);
     });
@@ -472,7 +482,7 @@ export class ClientSession extends BaseSession {
   /// Connect to the host through the already-joined signaling room.
   /// Resolves with our assigned slot after the hello/welcome handshake.
   async connect(signaling, hostId, name) {
-    this.link = new PeerLink(signaling, hostId, true);
+    this.link = new PeerLink(signaling, hostId, true, await getIceConfig());
     signaling.on('signal', (m) => {
       if (m.from === hostId) this.link.handleSignal(m.payload);
     });
