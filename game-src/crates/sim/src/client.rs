@@ -237,6 +237,8 @@ fn lerp_player(pa: Option<&PlayerSnap>, pb: &PlayerSnap, num: u64, den: u64) -> 
             })
             .collect(),
         intro_done: true, // remote players' intro state is irrelevant locally
+        surfing: pb.surfing,
+        wave_boost: 0, // local-only timer; not needed for rendering
     }
 }
 
@@ -248,6 +250,7 @@ fn items_from_snaps(snaps: &[protocol::ItemSnap]) -> Vec<ItemStack> {
             qty: s.qty,
             durability: s.durability,
             fused: u8::try_from(s.fused).ok(),
+            attached: u8::try_from(s.attached).ok(),
         })
         .collect()
 }

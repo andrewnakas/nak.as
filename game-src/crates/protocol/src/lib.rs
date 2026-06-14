@@ -17,6 +17,8 @@ pub struct ItemSnap {
     pub durability: u16,
     /// Fused material item def, or -1.
     pub fused: i16,
+    /// Attached body-part item def, or -1.
+    pub attached: i16,
 }
 
 /// One player's state inside a snapshot. Positions are fixed-point
@@ -52,6 +54,8 @@ pub struct PlayerSnap {
     /// Fishing phase: 0 = waiting, 1 = bite window.
     pub fishing: Option<u8>,
     pub near_fire: bool,
+    /// Riding the surfboard (drives the paddle animation on remote clients).
+    pub surfing: bool,
     /// (npc, source kind 0..=3, source index, page).
     pub dialogue: Option<(u8, u8, u8, u8)>,
     pub quests: Vec<QuestSnap>,

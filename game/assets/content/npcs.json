@@ -68,8 +68,9 @@
     "label": "TINK",
     "sprite": "npc_b",
     "lines": [
-      ["FUSE! ANYTHING TO", "ANYTHING! WELL...", "ALMOST ANYTHING."],
-      ["A CLAW ON A SWORD", "CUTS DEEPER. TRY", "IT IN YOUR PACK!"]
+      ["CRAFT! ANYTHING TO", "ANYTHING! WELL...", "ALMOST ANYTHING."],
+      ["A CLAW ON A SWORD", "CUTS DEEPER. TRY", "IT IN YOUR PACK!"],
+      ["GOT A HORN OR WING?", "ATTACH IT TO GEAR", "TO TUNE YOUR BUILD!"]
     ]
   },
   {

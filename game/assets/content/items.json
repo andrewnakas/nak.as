@@ -24,6 +24,14 @@
     "durability": 60
   },
   {
+    "name": "boko_club",
+    "label": "BRACK CLUB",
+    "sprite": "itm_stick",
+    "kind": "sword",
+    "damage": 1,
+    "durability": 22
+  },
+  {
     "name": "oak_bow",
     "label": "OAK BOW",
     "sprite": "itm_bow",
@@ -56,6 +64,13 @@
     "sprite": "itm_rod",
     "kind": "rod",
     "durability": 25
+  },
+  {
+    "name": "surfboard",
+    "label": "SURFBOARD",
+    "sprite": "itm_surfboard",
+    "kind": "rod",
+    "durability": 9999
   },
   {
     "name": "raw_perch",
@@ -201,5 +216,37 @@
     "sprite": "mat_pelt",
     "kind": "material",
     "fuse_damage": 1
+  },
+  {
+    "name": "brackling_horn",
+    "label": "BRACKLING HORN",
+    "sprite": "part_horn",
+    "kind": "bodypart",
+    "attach_effect": "defense",
+    "attach_mag": 1
+  },
+  {
+    "name": "brackling_claw",
+    "label": "BRACKLING CLAW",
+    "sprite": "part_claw",
+    "kind": "bodypart",
+    "attach_effect": "damage",
+    "attach_mag": 1
+  },
+  {
+    "name": "brackling_fang",
+    "label": "BRACKLING FANG",
+    "sprite": "part_fang",
+    "kind": "bodypart",
+    "attach_effect": "damage",
+    "attach_mag": 2
+  },
+  {
+    "name": "hare_wing",
+    "label": "FLUTTERWING",
+    "sprite": "part_wing",
+    "kind": "bodypart",
+    "attach_effect": "speed",
+    "attach_mag": 96
   }
 ]

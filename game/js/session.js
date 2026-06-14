@@ -49,10 +49,11 @@ class BaseSession {
       if (this.audio && this.game.tick_count() % 30 === 0) {
         const at = this.game.player_screen(this.slot);
         if (at.length) {
-          const inDungeon = at[0] >= 10 && at[1] >= 10;
-          this.audio.setTrack(
-            at[0] === 13 && at[1] === 12 ? 'boss' : inDungeon ? 'dungeon' : 'overworld',
-          );
+          // Dungeons live in the y>=10 band (Rootcellar x10-13, Tidecrag x7-9).
+          const inDungeon = at[1] >= 10 && at[0] >= 7;
+          // Boss arenas: Moldra (13,12) and the Tidewarden (9,12).
+          const inBoss = (at[0] === 13 || at[0] === 9) && at[1] === 12;
+          this.audio.setTrack(inBoss ? 'boss' : inDungeon ? 'dungeon' : 'overworld');
         }
       }
       if (this.debugEl && this.game.tick_count() % 30 === 0) {

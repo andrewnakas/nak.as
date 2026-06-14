@@ -102,5 +102,57 @@
     "big": true,
     "summons": "marsh_gel",
     "combat_xp": 150
+  },
+  {
+    "name": "brackling_red",
+    "brain": "brackling",
+    "hp": 3,
+    "damage": 1,
+    "speed": 176,
+    "sprite": "brackling_0",
+    "drops": "brackling_red",
+    "combat_xp": 14
+  },
+  {
+    "name": "brackling_blue",
+    "brain": "brackling",
+    "hp": 5,
+    "damage": 1,
+    "speed": 200,
+    "sprite": "brackling_blue_0",
+    "drops": "brackling_blue",
+    "combat_xp": 22
+  },
+  {
+    "name": "brackling_archer",
+    "brain": "brackling_archer",
+    "hp": 3,
+    "damage": 1,
+    "speed": 160,
+    "sprite": "brackling_archer_0",
+    "drops": "brackling_archer",
+    "combat_xp": 18
+  },
+  {
+    "name": "brackling_captain",
+    "brain": "brackling",
+    "hp": 8,
+    "damage": 2,
+    "speed": 208,
+    "sprite": "brackling_blue_0",
+    "drops": "brackling_captain",
+    "combat_xp": 40
+  },
+  {
+    "name": "tidewarden",
+    "brain": "boss",
+    "hp": 34,
+    "damage": 3,
+    "speed": 112,
+    "sprite": "moldra_0",
+    "drops": "tidewarden",
+    "big": true,
+    "summons": "brackling_blue",
+    "combat_xp": 260
   }
 ]

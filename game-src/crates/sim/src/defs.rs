@@ -24,6 +24,13 @@ pub struct ItemJson {
     /// HP restored when eaten (2 = one heart).
     #[serde(default)]
     pub heal: i16,
+    /// Body-part attach effect: "" / "damage" / "speed" / "defense".
+    #[serde(default)]
+    pub attach_effect: String,
+    /// Magnitude of the attach effect (damage points, speed 1/256 px/tick,
+    /// or defense points subtracted from incoming hits).
+    #[serde(default)]
+    pub attach_mag: i16,
 }
 
 #[derive(Deserialize)]
@@ -75,6 +82,10 @@ pub enum Brain {
     Critter,
     /// Moldra: stalks, spits seed spreads, summons; enrages at half HP.
     Boss,
+    /// Brackling: easy goblin fodder that chases and swings at close range.
+    Brackling,
+    /// Brackling archer: keeps its distance and lobs seed shots.
+    BracklingArcher,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -87,6 +98,8 @@ pub enum ItemKind {
     Material,
     Rod,
     Food,
+    /// Swappable mod attached to gear (horn/wing/claw). Non-destructive.
+    BodyPart,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -95,6 +108,19 @@ pub enum FuseEffect {
     Poison,
     /// Fire-fused weapons clear bramble tiles.
     Fire,
+}
+
+/// What attaching a body part to gear does. Attachments are reversible
+/// loadout tuning, distinct from permanent crafting/fusion.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum AttachEffect {
+    None,
+    /// Bonus weapon damage (claw/fang).
+    Damage,
+    /// Bonus move speed in 1/256 px/tick (wing).
+    Speed,
+    /// Damage subtracted from incoming hits (horn/shell).
+    Defense,
 }
 
 pub struct ItemDef {
@@ -107,11 +133,22 @@ pub struct ItemDef {
     pub fuse_damage: i16,
     pub fuse_effect: FuseEffect,
     pub heal: i16,
+    pub attach_effect: AttachEffect,
+    pub attach_mag: i16,
 }
 
 impl ItemDef {
     pub fn is_weapon(&self) -> bool {
         matches!(self.kind, ItemKind::Sword | ItemKind::Bow | ItemKind::Shield)
+    }
+
+    /// Gear that a body part can attach to. Weapons and the shield only —
+    /// rods (fishing rod / surfboard) are utility items, not stat carriers.
+    pub fn is_attachable(&self) -> bool {
+        matches!(
+            self.kind,
+            ItemKind::Sword | ItemKind::Bow | ItemKind::Shield
+        )
     }
 
     pub fn stackable(&self) -> bool {
@@ -390,6 +427,8 @@ impl Defs {
                     "snatcher" => Brain::Snatcher,
                     "critter" => Brain::Critter,
                     "boss" => Brain::Boss,
+                    "brackling" => Brain::Brackling,
+                    "brackling_archer" => Brain::BracklingArcher,
                     other => return Err(format!("enemy '{}': unknown brain '{other}'", e.name)),
                 };
                 let drop_table = drop_names
@@ -437,6 +476,7 @@ impl Defs {
                     "material" => ItemKind::Material,
                     "rod" => ItemKind::Rod,
                     "food" => ItemKind::Food,
+                    "bodypart" => ItemKind::BodyPart,
                     other => return Err(format!("item '{}': unknown kind '{other}'", it.name)),
                 };
                 let fuse_effect = match it.fuse_effect.as_str() {
@@ -444,6 +484,15 @@ impl Defs {
                     "poison" => FuseEffect::Poison,
                     "fire" => FuseEffect::Fire,
                     other => return Err(format!("item '{}': unknown effect '{other}'", it.name)),
+                };
+                let attach_effect = match it.attach_effect.as_str() {
+                    "" | "none" => AttachEffect::None,
+                    "damage" => AttachEffect::Damage,
+                    "speed" => AttachEffect::Speed,
+                    "defense" => AttachEffect::Defense,
+                    other => {
+                        return Err(format!("item '{}': unknown attach effect '{other}'", it.name))
+                    }
                 };
                 Ok(ItemDef {
                     sprite: sprite_index(&it.sprite)?,
@@ -453,6 +502,8 @@ impl Defs {
                     fuse_damage: it.fuse_damage,
                     fuse_effect,
                     heal: it.heal,
+                    attach_effect,
+                    attach_mag: it.attach_mag,
                     label: it.label,
                     name: it.name,
                 })

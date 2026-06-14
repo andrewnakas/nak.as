@@ -28,12 +28,14 @@
   ],
   "thicket_hare": [
     { "item": "hare_meat", "p": 900 },
-    { "item": "marsh_herb", "p": 250 }
+    { "item": "marsh_herb", "p": 250 },
+    { "item": "hare_wing", "p": 200 }
   ],
   "hollow_stag": [
     { "item": "venison", "p": 1000, "min": 1, "max": 2 },
     { "item": "stag_pelt", "p": 600 },
-    { "item": "ember_cap", "p": 300 }
+    { "item": "ember_cap", "p": 300 },
+    { "item": "brackling_horn", "p": 250 }
   ],
   "cave_pip": [
     { "item": "heart", "p": 300 },
@@ -47,5 +49,39 @@
   "moldra": [
     { "item": "heart", "p": 1000 },
     { "item": "shells", "p": 1000, "min": 30, "max": 50 }
+  ],
+  "brackling_red": [
+    { "item": "heart", "p": 200 },
+    { "item": "shells", "p": 850, "min": 2, "max": 4 },
+    { "item": "boko_club", "p": 180 },
+    { "item": "brackling_claw", "p": 300 },
+    { "item": "brackling_horn", "p": 200 }
+  ],
+  "brackling_blue": [
+    { "item": "heart", "p": 250 },
+    { "item": "shells", "p": 900, "min": 3, "max": 6 },
+    { "item": "boko_club", "p": 220 },
+    { "item": "brackling_fang", "p": 300 },
+    { "item": "brackling_horn", "p": 250 }
+  ],
+  "brackling_archer": [
+    { "item": "heart", "p": 200 },
+    { "item": "shells", "p": 850, "min": 2, "max": 5 },
+    { "item": "arrow", "p": 400, "min": 2, "max": 5 },
+    { "item": "brackling_claw", "p": 300 },
+    { "item": "brackling_fang", "p": 200 }
+  ],
+  "brackling_captain": [
+    { "item": "heart", "p": 1000 },
+    { "item": "shells", "p": 1000, "min": 12, "max": 24 },
+    { "item": "iron_sword", "p": 500 },
+    { "item": "brackling_fang", "p": 600 },
+    { "item": "brackling_horn", "p": 500 }
+  ],
+  "tidewarden": [
+    { "item": "heart", "p": 1000 },
+    { "item": "shells", "p": 1000, "min": 60, "max": 90 },
+    { "item": "iron_sword", "p": 1000 },
+    { "item": "brackling_fang", "p": 1000 }
   ]
 }

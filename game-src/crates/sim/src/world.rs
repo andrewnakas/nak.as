@@ -136,6 +136,10 @@ pub struct SpriteIds {
     pub arrow_h: u16,
     pub arrow_v: u16,
     pub bobber: u16,
+    /// Board drawn under the player while surfing.
+    pub surf: u16,
+    /// Cresting ocean wave the player can catch for a speed boost.
+    pub wave: u16,
 }
 
 pub struct World {
@@ -179,6 +183,8 @@ impl World {
             arrow_h: find("arrow_h")?,
             arrow_v: find("arrow_v")?,
             bobber: find("bobber")?,
+            surf: find("surf_board")?,
+            wave: find("wave_0")?,
         };
 
         let font = raw

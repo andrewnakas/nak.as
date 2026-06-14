@@ -909,4 +909,181 @@ export const SPRITES = [
       return (x * 3 + y) % 4 === 0 ? 3 : 2;
     }),
   },
+
+  // ---- body parts (swappable attachments; from bracklings & critters) ----
+  {
+    // Curved ridged horn — defense.
+    name: 'part_horn',
+    palette: 'sand',
+    grid: grid((x, y) => {
+      // sweeping crescent from lower-left to upper-right
+      const t = (15 - y) / 15;
+      const cx = 4 + t * 8;
+      const w = 3.2 - t * 2.4;
+      const d = Math.abs(x - cx);
+      if (d < w && y >= 1 && y <= 14) {
+        if (d > w - 1) return 0;
+        // ridges across the horn
+        return y % 3 === 0 ? 3 : x < cx ? 1 : 2;
+      }
+      return '.';
+    }),
+  },
+  {
+    // Feathered wing — speed.
+    name: 'part_wing',
+    palette: 'stone',
+    grid: grid((x, y) => {
+      // fan of feathers sweeping down-left from a top-right shoulder
+      const sx = 12, sy = 3;
+      const dx = x - sx, dy = y - sy;
+      if (dx > 1 || dy < 0) return '.';
+      const r = Math.hypot(dx, dy);
+      if (r > 11 || r < 2) return '.';
+      // feather banding by angle
+      const ang = Math.atan2(dy, -dx); // 0..pi/2 ish
+      if (ang < 0.15 || ang > 1.45) return '.';
+      const band = Math.floor(r) % 3;
+      if (r > 9.5) return 0;
+      return band === 0 ? 0 : band === 1 ? 3 : 2;
+    }),
+  },
+  {
+    // Hooked claw — damage. Beefier than the crab pincer mat_claw.
+    name: 'part_claw',
+    palette: 'wood',
+    grid: grid((x, y) => {
+      // talon arc with a sharp tip
+      const d = Math.hypot((x - 5) / 1.1, (y - 8) / 1.4);
+      if (d > 3.2 && d < 6 && x <= 11) {
+        if (d > 5.2) return 0;
+        return x < 5 ? 3 : 2;
+      }
+      // sharp tip pointing up-right
+      if (x >= 9 && x <= 13 && y >= 2 && y <= 7 && x - 8 >= y - 1) {
+        return x - 8 === y - 1 ? 0 : 3;
+      }
+      return '.';
+    }),
+  },
+  {
+    // Pointed fang — damage.
+    name: 'part_fang',
+    palette: 'stone',
+    grid: grid((x, y) => {
+      // tapering tooth, wide at top, point at bottom
+      const w = (14 - y) / 2.2;
+      if (y >= 2 && y <= 14 && Math.abs(x - 7.5) < w) {
+        if (Math.abs(x - 7.5) > w - 1) return 0;
+        return y < 6 ? 3 : x < 7.5 ? 2 : 1;
+      }
+      return '.';
+    }),
+  },
+
+  // ---- surfboard + waves ----
+  {
+    // Inventory icon: a longboard seen from above.
+    name: 'itm_surfboard',
+    palette: 'wood',
+    grid: grid((x, y) => {
+      const dx = (x - 7.5) / 2.4;
+      const dy = (y - 7.5) / 6.5;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d > 1) return '.';
+      if (d > 0.82) return 0;
+      // center stripe + tint
+      if (Math.abs(x - 7.5) < 0.7) return 3;
+      return x < 7.5 ? 2 : 1;
+    }),
+  },
+  {
+    // Under-player overlay while surfing: a short board with a wake.
+    name: 'surf_board',
+    palette: 'wood',
+    grid: grid((x, y) => {
+      // board sits low under the feet
+      if (y >= 11 && y <= 14) {
+        const dx = (x - 7.5) / 6.5;
+        const dy = (y - 12.5) / 2;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d > 1) return '.';
+        if (d > 0.8) return 0;
+        return Math.abs(x - 7.5) < 1 ? 3 : 2;
+      }
+      return '.';
+    }),
+  },
+  {
+    name: 'wave_0',
+    palette: 'water',
+    grid: grid((x, y) => {
+      // a horizontal crest with foam flecks
+      if (y === 7 || y === 8) return 3;
+      if (y === 6 && (x + 0) % 3 === 0) return 2;
+      if (y === 9 && (x + 1) % 3 === 0) return 2;
+      return '.';
+    }),
+  },
+  {
+    name: 'wave_1',
+    palette: 'water',
+    grid: grid((x, y) => {
+      if (y === 7 || y === 8) return 3;
+      if (y === 6 && (x + 1) % 3 === 0) return 2;
+      if (y === 9 && (x + 2) % 3 === 0) return 2;
+      return '.';
+    }),
+  },
+
+  // ---- bracklings (original-IP goblin fodder; chase & swing / archer) ----
+  // A squat goblin: pointed ears, big head, stubby body. `bob` shifts the
+  // body 1px for the walk frame; `arms` flags a raised-club / drawn-bow pose.
+  ...bracklingFrames('brackling', 'grass'),
+  ...bracklingFrames('brackling_blue', 'water'),
+  ...bracklingFrames('brackling_archer', 'sand', { archer: true }),
 ];
+
+// Two animation frames for a brackling in a given palette.
+function bracklingFrames(name, palette, { archer = false } = {}) {
+  const body = (bob, raise) =>
+    grid((x, y) => {
+      const yy = y + bob;
+      // pointed ears
+      if (yy === 4 && (x === 2 || x === 13)) return 0;
+      if (yy === 5 && (x === 3 || x === 12)) return 2;
+      // head
+      const hd = Math.hypot(x - 7.5, yy - 6);
+      if (hd < 4.2) {
+        if (hd > 3.3) return 0;
+        // eyes + snout
+        if (yy === 6 && (x === 6 || x === 9)) return 0;
+        if (yy === 8 && x >= 6 && x <= 9) return 3;
+        return 2;
+      }
+      // body
+      if (yy >= 9 && yy <= 13 && x >= 5 && x <= 10) {
+        if (yy === 13 || x === 5 || x === 10) return 0;
+        return 1;
+      }
+      // legs
+      if (yy >= 14 && (x === 5 || x === 6 || x === 9 || x === 10)) return 0;
+      // weapon arm: club (melee) or bow (archer), raised on the action frame
+      if (raise) {
+        if (archer) {
+          // simple bow arc on the right side
+          if (x >= 11 && x <= 13 && yy >= 6 && yy <= 12 && Math.abs(yy - 9) <= (13 - x) + 2)
+            return 3;
+        } else {
+          // club held up
+          if (x >= 11 && x <= 12 && yy >= 3 && yy <= 9) return 3;
+          if (yy >= 3 && yy <= 4 && x >= 10 && x <= 13) return 0;
+        }
+      }
+      return '.';
+    });
+  return [
+    { name: `${name}_0`, palette, grid: body(0, false) },
+    { name: `${name}_1`, palette, grid: body(1, true) },
+  ];
+}

@@ -37,6 +37,9 @@ pub struct SaveItem {
     pub qty: u16,
     pub durability: u16,
     pub fused: Option<String>,
+    /// Swappable body part attached to this gear, by name.
+    #[serde(default)]
+    pub attached: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -64,6 +67,7 @@ pub fn export(defs: &Defs, p: &Player) -> String {
                 qty: s.qty,
                 durability: s.durability,
                 fused: s.fused.map(|f| defs.items[f as usize].name.clone()),
+                attached: s.attached.map(|a| defs.items[a as usize].name.clone()),
             })
             .collect(),
         equip_a: p.equip_a,
@@ -123,6 +127,7 @@ pub fn apply(defs: &Defs, p: &mut Player, json: &str) -> bool {
             qty: s.qty.max(1).min(crate::STACK_CAP),
             durability: s.durability,
             fused: s.fused.as_deref().and_then(|f| defs.item_index(f)),
+            attached: s.attached.as_deref().and_then(|a| defs.item_index(a)),
         });
     }
     let valid_equip = |e: i8| e >= 0 && (e as usize) < p.inventory.len();

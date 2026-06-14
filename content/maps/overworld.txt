@@ -219,6 +219,53 @@ W 5 0 1 1 80 96
 
 SPAWN 5 1 72 40
 
+# ===== THE FOOTHILLS (brackling camps; east of greenreach) =====
+# Grass gives way to rock as you climb toward the eastern crags. Brackling
+# camps cluster here so there is somewhere to go grinding. West edge (rows
+# 3-4) opens back to greenreach; east/outer edges are sealed with crags.
+#  foothills_low(4,2) - foothills_camp(4,1) - foothills_high(4,0)
+
+SCREEN 4 1 foothills_camp
+cccccc.ccc
+c,....,..c
+c..rCr...c
+.........c
+c...,....c
+c.r.FF.r.c
+c,......,c
+ccc.rr.ccc
+E brackling_red 2 1
+E brackling_red 7 3
+E brackling_archer 5 6
+E brackling_captain 4 4
+
+SCREEN 4 0 foothills_high
+cccccccccc
+c,......,c
+c..r..r..c
+.........c
+c.,....,.c
+c...rr...c
+c,......,c
+ccc....ccc
+E brackling_blue 4 3
+E brackling_archer 6 1
+E brackling_red 2 6
+
+SCREEN 4 2 foothills_low
+ccc....ccc
+c,......,c
+c...rr...c
+.........c
+c.r....r.c
+c,..>>..,c
+c...,...,c
+cccccccccc
+E brackling_red 4 1
+E brackling_blue 6 3
+W 4 5 7 12 72 40
+W 5 5 7 12 72 40
+
 # ===== THE ROOTCELLAR (dungeon) =====
 # Layout (sx 10-13, sy 10-12):
 #  entry(10,10) - hall(11,10) - pips(12,10) L keyroom(13,10)
@@ -367,3 +414,107 @@ xffffffffx
 xffffffffx
 xxxxxxxxxx
 E moldra 5 2
+
+# ===== TIDECRAG HOLLOW (dungeon 2; surfboard utility item) =====
+# A flooded sea-cave. Grab the SURFBOARD mid-way, then use it to cross the
+# flooded back rooms that gate the boss (classic item-gates-the-dungeon).
+# Layout (sx 7-9, sy 10-12):
+#  keyroom(7,10) - pool(8,10) - bosskey(9,10)
+#  hall(7,11) - surf(8,11) - approach(9,11)
+#  entry(7,12) ........... boss(9,12)
+# Critical path: entry >N hall >E surf (SURFBOARD) >N pool (water, needs board)
+#  >E bosskey (water, boss key) >S approach >S boss (tidewarden, K boss-door).
+# Optional: hall >N keyroom (L small-key door) for an extra reward.
+# Warp in from foothills_low(4,2) -> tile (4,1) of tc_entry.
+
+SCREEN 7 12 tc_entry
+xxxxffxxxx
+xffffffffx
+xfff<ffffx
+xffffffffx
+xffffffffx
+xffffffffx
+xffffffffx
+xxxxxxxxxx
+W 3 2 4 2 72 64
+E cave_pip 6 4
+
+SCREEN 7 11 tc_hall
+xxxxffxxxx
+xffffffffx
+xffBffBffx
+ffffffffff
+xffBffBffx
+xffffffffx
+xffffffffx
+xxxxffxxxx
+E cave_pip 3 2
+E cave_pip 6 5
+I small_key 4 6
+
+SCREEN 7 10 tc_keyroom
+xxxxxxxxxx
+xffffffffx
+xffffffffx
+xfffffffff
+xffffffffx
+xffffffffx
+xffffffffx
+xxxxffxxxx
+I iron_sword 4 3
+
+SCREEN 8 11 tc_surf
+xxxxffxxxx
+xffffffffx
+xffffffffx
+ffffffffff
+xffffffffx
+xffffffffx
+xffffffffx
+xxxxxxxxxx
+I surfboard 4 3
+E brackling_blue 6 5
+
+SCREEN 8 10 tc_pool
+xxxxxxxxxx
+xfffwwfffx
+xwwwwwwwfx
+Lwwwwwwwwf
+xwwwwwwwfx
+xfffwwfffx
+xffffffffx
+xxxxffxxxx
+
+SCREEN 9 10 tc_bosskey
+xxxxxxxxxx
+xffwwffffx
+xwwwwwwffx
+fwwwwwwffx
+xwwwwwwffx
+xffwwffffx
+xffffffffx
+xxxxffxxxx
+I boss_key 6 6
+
+SCREEN 9 11 tc_approach
+xxxxffxxxx
+xffffffffx
+xffffffffx
+xffffffffx
+xffffffffx
+xffffffffx
+xffffffffx
+xxxxKKxxxx
+E brackling_archer 6 2
+E brackling_blue 3 4
+
+SCREEN 9 12 tc_boss
+xxxxKKxxxx
+xffffffffx
+xffffffffx
+xffffffffx
+xffffffffx
+xffffffffx
+xffffffffx
+xxxxxxxxxx
+E tidewarden 4 3

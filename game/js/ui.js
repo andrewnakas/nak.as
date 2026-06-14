@@ -264,6 +264,7 @@ export class InventoryUI {
     this.open = false;
     this.tab = 'items'; // 'items' | 'quests' | 'skills'
     this.fuseFrom = null; // weapon index awaiting a material pick
+    this.attachFrom = null; // gear index awaiting a body-part pick
     activeInventory = this;
 
     window.addEventListener('keydown', (e) => {
@@ -279,6 +280,7 @@ export class InventoryUI {
       t.onclick = () => {
         this.tab = t.dataset.tab;
         this.fuseFrom = null;
+        this.attachFrom = null;
         this.render();
       };
     }
@@ -287,6 +289,7 @@ export class InventoryUI {
   toggle() {
     this.open = !this.open;
     this.fuseFrom = null;
+    this.attachFrom = null;
     $('#inv').style.display = this.open ? 'flex' : 'none';
     this.session.input.suppressed = this.open;
     if (this.open) this.render();
@@ -311,13 +314,13 @@ export class InventoryUI {
   // ---- ITEMS tab: gear/consumables, plus campfire + vendor when nearby ----
   _renderItems(list, state) {
     if (this.fuseFrom !== null) {
-      list.appendChild(this._section('PICK A MATERIAL TO FUSE'));
+      list.appendChild(this._section('PICK A MATERIAL TO CRAFT WITH'));
       const mats = state.inventory.filter((it) => it.kind === 'material');
-      if (!mats.length) list.appendChild(this._empty('no materials to fuse.'));
+      if (!mats.length) list.appendChild(this._empty('no materials to craft with.'));
       for (const item of mats) {
         const row = this._itemRow(item);
         row.appendChild(
-          this.button('FUSE', false, () => {
+          this.button('CRAFT', false, () => {
             this.action({ action: 'fuse', a: this.fuseFrom, b: item.i });
             this.fuseFrom = null;
           }),
@@ -327,6 +330,29 @@ export class InventoryUI {
       list.appendChild(
         this.button('CANCEL', false, () => {
           this.fuseFrom = null;
+          this.render();
+        }),
+      );
+      return;
+    }
+
+    if (this.attachFrom !== null) {
+      list.appendChild(this._section('PICK A BODY PART TO ATTACH'));
+      const parts = state.inventory.filter((it) => it.kind === 'bodypart');
+      if (!parts.length) list.appendChild(this._empty('no body parts — hunt for some.'));
+      for (const item of parts) {
+        const row = this._itemRow(item);
+        row.appendChild(
+          this.button('ATTACH', false, () => {
+            this.action({ action: 'attach', a: this.attachFrom, b: item.i });
+            this.attachFrom = null;
+          }),
+        );
+        list.appendChild(row);
+      }
+      list.appendChild(
+        this.button('CANCEL', false, () => {
+          this.attachFrom = null;
           this.render();
         }),
       );
@@ -388,7 +414,9 @@ export class InventoryUI {
     row.className = 'inv-row';
     row.appendChild(this._icon(item.sprite));
 
-    const sub = item.fused ? `+${item.fused}` : '';
+    const sub = [item.fused ? `+${item.fused}` : '', item.attached ? `«${item.attached}»` : '']
+      .filter(Boolean)
+      .join(' ');
     row.appendChild(this._name(item.label, sub, true));
 
     const meta = ['sword', 'bow', 'shield', 'rod'].includes(item.kind)
@@ -412,11 +440,24 @@ export class InventoryUI {
       row.appendChild(this.button('EAT', false, () => this.action({ action: 'eat', a: item.i })));
     if (['sword', 'bow', 'shield'].includes(item.kind) && !item.fused)
       row.appendChild(
-        this.button('FUSE', false, () => {
+        this.button('CRAFT', false, () => {
           this.fuseFrom = item.i;
           this.render();
         }),
       );
+    // Body-part attachments: swappable, so always offer attach/detach on gear.
+    // Weapons + shield only (rods are utility items, not stat carriers).
+    if (['sword', 'bow', 'shield'].includes(item.kind)) {
+      if (item.attached)
+        row.appendChild(this.button('DETACH', false, () => this.action({ action: 'detach', a: item.i })));
+      else
+        row.appendChild(
+          this.button('ATTACH', false, () => {
+            this.attachFrom = item.i;
+            this.render();
+          }),
+        );
+    }
     return row;
   }
 

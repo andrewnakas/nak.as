@@ -18,10 +18,10 @@ pub mod rng;
 pub mod save;
 pub mod world;
 
-use defs::{Brain, Defs, DropItem, FuseEffect, ItemKind};
+use defs::{AttachEffect, Brain, Defs, DropItem, FuseEffect, ItemKind};
 use draw::{DrawList, FLAG_FLIP_X, HUD_H, SCREEN_H, SCREEN_W};
 use entity::{
-    Entity, StepCtx, BLAST_RADIUS, ET_BLAST, ET_BOMB, ET_ENEMY, ET_PICKUP, ET_PROJECTILE,
+    Entity, StepCtx, BLAST_RADIUS, ET_BLAST, ET_BOMB, ET_ENEMY, ET_PICKUP, ET_PROJECTILE, ET_WAVE,
     PJ_ARROW, PK_HEART, PK_ITEM, PK_SHELLS,
 };
 use fixed::{fx, to_px, Fx};
@@ -106,8 +106,10 @@ pub struct ItemStack {
     pub def: u8,
     pub qty: u16,
     pub durability: u16,
-    /// Material item def fused onto this weapon.
+    /// Material item def fused onto this weapon (permanent).
     pub fused: Option<u8>,
+    /// Body-part item def attached to this gear (swappable, non-destructive).
+    pub attached: Option<u8>,
 }
 
 /// What a dialogue box is showing. The u8 is a quest index except for
@@ -186,6 +188,11 @@ pub struct Player {
     /// Set once the player has completed the intro/tutorial. Persisted so
     /// returning characters spawn in town, not on the tutorial beach.
     pub intro_done: bool,
+    /// Riding the surfboard over water (board equipped + feet on water).
+    /// Drives the paddle animation and gates water traversal.
+    pub surfing: bool,
+    /// Ticks of wave speed boost remaining (caught an ocean wave while surfing).
+    pub wave_boost: u32,
 }
 
 /// Total combat XP required to reach a level (level 1 = 0). Gentle quadratic.
@@ -216,6 +223,15 @@ impl Player {
     pub fn equipped(&self, slot: i8) -> Option<&ItemStack> {
         usize::try_from(slot).ok().and_then(|i| self.inventory.get(i))
     }
+}
+
+/// Surfboard equipped in the B slot? (gates water traversal). The item index
+/// is resolved against the defs each call — cheap and avoids caching.
+fn has_surfboard(defs: &Defs, p: &Player) -> bool {
+    let Some(board) = defs.item_index("surfboard") else {
+        return false;
+    };
+    p.equipped(p.equip_b).is_some_and(|s| s.def == board)
 }
 
 #[derive(Deserialize)]
@@ -283,6 +299,7 @@ pub fn give_item(p: &mut Player, defs: &Defs, def: u8, qty: u16) -> bool {
         qty: if item.stackable() { qty } else { 1 },
         durability: item.durability,
         fused: None,
+        attached: None,
     });
     true
 }
@@ -403,8 +420,9 @@ impl Sim {
     }
 
     /// Tile solidity including door/bramble overrides (player path only;
-    /// enemies keep using the pristine map).
-    fn effective_solid(&self, screen: &world::Screen, px: i32, py: i32) -> bool {
+    /// enemies keep using the pristine map). When `water_ok` (the player has
+    /// the surfboard equipped) water tiles are treated as passable.
+    fn effective_solid(&self, screen: &world::Screen, px: i32, py: i32, water_ok: bool) -> bool {
         let tx = px.div_euclid(16);
         let ty = (py - HUD_H).div_euclid(16);
         if (0..world::SCREEN_COLS).contains(&tx) && (0..world::SCREEN_ROWS).contains(&ty) {
@@ -412,8 +430,13 @@ impl Sim {
                 .overrides
                 .get(&(screen.x, screen.y, ty * world::SCREEN_COLS + tx))
             {
-                return self.world.tile_solid.get(t as usize).copied().unwrap_or(true);
+                let solid = self.world.tile_solid.get(t as usize).copied().unwrap_or(true);
+                let water = self.world.tile_water.get(t as usize).copied().unwrap_or(false);
+                return solid && !(water_ok && water);
             }
+        }
+        if water_ok && self.world.is_water(screen, px, py) {
+            return false;
         }
         self.world.is_solid(screen, px, py)
     }
@@ -455,6 +478,8 @@ impl Sim {
             dialogue: None,
             quests: Vec::new(),
             intro_done: false,
+            surfing: false,
+            wave_boost: 0,
         };
         // No starting kit: you begin empty-handed. The first weapon is a
         // stick picked up off the ground in the intro; real gear is bought
@@ -636,7 +661,36 @@ impl Sim {
         let fuse = stack
             .fused
             .map_or(0, |m| self.defs.items[m as usize].fuse_damage);
-        (def.damage + fuse) as i32
+        let attach = self.attach_bonus(stack, AttachEffect::Damage);
+        (def.damage + fuse + attach) as i32
+    }
+
+    /// Magnitude of an attached body part's effect on this gear, or 0 if the
+    /// attached part has a different effect (or nothing is attached).
+    fn attach_bonus(&self, stack: &ItemStack, want: AttachEffect) -> i16 {
+        match stack.attached {
+            Some(a) => {
+                let part = &self.defs.items[a as usize];
+                if part.attach_effect == want {
+                    part.attach_mag
+                } else {
+                    0
+                }
+            }
+            None => 0,
+        }
+    }
+
+    /// Sum an attach effect across the player's equipped A and B gear (so a wing
+    /// on either slot speeds you up, a horn on either reduces incoming damage).
+    fn equipped_attach_bonus(&self, p: &Player, want: AttachEffect) -> i16 {
+        let mut total = 0;
+        for slot in [p.equip_a, p.equip_b] {
+            if let Some(stack) = p.equipped(slot) {
+                total += self.attach_bonus(stack, want);
+            }
+        }
+        total
     }
 
     fn weapon_poison(&self, stack: &ItemStack) -> bool {
@@ -737,9 +791,67 @@ impl Sim {
         }
         self.step_entities();
         self.resolve_combat();
+        self.step_waves();
         self.cleanup_and_drops();
         if self.tick % 60 == 0 {
             self.respawn_screens();
+        }
+    }
+
+    /// Ocean waves: on screens where someone is surfing, periodically spawn a
+    /// crest that drifts shoreward (north→south here). A surfing player who
+    /// overlaps a wave catches it for a speed boost. Deterministic: spawn cadence
+    /// is tied to the tick, lateral offset to the rng.
+    fn step_waves(&mut self) {
+        // Screens with a surfing player are "active oceans".
+        let mut active: Vec<(i32, i32)> = Vec::new();
+        for p in self.players.iter().flatten() {
+            if p.surfing && !active.contains(&(p.sx, p.sy)) {
+                active.push((p.sx, p.sy));
+            }
+        }
+        // Spawn a wave every ~2.5s on each active ocean screen (cap one per
+        // screen in flight to keep it sparse).
+        if self.tick % 150 == 0 {
+            let mut to_spawn = Vec::new();
+            for &(sx, sy) in &active {
+                let already = self
+                    .entities
+                    .iter()
+                    .any(|e| e.etype == ET_WAVE && e.sx == sx && e.sy == sy);
+                if !already {
+                    let jx = self.rng.below(120) as i32; // lateral start jitter
+                    let mut w = entity::blank(ET_WAVE, sx, sy, fx(jx), fx(HUD_H));
+                    w.vy = fx(1); // drift south toward the shore
+                    to_spawn.push(w);
+                }
+            }
+            for mut w in to_spawn {
+                w.id = self.next_id;
+                self.next_id += 1;
+                self.entities.push(w);
+            }
+        }
+        // Catch: a surfing player overlapping a wave gets a ~1s boost.
+        for slot in 0..MAX_PLAYERS {
+            let Some(mut p) = self.players[slot].clone() else {
+                continue;
+            };
+            if !p.surfing {
+                continue;
+            }
+            let caught = self.entities.iter().any(|e| {
+                e.etype == ET_WAVE
+                    && e.alive
+                    && e.sx == p.sx
+                    && e.sy == p.sy
+                    && (to_px(e.y) - to_px(p.y)).abs() < 12
+            });
+            if caught && p.wave_boost == 0 {
+                p.wave_boost = 60;
+                self.emit_cue(p.sx, p.sy, cues::SWING);
+                self.players[slot] = Some(p);
+            }
         }
     }
 
@@ -800,13 +912,14 @@ impl Sim {
         // Knockback dominates while strong.
         if pl.kvx != 0 || pl.kvy != 0 {
             let screen = self.world.screen_at(pl.sx, pl.sy);
+            let water_ok = has_surfboard(&self.defs, &pl);
             if let Some(screen) = screen {
                 let nx = pl.x + pl.kvx;
-                if self.feet_clear(screen, nx, pl.y) {
+                if self.feet_clear(screen, nx, pl.y, water_ok) {
                     pl.x = nx.clamp(MIN_X, MAX_X);
                 }
                 let ny = pl.y + pl.kvy;
-                if self.feet_clear(screen, pl.x, ny) {
+                if self.feet_clear(screen, pl.x, ny, water_ok) {
                     pl.y = ny.clamp(MIN_Y, MAX_Y);
                 }
             }
@@ -892,6 +1005,11 @@ impl Sim {
                     }
                 }
                 pl.walking = false;
+                // You fish from land; never surfing while a line is out.
+                pl.surfing = false;
+                if pl.wave_boost > 0 {
+                    pl.wave_boost -= 1;
+                }
                 pl.prev_buttons = pl.buttons;
                 self.players[slot] = Some(pl);
                 return;
@@ -935,7 +1053,11 @@ impl Sim {
                         self.entities.push(bomb);
                     }
                 }
-                ItemKind::Rod if pressed => {
+                // The surfboard is a rod-slot item but doesn't fish.
+                ItemKind::Rod
+                    if pressed
+                        && self.defs.items[stack.def as usize].name != "surfboard" =>
+                {
                     // Cast only when the tile in front is water.
                     let (fx_, fy_) = facing_tile_center(&pl);
                     let in_water = self
@@ -953,11 +1075,29 @@ impl Sim {
                 _ => {}
             }
         }
-        // Shielding slows you down.
-        let speed = if pl.shielding {
-            WALK_SPEED / 2
+        // Surfing: with the board equipped you can ride over water. Paddling is
+        // a touch slower than walking on still water, but catching an ocean wave
+        // gives a big speed burst.
+        let board = has_surfboard(&self.defs, &pl);
+        let on_water = self
+            .world
+            .screen_at(pl.sx, pl.sy)
+            .is_some_and(|s| self.world.is_water(s, to_px(pl.x) + 8, to_px(pl.y) + 12));
+        pl.surfing = board && on_water;
+        if pl.wave_boost > 0 {
+            pl.wave_boost -= 1;
+        }
+
+        // Shielding slows you down; an attached wing speeds you up.
+        let wing = self.equipped_attach_bonus(&pl, AttachEffect::Speed) as Fx;
+        let speed = if pl.surfing {
+            // Paddle pace, plus a wave-catch burst when boosted.
+            let base = WALK_SPEED - WALK_SPEED / 4;
+            (if pl.wave_boost > 0 { base * 2 } else { base }) + wing
+        } else if pl.shielding {
+            WALK_SPEED / 2 + wing / 2
         } else {
-            WALK_SPEED
+            WALK_SPEED + wing
         };
 
         let mut dx: Fx = 0;
@@ -1001,13 +1141,13 @@ impl Sim {
         // Axis-separated movement against the feet box for wall sliding.
         if dx != 0 {
             let nx = pl.x + dx;
-            if self.feet_clear(screen, nx, pl.y) {
+            if self.feet_clear(screen, nx, pl.y, board) {
                 pl.x = nx;
             }
         }
         if dy != 0 {
             let ny = pl.y + dy;
-            if self.feet_clear(screen, pl.x, ny) {
+            if self.feet_clear(screen, pl.x, ny, board) {
                 pl.y = ny;
             }
         }
@@ -1038,7 +1178,7 @@ impl Sim {
             };
             // Only cross if the landing spot is walkable — walking off an
             // open edge into a rock on the neighbor screen would trap you.
-            let clear = dest.is_some_and(|s| self.feet_clear_on(s, dx_, dy_));
+            let clear = dest.is_some_and(|s| self.feet_clear_on(s, dx_, dy_, board));
             if clear {
                 pl.sx = nsx;
                 pl.sy = nsy;
@@ -1054,8 +1194,8 @@ impl Sim {
         // Belt and braces: if anything still left us inside a wall (bad
         // warp target, old save), slide to the nearest clear spot.
         if let Some(screen) = self.world.screen_at(pl.sx, pl.sy) {
-            if !self.feet_clear_on(screen, pl.x, pl.y) {
-                if let Some((ux, uy)) = self.find_clear_near(screen, pl.x, pl.y) {
+            if !self.feet_clear_on(screen, pl.x, pl.y, board) {
+                if let Some((ux, uy)) = self.find_clear_near(screen, pl.x, pl.y, board) {
                     pl.x = ux;
                     pl.y = uy;
                 }
@@ -1424,6 +1564,7 @@ impl Sim {
                     }
                 }
                 ET_BLAST => entity::step_blast(&mut e),
+                ET_WAVE => entity::step_wave(&mut e),
                 _ => entity::step_pickup(&mut e),
             }
             // Poison: 1 damage per second while poisoned.
@@ -1617,6 +1758,9 @@ impl Sim {
             let px1 = to_px(p.x) + FEET_X1;
             let py1 = to_px(p.y) + FEET_Y1;
             let mut changed = false;
+            // Attached horns/shells soften every incoming hit (min 1 damage).
+            let defense = self.equipped_attach_bonus(&p, AttachEffect::Defense);
+            let mitigate = |dmg: i16| (dmg - defense).max(1);
 
             for i in 0..self.entities.len() {
                 let mut e = self.entities[i].clone();
@@ -1640,7 +1784,7 @@ impl Sim {
                             changed = true;
                         } else {
                             let def = &self.defs.enemies[e.def as usize];
-                            p.hp -= def.damage;
+                            p.hp -= mitigate(def.damage);
                             p.iframes = PLAYER_IFRAMES;
                             p.kvx = fx(3) * (p.x - e.x).signum();
                             p.kvy = fx(3) * (p.y - e.y).signum();
@@ -1668,7 +1812,7 @@ impl Sim {
                             self.wear_weapon(&mut p, slot, WearSlot::B);
                             changed = true;
                         } else {
-                            p.hp -= e.data as i16;
+                            p.hp -= mitigate(e.data as i16);
                             p.iframes = PLAYER_IFRAMES;
                             p.kvx = e.vx * 2;
                             p.kvy = e.vy * 2;
@@ -1686,7 +1830,7 @@ impl Sim {
                         if fixed::dist2_px(p.x, p.y, e.x, e.y)
                             <= (BLAST_RADIUS as i64) * (BLAST_RADIUS as i64)
                         {
-                            p.hp -= 2;
+                            p.hp -= mitigate(2);
                             p.iframes = PLAYER_IFRAMES;
                             p.kvx = fx(4) * (p.x - e.x).signum();
                             p.kvy = fx(4) * (p.y - e.y).signum();
@@ -1838,21 +1982,27 @@ impl Sim {
         }
     }
 
-    fn feet_clear(&self, screen: &world::Screen, x: Fx, y: Fx) -> bool {
-        self.feet_clear_on(screen, x, y)
+    fn feet_clear(&self, screen: &world::Screen, x: Fx, y: Fx, water_ok: bool) -> bool {
+        self.feet_clear_on(screen, x, y, water_ok)
     }
 
-    fn feet_clear_on(&self, screen: &world::Screen, x: Fx, y: Fx) -> bool {
+    fn feet_clear_on(&self, screen: &world::Screen, x: Fx, y: Fx, water_ok: bool) -> bool {
         let px = to_px(x);
         let py = to_px(y);
-        !(self.effective_solid(screen, px + FEET_X0, py + FEET_Y0)
-            || self.effective_solid(screen, px + FEET_X1, py + FEET_Y0)
-            || self.effective_solid(screen, px + FEET_X0, py + FEET_Y1)
-            || self.effective_solid(screen, px + FEET_X1, py + FEET_Y1))
+        !(self.effective_solid(screen, px + FEET_X0, py + FEET_Y0, water_ok)
+            || self.effective_solid(screen, px + FEET_X1, py + FEET_Y0, water_ok)
+            || self.effective_solid(screen, px + FEET_X0, py + FEET_Y1, water_ok)
+            || self.effective_solid(screen, px + FEET_X1, py + FEET_Y1, water_ok))
     }
 
     /// Nearest walkable position to (x, y), searched in growing rings.
-    fn find_clear_near(&self, screen: &world::Screen, x: Fx, y: Fx) -> Option<(Fx, Fx)> {
+    fn find_clear_near(
+        &self,
+        screen: &world::Screen,
+        x: Fx,
+        y: Fx,
+        water_ok: bool,
+    ) -> Option<(Fx, Fx)> {
         for r in 1..=10 {
             let step = fx(4) * r;
             for (ddx, ddy) in [
@@ -1861,7 +2011,7 @@ impl Sim {
             ] {
                 let nx = (x + ddx * step).clamp(MIN_X, MAX_X);
                 let ny = (y + ddy * step).clamp(MIN_Y, MAX_Y);
-                if self.feet_clear_on(screen, nx, ny) {
+                if self.feet_clear_on(screen, nx, ny, water_ok) {
                     return Some((nx, ny));
                 }
             }
@@ -2004,6 +2154,56 @@ impl Sim {
                 self.emit_toast(slot, &format!("FUSED {m_label} TO {w_label}"));
                 self.emit_cue(p.sx, p.sy, cues::FUSE);
                 Self::quest_event(&mut p, &self.defs, QuestEvent::Fuse);
+            }
+            // Attach a body part to gear (swappable, non-destructive). a = gear
+            // slot, b = body-part slot. Any existing part is returned to the pack.
+            "attach" => {
+                let (gi, bi) = (act.a as usize, act.b as usize);
+                if gi == bi || gi >= p.inventory.len() || bi >= p.inventory.len() {
+                    return;
+                }
+                let gear = p.inventory[gi];
+                let part = p.inventory[bi];
+                let g_ok = self.defs.items[gear.def as usize].is_attachable();
+                let b_ok = self.defs.items[part.def as usize].kind == ItemKind::BodyPart;
+                if !g_ok || !b_ok {
+                    return;
+                }
+                let g_label = self.defs.items[gear.def as usize].label.clone();
+                let p_label = self.defs.items[part.def as usize].label.clone();
+                // Return any currently-attached part before swapping in the new
+                // one — but only if it fits, so we never destroy the old part.
+                if let Some(prev) = gear.attached {
+                    if !give_item(&mut p, &self.defs, prev, 1) {
+                        self.emit_toast(slot, "PACK IS FULL");
+                        self.players[slot] = Some(p);
+                        return;
+                    }
+                }
+                // Re-resolve the gear index: give_item may have grown the vec but
+                // never reorders existing entries, so gi is still valid.
+                p.inventory[gi].attached = Some(part.def);
+                consume_one(&mut p, bi);
+                self.emit_toast(slot, &format!("ATTACHED {p_label} TO {g_label}"));
+                self.emit_cue(p.sx, p.sy, cues::FUSE);
+            }
+            // Detach a body part from gear, returning it to the pack. a = gear slot.
+            "detach" => {
+                let gi = act.a as usize;
+                let Some(gear) = p.inventory.get(gi).copied() else {
+                    return;
+                };
+                let Some(part) = gear.attached else {
+                    return;
+                };
+                if give_item(&mut p, &self.defs, part, 1) {
+                    p.inventory[gi].attached = None;
+                    let p_label = self.defs.items[part as usize].label.clone();
+                    self.emit_toast(slot, &format!("DETACHED {p_label}"));
+                    self.emit_cue(p.sx, p.sy, cues::ITEM);
+                } else {
+                    self.emit_toast(slot, "PACK IS FULL");
+                }
             }
             _ => {}
         }
@@ -2162,6 +2362,7 @@ impl Sim {
                             qty: s.qty,
                             durability: s.durability,
                             fused: s.fused.map_or(-1, |f| f as i16),
+                            attached: s.attached.map_or(-1, |a| a as i16),
                         })
                         .collect(),
                     equip_a: p.equip_a,
@@ -2174,6 +2375,7 @@ impl Sim {
                         FishPhase::Bite { .. } => 1,
                     }),
                     near_fire: near_fire(&self.world, p),
+                    surfing: p.surfing,
                     dialogue: p.dialogue.map(|d| {
                         let (kind, idx) = match d.source {
                             DialogueSource::Idle(i) => (0, i),
@@ -2277,6 +2479,8 @@ impl Sim {
                     h.i32(p.kvx);
                     h.i32(p.kvy);
                     h.u32(p.shielding as u32);
+                    h.u32(p.surfing as u32);
+                    h.u32(p.wave_boost);
                     h.i32(p.equip_a as i32);
                     h.i32(p.equip_b as i32);
                     for s in p.skills {
@@ -2320,6 +2524,7 @@ impl Sim {
                         h.u32(s.qty as u32);
                         h.u32(s.durability as u32);
                         h.i32(s.fused.map_or(-1, |f| f as i32));
+                        h.i32(s.attached.map_or(-1, |a| a as i32));
                     }
                     match p.transition {
                         None => h.u32(0),
@@ -2368,6 +2573,7 @@ fn kind_str(kind: ItemKind) -> &'static str {
         ItemKind::Material => "material",
         ItemKind::Rod => "rod",
         ItemKind::Food => "food",
+        ItemKind::BodyPart => "bodypart",
     }
 }
 
@@ -2396,6 +2602,7 @@ pub fn ui_state_json(
         dur: u16,
         max_dur: u16,
         fused: Option<String>,
+        attached: Option<String>,
         heal: i16,
     }
     #[derive(serde::Serialize)]
@@ -2456,6 +2663,7 @@ pub fn ui_state_json(
                     max_dur: def.durability
                         + if s.fused.is_some() { 10 } else { 0 },
                     fused: s.fused.map(|f| defs.items[f as usize].label.clone()),
+                    attached: s.attached.map(|a| defs.items[a as usize].label.clone()),
                     heal: def.heal,
                 }
             })
@@ -2812,6 +3020,14 @@ fn draw_entities_on(
                     out.sprite(s, px + dx, py + dy, 0, 0);
                 }
             }
+            ET_WAVE => {
+                // A long cresting line: tile the wave sprite across the width.
+                let frame = ((e.anim >> 3) & 1) as u16;
+                let s = world.sprites.wave + frame;
+                for dx in [-32, -16, 0, 16, 32] {
+                    out.sprite(s, px + dx, py, 0, 0);
+                }
+            }
             _ => {}
         }
     }
@@ -2860,6 +3076,10 @@ fn draw_players_on(
             if p.facing == 1 {
                 out.sprite(s, x, y, 0, f);
             }
+        }
+        // Surfboard rides under the player on the water.
+        if p.surfing {
+            out.sprite(world.sprites.surf, px, py, 0, 0);
         }
         if !flicker {
             let frame = if p.walking { (p.anim >> 3) & 1 } else { 0 } as u16;
@@ -3118,6 +3338,9 @@ mod tests {
             "itm_rod",
             "itm_fish",
             "itm_food",
+            "surf_board",
+            "wave_0",
+            "wave_1",
         ];
         let sprite_names = sprites.map(|s| format!("\"{s}\"")).join(",");
         format!(
@@ -3137,13 +3360,19 @@ mod tests {
  {{"name":"crab_claw","label":"CRAB CLAW","sprite":"claw","kind":"material","fuse_damage":1}},
  {{"name":"wasp_stinger","label":"WASP STINGER","sprite":"claw","kind":"material","fuse_effect":"poison"}},
  {{"name":"fishing_rod","label":"FISHING ROD","sprite":"itm_rod","kind":"rod","durability":25}},
+ {{"name":"surfboard","label":"SURFBOARD","sprite":"itm_rod","kind":"rod","durability":9999}},
  {{"name":"raw_perch","label":"RAW PERCH","sprite":"itm_fish","kind":"material"}},
+ {{"name":"brackling_claw","label":"BRACKLING CLAW","sprite":"claw","kind":"bodypart","attach_effect":"damage","attach_mag":2}},
+ {{"name":"flutterwing","label":"FLUTTERWING","sprite":"claw","kind":"bodypart","attach_effect":"speed","attach_mag":96}},
  {{"name":"grilled_perch","label":"GRILLED PERCH","sprite":"itm_food","kind":"food","heal":4}}],
 "enemies":[
  {{"name":"thornling","brain":"thornling","hp":2,"damage":1,"speed":0,"sprite":"thornling_0","drops":"basic","combat_xp":100}},
  {{"name":"gel","brain":"gel","hp":2,"damage":1,"speed":128,"sprite":"gel_0","drops":"basic"}},
+ {{"name":"brackling","brain":"brackling","hp":3,"damage":1,"speed":176,"sprite":"thornling_0","drops":"brack","combat_xp":14}},
+ {{"name":"archer","brain":"brackling_archer","hp":3,"damage":1,"speed":160,"sprite":"thornling_0","drops":"brack","combat_xp":14}},
  {{"name":"hare","brain":"critter","hp":1,"damage":0,"speed":320,"sprite":"gel_0","drops":"basic","hunt_xp":20}}],
-"drops":{{"basic":[{{"item":"heart","p":400}},{{"item":"shells","p":600,"min":1,"max":3}},{{"item":"crab_claw","p":300}}]}},
+"drops":{{"basic":[{{"item":"heart","p":400}},{{"item":"shells","p":600,"min":1,"max":3}},{{"item":"crab_claw","p":300}}],
+ "brack":[{{"item":"shells","p":1000,"min":2,"max":4}},{{"item":"brackling_claw","p":1000}}]}},
 "skills":{{"curve":{{"base":100,"growth":50,"max_level":15}},
  "fishing":[{{"item":"raw_perch","min_level":1,"weight":60,"xp":25}}]}},
 "recipes":[{{"output":"grilled_perch","inputs":["raw_perch"],"level":1,"xp":30}}],
@@ -3398,6 +3627,191 @@ mod tests {
     }
 
     #[test]
+    fn attach_is_reversible_and_modifies_stats() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 7).unwrap();
+        sim.add_player(0);
+        give_starter_kit(&mut sim, 0);
+        let claw_part = sim.defs.item_index("brackling_claw").unwrap();
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            give_item(p, &sim.defs, claw_part, 1);
+        }
+        let p = sim.players[0].as_ref().unwrap();
+        let sword_idx = p
+            .inventory
+            .iter()
+            .position(|s| sim.defs.items[s.def as usize].kind == ItemKind::Sword)
+            .unwrap();
+        let part_idx = p.inventory.iter().position(|s| s.def == claw_part).unwrap();
+        let dmg_before = sim.weapon_damage(&p.inventory[sword_idx]);
+
+        // Attach: damage +2, part consumed from the pack.
+        sim.ui_action(0, &format!(r#"{{"action":"attach","a":{sword_idx},"b":{part_idx}}}"#));
+        let p = sim.players[0].as_ref().unwrap();
+        let sword = &p.inventory[sword_idx];
+        assert_eq!(sword.attached, Some(claw_part));
+        assert_eq!(sim.weapon_damage(sword), dmg_before + 2, "claw adds +2 damage");
+        assert!(
+            !p.inventory.iter().any(|s| s.def == claw_part),
+            "attached part leaves the pack"
+        );
+
+        // Detach: non-destructive — the part returns to the pack, stat reverts.
+        sim.ui_action(0, &format!(r#"{{"action":"detach","a":{sword_idx}}}"#));
+        let p = sim.players[0].as_ref().unwrap();
+        let sword = &p.inventory[sword_idx];
+        assert_eq!(sword.attached, None);
+        assert_eq!(sim.weapon_damage(sword), dmg_before, "stat reverts on detach");
+        assert!(
+            p.inventory.iter().any(|s| s.def == claw_part),
+            "detach returns the part to the pack"
+        );
+    }
+
+    #[test]
+    fn brackling_chases_and_drops_loot() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 1).unwrap();
+        sim.add_player(0);
+        give_starter_kit(&mut sim, 0);
+        let brackling = sim.defs.enemy_index("brackling").unwrap();
+        // Drop a brackling a little away from the player on screen (0,0).
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.x = fx(40);
+            p.y = fx(80);
+        }
+        let e = Entity::enemy(sim.next_id, brackling, 3, 0, 0, 110, 80);
+        sim.next_id += 1;
+        let start_x = e.x;
+        sim.entities.push(e);
+        // It should close distance toward the player over a second.
+        for _ in 0..60 {
+            sim.step();
+        }
+        let now = sim
+            .entities
+            .iter()
+            .find(|en| en.etype == ET_ENEMY && en.def == brackling)
+            .map(|en| en.x);
+        if let Some(nx) = now {
+            assert!(nx < start_x, "brackling should chase toward the player");
+        }
+        // Kill it and confirm the brack table yields shells + a body part.
+        let pickups_before = sim.entities.iter().filter(|e| e.etype == ET_PICKUP).count();
+        for en in sim.entities.iter_mut() {
+            if en.etype == ET_ENEMY && en.def == brackling {
+                en.hp = 0;
+                en.alive = false;
+            }
+        }
+        sim.cleanup_and_drops();
+        let part = sim.defs.item_index("brackling_claw").unwrap();
+        let drops: Vec<_> = sim
+            .entities
+            .iter()
+            .filter(|e| e.etype == ET_PICKUP)
+            .collect();
+        assert!(drops.len() > pickups_before, "a kill should spawn drops");
+        let shells = drops.iter().any(|d| d.def == PK_SHELLS);
+        let body = drops.iter().any(|d| d.def == PK_ITEM && d.data == part as i32);
+        assert!(shells, "brackling drops shells (grinding pays out)");
+        assert!(body, "brackling drops a body part (p=1000)");
+    }
+
+    #[test]
+    fn surfboard_gates_water_traversal() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 2).unwrap();
+        sim.add_player(0);
+        // Screen (1,0) has a water tile at column 5, row 3 -> px (80, 48+HUD).
+        // Stand the player on the water tile's row, just to its left.
+        let board = sim.defs.item_index("surfboard").unwrap();
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.sx = 1;
+            p.sy = 0;
+            p.x = fx(64);
+            p.y = fx(3 * 16 + HUD_H);
+        }
+        // Without the board: walking right into the water tile is blocked.
+        sim.set_input(0, BTN_RIGHT);
+        for _ in 0..40 {
+            sim.step();
+        }
+        let blocked_x = to_px(sim.players[0].as_ref().unwrap().x);
+        assert!(blocked_x < 78, "water should block without the surfboard, got {blocked_x}");
+        assert!(!sim.players[0].as_ref().unwrap().surfing);
+
+        // Equip the board and try again: now water is passable and surfing sets.
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            give_item(p, &sim.defs, board, 1);
+            let bi = p.inventory.iter().position(|s| s.def == board).unwrap();
+            p.equip_b = bi as i8;
+            p.x = fx(64);
+            p.y = fx(3 * 16 + HUD_H);
+        }
+        sim.set_input(0, BTN_RIGHT);
+        let mut surfed = false;
+        for _ in 0..60 {
+            sim.step();
+            if sim.players[0].as_ref().unwrap().surfing {
+                surfed = true;
+                break;
+            }
+        }
+        assert!(surfed, "equipped surfboard lets the player ride onto water");
+        assert!(to_px(sim.players[0].as_ref().unwrap().x) > 70, "moved onto the water tile");
+
+        // Catch a wave: drop one onto the surfer and confirm the boost lands.
+        {
+            let (sx, sy, py) = {
+                let p = sim.players[0].as_ref().unwrap();
+                (p.sx, p.sy, p.y)
+            };
+            let mut w = entity::blank(ET_WAVE, sx, sy, fx(20), py);
+            w.id = sim.next_id;
+            sim.next_id += 1;
+            sim.entities.push(w);
+        }
+        sim.set_input(0, BTN_RIGHT);
+        sim.step();
+        assert!(
+            sim.players[0].as_ref().unwrap().wave_boost > 0,
+            "overlapping a wave while surfing grants a speed boost"
+        );
+    }
+
+    #[test]
+    fn food_cannot_be_crafted_or_attached() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 4).unwrap();
+        sim.add_player(0);
+        give_starter_kit(&mut sim, 0);
+        let food = sim.defs.item_index("grilled_perch").unwrap();
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            give_item(p, &sim.defs, food, 1);
+        }
+        let p = sim.players[0].as_ref().unwrap();
+        let sword_idx = p
+            .inventory
+            .iter()
+            .position(|s| sim.defs.items[s.def as usize].kind == ItemKind::Sword)
+            .unwrap();
+        let food_idx = p.inventory.iter().position(|s| s.def == food).unwrap();
+        // Food is neither a Material (craft) nor a BodyPart (attach): both no-op.
+        sim.ui_action(0, &format!(r#"{{"action":"fuse","a":{sword_idx},"b":{food_idx}}}"#));
+        sim.ui_action(0, &format!(r#"{{"action":"attach","a":{sword_idx},"b":{food_idx}}}"#));
+        let p = sim.players[0].as_ref().unwrap();
+        assert_eq!(p.inventory[sword_idx].fused, None);
+        assert_eq!(p.inventory[sword_idx].attached, None);
+        assert!(p.inventory.iter().any(|s| s.def == food), "food untouched");
+    }
+
+    #[test]
     fn durability_wears_and_weapon_breaks() {
         let bundle = test_bundle();
         let mut sim = Sim::new(&bundle, 11).unwrap();
@@ -3521,6 +3935,15 @@ mod tests {
             p.skills = [120, 30, 7];
             p.hp = 3;
             give_item(p, &sim.defs, sim.defs.item_index("crab_claw").unwrap(), 5);
+            // Attach a body part to a sword to round-trip `attached`.
+            let part = sim.defs.item_index("brackling_claw").unwrap();
+            give_item(p, &sim.defs, sim.defs.item_index("driftwood_sword").unwrap(), 1);
+            let si = p
+                .inventory
+                .iter()
+                .position(|s| sim.defs.items[s.def as usize].kind == ItemKind::Sword)
+                .unwrap();
+            p.inventory[si].attached = Some(part);
             p.quests.push(PlayerQuest {
                 quest: 0,
                 done: false,
@@ -3547,6 +3970,15 @@ mod tests {
         assert_eq!(
             p.inventory.iter().find(|s| s.def == claw).map(|s| s.qty),
             Some(5)
+        );
+        // Attached body part survives the round trip.
+        let part = sim2.defs.item_index("brackling_claw").unwrap();
+        assert!(
+            p.inventory
+                .iter()
+                .any(|s| sim2.defs.items[s.def as usize].kind == ItemKind::Sword
+                    && s.attached == Some(part)),
+            "attached part round-trips through save"
         );
         // Same hash after re-export (stable round trip).
         assert_eq!(sim2.export_save(0), json);

@@ -11,6 +11,9 @@ pub const ET_PROJECTILE: u8 = 1;
 pub const ET_PICKUP: u8 = 2;
 pub const ET_BOMB: u8 = 3;
 pub const ET_BLAST: u8 = 4;
+/// Ocean wave: drifts shoreward; a surfing player who overlaps it gets a
+/// short speed boost ("catching the wave").
+pub const ET_WAVE: u8 = 5;
 
 /// Projectile kinds (EntitySnap.def for ET_PROJECTILE).
 pub const PJ_SEED: u8 = 0;
@@ -278,6 +281,71 @@ pub fn step_enemy(
             }
             Vec::new()
         }
+        Brain::Brackling => {
+            // Fodder goblin: chase the nearest player and swing on contact.
+            // (Contact damage is applied by the collision pass; the ST_ATTACK
+            // state just drives the swing animation + a tiny lunge.)
+            match e.state {
+                ST_ATTACK => {
+                    if e.state_t > 18 {
+                        e.state = ST_MOVE;
+                        e.state_t = 0;
+                    } else if let Some((px, py, _)) = target {
+                        // brief lunge in the swing
+                        let (dx, dy) = step_toward(e.x, e.y, px, py, def.speed * 3 / 2);
+                        try_move(e, ctx.world, dx, dy);
+                    }
+                }
+                _ => {
+                    if let Some((px, py, d2)) = target {
+                        let (dx, dy) = step_toward(e.x, e.y, px, py, def.speed);
+                        try_move(e, ctx.world, dx, dy);
+                        e.facing = if dx.abs() > dy.abs() {
+                            if dx < 0 { 2 } else { 3 }
+                        } else if dy < 0 {
+                            1
+                        } else {
+                            0
+                        };
+                        if d2 < 26 * 26 && e.state_t > 24 {
+                            e.state = ST_ATTACK;
+                            e.state_t = 0;
+                        }
+                    } else {
+                        wander(e, ctx.world, def.speed, rng, 60);
+                    }
+                }
+            }
+            Vec::new()
+        }
+        Brain::BracklingArcher => {
+            // Skirmisher: keep mid-range and lob seed shots; back off if crowded.
+            if let Some((px, py, d2)) = target {
+                let too_close = d2 < 48 * 48;
+                let in_range = d2 < 120 * 120;
+                if too_close {
+                    let (dx, dy) = step_toward(e.x, e.y, px, py, def.speed);
+                    try_move(e, ctx.world, -dx, -dy); // retreat
+                } else if !in_range {
+                    let (dx, dy) = step_toward(e.x, e.y, px, py, def.speed);
+                    try_move(e, ctx.world, dx, dy); // close the gap
+                }
+                e.facing = if (px - e.x).abs() > (py - e.y).abs() {
+                    if px < e.x { 2 } else { 3 }
+                } else if py < e.y {
+                    1
+                } else {
+                    0
+                };
+                if in_range && e.state_t > 90 + rng.below(40) {
+                    e.state_t = 0;
+                    return vec![spawn_seed(e, ctx, px, py)];
+                }
+            } else {
+                wander(e, ctx.world, def.speed, rng, 60);
+            }
+            Vec::new()
+        }
     }
 }
 
@@ -395,6 +463,19 @@ pub fn step_projectile(e: &mut Entity, world: &World) {
     let out = px < -8 || px > 168 || py < 8 || py > 152;
     let hit_wall = screen.is_some_and(|s| world.is_solid(s, px, py));
     if out || hit_wall || e.state_t > 240 {
+        e.alive = false;
+    }
+}
+
+/// Ocean wave: drifts in its set velocity; dies when it leaves the playfield.
+pub fn step_wave(e: &mut Entity) {
+    e.anim = e.anim.wrapping_add(1);
+    e.state_t = e.state_t.wrapping_add(1);
+    e.x += e.vx;
+    e.y += e.vy;
+    let py = to_px(e.y);
+    let px = to_px(e.x);
+    if py < -8 || py > 160 || px < -24 || px > 184 || e.state_t > 600 {
         e.alive = false;
     }
 }
