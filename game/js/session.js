@@ -317,6 +317,10 @@ export class HostSession extends BaseSession {
       if (peer.relay && now - (peer.lastSeen ?? now) > RELAY_STALE_MS) stale.push(peer.id);
     }
     for (const id of stale) this._dropPeer(id);
+    // Resend the voice roster periodically so a client whose channel wasn't
+    // ready at join time (or that enables voice later) still learns everyone's
+    // ids. Cheap small JSON, only to direct peers.
+    if (this.peers.size) this._broadcastVoiceRoster();
   }
 
   netInfo() {

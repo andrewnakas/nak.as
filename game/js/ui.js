@@ -160,32 +160,54 @@ export function installVoiceToggle(makeMesh) {
   btn.hidden = false;
   let state = 'off'; // 'off' | 'live' | 'muted'
   let mesh = null;
+  let statusTimer = null;
+
   const paint = () => {
     btn.classList.toggle('on', state === 'live');
     btn.classList.remove('error');
-    btn.textContent =
-      state === 'live' ? '🎙 voice on' : state === 'muted' ? '🔇 muted' : '🎙 voice off';
+    if (state === 'off') {
+      btn.textContent = '🎙 voice off';
+    } else {
+      // Show how many nearby players we're actually connected to, so it's
+      // obvious whether voice linked up (vs. silently failing to connect).
+      const n = mesh?.connectedCount?.() ?? 0;
+      const tag = state === 'muted' ? '🔇 muted' : '🎙 voice';
+      btn.textContent = n > 0 ? `${tag} · ${n}` : `${tag} · …`;
+    }
   };
+  // While live, refresh the connected-count badge so you can see links form.
+  const startStatusPoll = () => {
+    clearInterval(statusTimer);
+    statusTimer = setInterval(paint, 1000);
+  };
+
   btn.addEventListener('click', async () => {
     try {
       if (state === 'off') {
+        btn.textContent = '🎙 …';
         if (!mesh) mesh = await makeMesh();
         await mesh.enable(); // prompts for mic the first time
         mesh.setMuted(false);
         state = 'live';
+        startStatusPoll();
       } else if (state === 'live') {
         mesh.setMuted(true);
         state = 'muted';
       } else {
         mesh.stop();
+        clearInterval(statusTimer);
         state = 'off';
       }
       paint();
     } catch (err) {
-      // Mic denied or unavailable — surface it without breaking the game.
+      // Mic denied or unavailable — surface it clearly and persistently.
+      clearInterval(statusTimer);
+      state = 'off';
       btn.classList.add('error');
-      btn.textContent = '🎙 no mic';
-      toast('voice unavailable: ' + (err?.message ?? 'mic blocked'));
+      const name = err?.name || '';
+      btn.textContent =
+        name === 'NotAllowedError' ? '🎙 mic blocked' : name === 'NotFoundError' ? '🎙 no mic' : '🎙 voice error';
+      toast('voice: ' + (err?.message || name || 'unavailable'));
     }
   });
   paint();

@@ -6,12 +6,29 @@ export class Signaling {
   constructor(code) {
     this.code = code;
     this.ws = null;
-    this.handlers = new Map(); // msg.t -> fn(msg)
+    // msg.t -> Set<fn>. Multiple subsystems (World, HostSession, VoiceMesh)
+    // listen on the same socket and sometimes the SAME event type, so each
+    // type fans out to every registered handler instead of just the last one.
+    this.handlers = new Map();
   }
 
   on(type, fn) {
-    this.handlers.set(type, fn);
+    let set = this.handlers.get(type);
+    if (!set) this.handlers.set(type, (set = new Set()));
+    set.add(fn);
     return this;
+  }
+
+  off(type, fn) {
+    this.handlers.get(type)?.delete(fn);
+    return this;
+  }
+
+  _emit(type, msg) {
+    const set = this.handlers.get(type);
+    if (!set) return;
+    // Copy so a handler that calls off() mid-dispatch can't mutate during iter.
+    for (const fn of [...set]) fn(msg);
   }
 
   connect() {
@@ -26,30 +43,36 @@ export class Signaling {
         } catch {
           return;
         }
-        this.handlers.get(msg.t)?.(msg);
+        this._emit(msg.t, msg);
       };
-      this.ws.onclose = () => this.handlers.get('_closed')?.();
+      this.ws.onclose = () => this._emit('_closed', {});
     });
   }
 
   /// Send a message and await any of `okTypes`; rejects on 'error'.
-  /// The matched handler is left in place only briefly — callers that need
-  /// ongoing events should register them via on() before/after.
+  /// The one-shot handlers are removed once matched so they don't leak.
   request(msg, okTypes, timeoutMs = 12000) {
     const types = Array.isArray(okTypes) ? okTypes : [okTypes];
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('signaling timeout')), timeoutMs);
-      const done = (m) => {
+      const cleanup = () => {
         clearTimeout(timer);
-        for (const t of types) this.handlers.delete(t);
-        this.handlers.delete('error');
+        for (const t of types) this.off(t, done);
+        this.off('error', onErr);
+      };
+      const done = (m) => {
+        cleanup();
         resolve(m);
       };
-      for (const t of types) this.on(t, done);
-      this.on('error', (m) => {
-        clearTimeout(timer);
+      const onErr = (m) => {
+        cleanup();
         reject(new Error(m.msg ?? m.code));
-      });
+      };
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error('signaling timeout'));
+      }, timeoutMs);
+      for (const t of types) this.on(t, done);
+      this.on('error', onErr);
       this.send(msg);
     });
   }

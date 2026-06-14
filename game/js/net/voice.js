@@ -55,9 +55,22 @@ export class VoiceMesh {
     this._selfId = id;
   }
 
+  /// How many nearby peers we currently have a LIVE voice connection to.
+  connectedCount() {
+    let n = 0;
+    for (const p of this.peers.values()) {
+      if (p.pc?.connectionState === 'connected') n++;
+    }
+    return n;
+  }
+
   /// Turn the mic on (asks permission the first time) and start meshing.
+  /// MUST be called from a user gesture (the toggle click) so iOS lets us both
+  /// resume the AudioContext and later play remote audio elements.
   async enable() {
     if (this.enabled) return;
+    // Resume audio inside the gesture (iOS requires this synchronously-ish).
+    if (this.ctx.state === 'suspended') await this.ctx.resume().catch(() => {});
     if (!this.micStream) {
       this.micStream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -67,9 +80,10 @@ export class VoiceMesh {
         },
         video: false,
       });
+      // Attach the live mic to any peers created before permission resolved.
+      for (const peer of this.peers.values()) peer.attachMic?.(this.micStream);
     }
     this.enabled = true;
-    if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
     if (!this._timer) {
       this._timer = setInterval(() => this._updateProximity(), 1000 / PROXIMITY_HZ);
     }
@@ -175,28 +189,59 @@ class VoicePeer {
     this.pc = new RTCPeerConnection(ICE_CONFIG);
 
     // Outbound: our mic. (Track may be disabled when muted; silence flows.)
-    for (const track of micStream?.getAudioTracks() ?? []) {
-      this.pc.addTrack(track, micStream);
+    // If the mic isn't ready yet (permission still resolving), attachMic() wires
+    // it in later. We always add a transceiver so the SDP negotiates audio both
+    // ways even when our mic arrives a moment after the offer.
+    this._micAdded = false;
+    if (micStream) this.attachMic(micStream);
+    else {
+      try {
+        this.pc.addTransceiver('audio', { direction: 'sendrecv' });
+      } catch {
+        // older browsers: addTrack on attachMic will create the m-line
+      }
     }
 
-    // Inbound: remote mic -> panner -> master. A StereoPanner places the voice
-    // left/right; a gain attenuates with distance (set live in setSpatial).
-    this.panner = ctx.createStereoPanner();
-    this.dist = ctx.createGain();
-    this.dist.gain.value = 0;
-    this.panner.connect(this.dist);
-    this.dist.connect(master);
+    // Inbound audio path. Cross-browser reality: WebAudio's
+    // MediaStreamAudioSourceNode produces SILENCE for remote WebRTC streams on
+    // Safari/iOS. So the actual playback always happens through a real <audio>
+    // element (works everywhere), and we apply distance falloff via the
+    // element's `volume`. Where WebAudio CAN tap an element (Chrome/Firefox) we
+    // additionally route it through a StereoPanner for left/right placement;
+    // iOS just gets distance-attenuated mono, which is still good proximity.
+    this._el = new window.Audio();
+    this._el.autoplay = true;
+    this._el.volume = 0;
+    // playsInline avoids iOS trying to go fullscreen for media.
+    this._el.setAttribute('playsinline', '');
+    this._vol = 0; // last distance volume, applied to whichever sink is live
+    this._panViaWebAudio = false;
 
     this.pc.ontrack = (e) => {
-      // A MediaStream node feeds the graph; we must also sink the stream to a
-      // muted <audio> element or some browsers won't pull frames through WebAudio.
       const stream = e.streams[0] ?? new MediaStream([e.track]);
-      const src = ctx.createMediaStreamSource(stream);
-      src.connect(this.panner);
-      this._keepAlive = new window.Audio();
-      this._keepAlive.muted = true;
-      this._keepAlive.srcObject = stream;
-      this._keepAlive.play().catch(() => {});
+      this._el.srcObject = stream;
+      this._el.play().catch(() => {});
+      // Try the WebAudio panner path (desktop). If createMediaElementSource
+      // throws or the browser is known-flaky, we silently stay on the element.
+      try {
+        if (ctx.createStereoPanner && !isIOS()) {
+          this.panner = ctx.createStereoPanner();
+          this.dist = ctx.createGain();
+          this.dist.gain.value = 0;
+          const src = ctx.createMediaElementSource(this._el);
+          src.connect(this.panner);
+          this.panner.connect(this.dist);
+          this.dist.connect(master);
+          // The element feeds WebAudio now, so mute its direct output to avoid
+          // double playback; volume is controlled via the gain node instead.
+          this._el.volume = 0;
+          this._el.muted = true;
+          this._panViaWebAudio = true;
+        }
+      } catch {
+        this._panViaWebAudio = false;
+      }
+      this.setVolume(this._vol);
     };
 
     this.pc.onicecandidate = (e) => {
@@ -208,6 +253,19 @@ class VoicePeer {
     };
 
     if (initiator) this._makeOffer();
+  }
+
+  /// Add (or replace into) our outbound mic track. Safe to call once the mic
+  /// resolves even if the connection was created earlier.
+  attachMic(micStream) {
+    if (this._micAdded) return;
+    const track = micStream.getAudioTracks()[0];
+    if (!track) return;
+    // Reuse an existing audio transceiver's sender if we pre-created one.
+    const sender = this.pc.getSenders().find((s) => !s.track && s.replaceTrack);
+    if (sender) sender.replaceTrack(track).catch(() => {});
+    else this.pc.addTrack(track, micStream);
+    this._micAdded = true;
   }
 
   _makeOffer() {
@@ -245,23 +303,45 @@ class VoicePeer {
   /// Position the inbound voice: pan by horizontal offset, attenuate by
   /// distance with a smooth falloff to zero at the range edge.
   setSpatial(dx, dy, dist, range) {
-    const pan = Math.max(-1, Math.min(1, dx / range));
     // Inverse-ish falloff: full near, ~0 at the edge. Squared for a natural
     // dropoff so distant voices sit quietly in the mix.
     const near = Math.max(0, 1 - dist / range);
-    const vol = near * near;
-    const t = this.ctx.currentTime;
-    this.panner.pan.setTargetAtTime(pan, t, 0.08);
-    this.dist.gain.setTargetAtTime(vol, t, 0.08);
+    this.setVolume(near * near);
+    if (this._panViaWebAudio && this.panner) {
+      const pan = Math.max(-1, Math.min(1, dx / range));
+      this.panner.pan.setTargetAtTime(pan, this.ctx.currentTime, 0.08);
+    }
+  }
+
+  /// Apply the distance volume to whichever output sink is live.
+  setVolume(vol) {
+    this._vol = vol;
+    if (this._panViaWebAudio && this.dist) {
+      this.dist.gain.setTargetAtTime(vol, this.ctx.currentTime, 0.08);
+    } else if (this._el) {
+      this._el.muted = false;
+      this._el.volume = Math.max(0, Math.min(1, vol));
+    }
   }
 
   close() {
     try {
-      this._keepAlive?.pause();
+      this._el?.pause();
+      if (this._el) this._el.srcObject = null;
       this.pc.getSenders().forEach((s) => s.track && this.pc.removeTrack(s));
       this.pc.close();
     } catch {
       // already gone
     }
   }
+}
+
+// iOS Safari (incl. iPadOS posing as Mac) needs the audio-element playback path;
+// WebAudio MediaStream nodes are silent there for remote tracks.
+function isIOS() {
+  const ua = navigator.userAgent || '';
+  return (
+    /iPad|iPhone|iPod/.test(ua) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  );
 }
