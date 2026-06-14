@@ -19,9 +19,8 @@
 
 import { ICE_CONFIG } from './rtc.js';
 
-const VOICE_RANGE_PX = 160; // within this world-pixel distance => audible
-const SAME_SCREEN_ONLY = true; // only mesh with players on your screen
-const PROXIMITY_HZ = 4; // how often to re-evaluate who's in range
+const VOICE_RANGE_PX = 360; // distance at which a non-party voice fades to silence
+const PROXIMITY_HZ = 4; // how often to re-evaluate proximity / volumes
 
 export class VoiceMesh {
   /// signaling: the world's Signaling socket (carries voice-signal).
@@ -62,6 +61,17 @@ export class VoiceMesh {
       if (p.pc?.connectionState === 'connected') n++;
     }
     return n;
+  }
+
+  /// Human-readable voice diagnostics for the debug overlay (so a real-device
+  /// tester can report exactly where it's stuck).
+  status() {
+    if (!this.enabled) return 'voice: off';
+    const mic = this.micStream ? 'mic✓' : 'mic✗';
+    const peers = [...this.peers.values()].map(
+      (p) => `${p.remoteId.slice(0, 4)}:${p.pc?.connectionState ?? '?'}/${p.pc?.iceConnectionState ?? '?'}`,
+    );
+    return `voice: ${mic} peers[${peers.join(' ')}]`;
   }
 
   /// Turn the mic on (asks permission the first time) and start meshing.
@@ -111,6 +121,12 @@ export class VoiceMesh {
 
   // ---- proximity meshing ----
 
+  /// Force-connect to a specific slot regardless of distance (party voice).
+  /// alwaysHear[slot] = true keeps the link up + at full volume.
+  setAlwaysHear(slots) {
+    this._always = new Set(slots ?? []);
+  }
+
   _updateProximity() {
     if (!this.enabled) return;
     const me = this.getLocal();
@@ -118,17 +134,22 @@ export class VoiceMesh {
     const inRange = new Set();
     for (const p of this.getPlayers()) {
       if (p.slot === me.slot) continue;
-      if (SAME_SCREEN_ONLY && (p.sx !== me.sx || p.sy !== me.sy)) continue;
-      const dx = (p.x - me.x) / 256; // fixed-point 1/256 px -> px
-      const dy = (p.y - me.y) / 256;
-      const dist = Math.hypot(dx, dy);
-      if (dist > VOICE_RANGE_PX) continue;
       const id = this.resolvePeerId(p.slot);
       if (!id || id === this._selfId) continue;
+      const partyAlways = this._always?.has(p.slot);
+      // Connect to EVERY direct player in the world when voice is on; distance
+      // only controls VOLUME (and party members stay full volume anywhere).
+      // Connecting broadly — rather than only to pixel-adjacent players — is
+      // what makes voice actually usable: you hear people as you wander near,
+      // and "is my voice even working" no longer depends on standing on someone.
+      const dx = (p.x - me.x) / 256 + (p.sx - me.sx) * 160; // include screen offset
+      const dy = (p.y - me.y) / 256 + (p.sy - me.sy) * 128;
+      const dist = Math.hypot(dx, dy);
       inRange.add(id);
       const peer = this.peers.get(id);
       if (peer) {
-        peer.setSpatial(dx, dy, dist, VOICE_RANGE_PX);
+        if (partyAlways) peer.setVolume(1); // party = clear, distance-independent
+        else peer.setSpatial(dx, dy, dist, VOICE_RANGE_PX);
       } else {
         // Deterministic initiator: the lexicographically-smaller id offers, so
         // both sides don't create a connection simultaneously (glare).
@@ -212,15 +233,27 @@ class VoicePeer {
     this._el = new window.Audio();
     this._el.autoplay = true;
     this._el.volume = 0;
-    // playsInline avoids iOS trying to go fullscreen for media.
+    // playsInline avoids iOS trying to go fullscreen for media. Attaching to the
+    // DOM (off-screen) makes autoplay-after-gesture far more reliable on iOS
+    // Safari than a detached element.
     this._el.setAttribute('playsinline', '');
+    this._el.setAttribute('autoplay', '');
+    this._el.style.display = 'none';
+    document.body.appendChild(this._el);
     this._vol = 0; // last distance volume, applied to whichever sink is live
     this._panViaWebAudio = false;
 
     this.pc.ontrack = (e) => {
       const stream = e.streams[0] ?? new MediaStream([e.track]);
       this._el.srcObject = stream;
-      this._el.play().catch(() => {});
+      // Retry play a few times: the first call may be blocked until the audio
+      // pipeline is ready, especially on iOS right after the enable gesture.
+      const tryPlay = (n) => {
+        this._el.play().catch(() => {
+          if (n > 0) setTimeout(() => tryPlay(n - 1), 300);
+        });
+      };
+      tryPlay(5);
       // Try the WebAudio panner path (desktop). If createMediaElementSource
       // throws or the browser is known-flaky, we silently stay on the element.
       try {
@@ -326,8 +359,11 @@ class VoicePeer {
 
   close() {
     try {
-      this._el?.pause();
-      if (this._el) this._el.srcObject = null;
+      if (this._el) {
+        this._el.pause();
+        this._el.srcObject = null;
+        this._el.remove();
+      }
       this.pc.getSenders().forEach((s) => s.track && this.pc.removeTrack(s));
       this.pc.close();
     } catch {

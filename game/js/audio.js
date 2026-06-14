@@ -138,6 +138,41 @@ export class Audio {
     this.nextTimes = [];
     this.scheduler = null;
     this.cursors = {};
+    // Persisted music preferences (volume 0..1, muted) so they survive reloads.
+    this.musicVol = this._loadNum('naks_music_vol', 1);
+    this.musicMuted = localStorage.getItem('naks_music_muted') === '1';
+    this._musicBase = 0.16; // the design level musicVol scales
+  }
+
+  _loadNum(key, dflt) {
+    const v = parseFloat(localStorage.getItem(key));
+    return Number.isFinite(v) ? v : dflt;
+  }
+
+  /// Master music volume 0..1 (scales the design level). Persisted.
+  setMusicVolume(v) {
+    this.musicVol = Math.max(0, Math.min(1, v));
+    localStorage.setItem('naks_music_vol', String(this.musicVol));
+    this._applyMusicGain();
+  }
+
+  setMusicMuted(muted) {
+    this.musicMuted = !!muted;
+    localStorage.setItem('naks_music_muted', muted ? '1' : '0');
+    this._applyMusicGain();
+  }
+
+  /// Temporarily duck music (e.g. while voice chat is active) without changing
+  /// the user's saved preference. duck=true lowers it; false restores.
+  duckMusic(duck) {
+    this._ducked = duck;
+    this._applyMusicGain();
+  }
+
+  _applyMusicGain() {
+    if (!this.musicGain || !this.ctx) return;
+    const level = this.musicMuted ? 0 : this._musicBase * this.musicVol * (this._ducked ? 0.35 : 1);
+    this.musicGain.gain.setTargetAtTime(level, this.ctx.currentTime, 0.15);
   }
 
   /// Call from a user-gesture handler.
@@ -151,7 +186,7 @@ export class Audio {
     // Music runs through a warm low-pass + gentle stereo-ish chorus delay
     // for the washed vaporwave sheen, then a master music gain.
     this.musicGain = this.ctx.createGain();
-    this.musicGain.gain.value = 0.16;
+    this.musicGain.gain.value = this.musicMuted ? 0 : this._musicBase * this.musicVol;
     this.musicGain.connect(this.ctx.destination);
 
     this.musicFilter = this.ctx.createBiquadFilter();

@@ -64,6 +64,8 @@ class BaseSession {
       }
       // Sample connection quality ~1/sec for the net HUD + telemetry.
       if (this.game.tick_count() % 60 === 0) this._sampleNet?.();
+      // Per-frame hook for World-level overlays (minimap, party markers).
+      this.onFrame?.(now);
       requestAnimationFrame(frame);
     };
     requestAnimationFrame(frame);

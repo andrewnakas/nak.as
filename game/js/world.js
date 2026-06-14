@@ -14,6 +14,7 @@ import { findWorld } from './api.js';
 import { HostSession, ClientSession, RelayClientSession } from './session.js';
 import { loadStartingSave } from './saves.js';
 import { setStatus, showWorld, showConnecting, hideConnecting } from './ui.js';
+import { Minimap } from './minimap.js';
 
 const ROLE_HOST = 0;
 const ROLE_CLIENT = 1;
@@ -173,6 +174,47 @@ export class World {
     return loadStartingSave(this.name);
   }
 
+  /// Set up the discovered-screens minimap and a per-frame update that tracks
+  /// the local player's screen + draws other players (party-colored) as dots.
+  _startMinimap(localSlot) {
+    const worldObj = JSON.parse(this.deps.worldJson);
+    this._map = new Minimap(worldObj, this.name);
+    const mm = document.getElementById('minimap');
+    if (mm) mm.hidden = false;
+
+    this.session.onFrame = () => {
+      const v = this.session.game.visible_players?.() ?? [];
+      let self = null;
+      const others = [];
+      for (let i = 0; i + 5 <= v.length; i += 5) {
+        const slot = v[i],
+          sx = v[i + 1],
+          sy = v[i + 2];
+        if (slot === localSlot) self = { sx, sy };
+        else others.push({ sx, sy, party: this._party?.has(slot) ?? false });
+      }
+      if (self) this._map.visit(self.sx, self.sy);
+      // Throttle the actual draw to ~6/s; visit() already redraws on discovery.
+      const now = performance.now();
+      if (now - (this._mapDrawAt || 0) > 160) {
+        this._mapDrawAt = now;
+        this._map.render(self, others);
+        // Surface voice diagnostics in the debug overlay (helps debug on real
+        // devices: shows mic state + each peer's connection/ICE state).
+        const dbg = this.deps.debugEl;
+        if (dbg && this._voice && dbg.style.display !== 'none') {
+          let line = dbg.querySelector('#voice-dbg');
+          if (!line) {
+            line = document.createElement('div');
+            line.id = 'voice-dbg';
+            dbg.appendChild(line);
+          }
+          line.textContent = this._voice.status();
+        }
+      }
+    };
+  }
+
   /// Stand up the proximity-voice mesh for our local player at `localSlot`.
   /// The mic stays OFF until the player toggles voice on (privacy); this just
   /// prepares the mesh and its slot->id roster so toggling is instant.
@@ -227,7 +269,10 @@ export class World {
       this._voice.setSelfId(this.selfId);
       return this._voice;
     };
-    import('./ui.js').then(({ installVoiceToggle }) => installVoiceToggle?.(makeMesh));
+    import('./ui.js').then(({ installVoiceToggle, installAudioControls }) => {
+      installAudioControls?.(this.deps.audio);
+      installVoiceToggle?.(makeMesh, this.deps.audio);
+    });
   }
 
   async _startHost() {
@@ -240,6 +285,7 @@ export class World {
     this.session = session;
     this._installInventory();
     this._startVoice(0);
+    this._startMinimap(0);
   }
 
   async _startClient(hostId) {
@@ -278,6 +324,7 @@ export class World {
     // channel; feed it to the mesh so we can build voice links to nearby peers.
     session.onVoiceRoster = (entries) => this._voiceRoster?.(entries);
     this._startVoice(slot);
+    this._startMinimap(slot);
     // Connected cleanly — clear the one-shot reload guard so a future deploy
     // can trigger a refresh again.
     sessionStorage.removeItem('naks_reloaded_for_version');

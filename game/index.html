@@ -387,11 +387,17 @@
     border-radius: 4px;
   }
 
-  #voice-toggle {
+  #av-controls {
     position: absolute;
     top: 6px;
     right: 6px;
     z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    pointer-events: auto;
+  }
+  #voice-toggle, #music-toggle {
     font-family: inherit;
     font-size: 10px;
     letter-spacing: 0.5px;
@@ -401,7 +407,13 @@
     border: 1px solid var(--gb-light);
     border-radius: 4px;
     cursor: pointer;
-    pointer-events: auto;
+  }
+  #music-toggle.off { opacity: 0.5; text-decoration: line-through; }
+  #music-vol {
+    width: 56px;
+    accent-color: #6f8a5b;
+    background: transparent;
+    cursor: pointer;
   }
   #voice-toggle.on {
     color: #16181d;
@@ -409,6 +421,18 @@
     border-color: #efe6d2;
   }
   #voice-toggle.error { border-color: #b44a3a; color: #efb9af; }
+
+  #minimap {
+    position: absolute;
+    bottom: 6px;
+    right: 6px;
+    z-index: 5;
+    image-rendering: pixelated;
+    border-radius: 3px;
+    cursor: pointer;
+    pointer-events: auto;
+    opacity: 0.9;
+  }
 
   /* block iOS pinch / double-tap zoom on the play area */
   html, body { touch-action: manipulation; overscroll-behavior: none; }
@@ -420,7 +444,12 @@
     <div id="screen-wrap">
       <canvas id="screen" width="160" height="144"></canvas>
       <div id="connecting">connecting to the world…</div>
-      <button id="voice-toggle" title="Proximity voice chat" hidden>🎙 voice off</button>
+      <div id="av-controls" hidden>
+        <button id="voice-toggle" title="Proximity voice chat">🎙 voice off</button>
+        <button id="music-toggle" title="Music on/off">🎵</button>
+        <input id="music-vol" type="range" min="0" max="100" value="100" title="Music volume">
+      </div>
+      <canvas id="minimap" title="Map (click to expand)" hidden></canvas>
     </div>
     <div id="hud-text">
       <span id="party-code"></span> <span id="party-list"></span><br>

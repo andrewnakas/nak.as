@@ -153,11 +153,35 @@ export function hideConnecting() {
 /// that builds (once) and returns the VoiceMesh — deferred so the first click
 /// provides the user gesture getUserMedia + audio unlock both require.
 /// States cycle: off -> live (mic on) -> muted (hear others, mic off) -> off.
-export function installVoiceToggle(makeMesh) {
+/// Music on/off + volume, persisted via the Audio instance. Call once the
+/// world starts (audio is unlocked by then).
+export function installAudioControls(audio) {
+  const wrap = $('#av-controls');
+  if (wrap) wrap.hidden = false;
+  const toggle = $('#music-toggle');
+  const vol = $('#music-vol');
+  if (toggle && !toggle._wired) {
+    toggle._wired = true;
+    const paint = () => toggle.classList.toggle('off', !!audio.musicMuted);
+    toggle.addEventListener('click', () => {
+      audio.setMusicMuted(!audio.musicMuted);
+      paint();
+    });
+    paint();
+  }
+  if (vol && !vol._wired) {
+    vol._wired = true;
+    vol.value = String(Math.round((audio.musicVol ?? 1) * 100));
+    vol.addEventListener('input', () => audio.setMusicVolume(vol.value / 100));
+  }
+}
+
+export function installVoiceToggle(makeMesh, audio) {
   const btn = $('#voice-toggle');
   if (!btn || btn._wired) return;
   btn._wired = true;
-  btn.hidden = false;
+  const wrap = $('#av-controls');
+  if (wrap) wrap.hidden = false;
   let state = 'off'; // 'off' | 'live' | 'muted'
   let mesh = null;
   let statusTimer = null;
@@ -189,6 +213,9 @@ export function installVoiceToggle(makeMesh) {
         await mesh.enable(); // prompts for mic the first time
         mesh.setMuted(false);
         state = 'live';
+        // Duck the music while talking so it doesn't bleed into your mic / make
+        // it hard to hear others (echo cancellation works far better quiet).
+        audio?.duckMusic?.(true);
         startStatusPoll();
       } else if (state === 'live') {
         mesh.setMuted(true);
@@ -196,6 +223,7 @@ export function installVoiceToggle(makeMesh) {
       } else {
         mesh.stop();
         clearInterval(statusTimer);
+        audio?.duckMusic?.(false);
         state = 'off';
       }
       paint();
