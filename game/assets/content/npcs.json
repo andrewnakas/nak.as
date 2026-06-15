@@ -81,5 +81,15 @@
       ["THE GELS CARRY", "HERBS. ODD, THAT.", "OR IS IT?"],
       ["BENEATH THE ISLE", "SOMETHING OLD", "GNAWS THE ROOTS."]
     ]
+  },
+  {
+    "name": "smith",
+    "label": "BRYN THE SMITH",
+    "sprite": "npc_a",
+    "smith": true,
+    "lines": [
+      ["WORN BLADE? BRING", "IT HERE. I'LL HAMMER", "IT GOOD AS NEW."],
+      ["REPAIRS COST SHELLS", "BY THE BITE THE", "STEEL HAS TAKEN."]
+    ]
   }
 ]

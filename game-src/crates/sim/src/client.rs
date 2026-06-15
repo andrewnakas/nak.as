@@ -80,6 +80,20 @@ impl ClientView {
         }
     }
 
+    pub fn smith_here(&self, sim: &crate::Sim, slot: u8) -> i32 {
+        match self.latest_player(slot) {
+            Some(p) => sim.smith_here_for(&p),
+            None => -1,
+        }
+    }
+
+    pub fn price_json(&self, sim: &crate::Sim, slot: u8) -> String {
+        match self.latest_player(slot) {
+            Some(p) => sim.price_json_for(&p),
+            None => "[]".to_string(),
+        }
+    }
+
     /// near_fire from the freshest snapshot (not derivable from Player).
     pub fn latest_near_fire(&self, slot: u8) -> bool {
         self.snaps

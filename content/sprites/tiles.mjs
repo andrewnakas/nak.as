@@ -303,6 +303,22 @@ export const TILES = [
     }),
   },
   {
+    name: 'fountain',
+    palette: 'water',
+    solid: true,
+    heal: true,
+    grid: grid((x, y) => {
+      // round stone basin holding bright water, with a central spout column.
+      const d = Math.hypot(x - 7.5, y - 8.5);
+      if (d > 6.6) return 0; // ground/shadow around the basin
+      if (d > 5.4) return 0; // rim shadow
+      if (d > 4.4) return 3; // bright stone rim highlight
+      if (Math.abs(x - 7.5) < 1.2 && y >= 3 && y <= 8) return 3; // water spout
+      const ripple = Math.floor(d * 2 + y) % 5 < 2; // water ripples
+      return ripple ? 1 : 2;
+    }),
+  },
+  {
     name: 'campfire',
     palette: 'sand',
     solid: true,

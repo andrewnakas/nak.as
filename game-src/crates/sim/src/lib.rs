@@ -60,7 +60,9 @@ pub mod cues {
     pub const BLOCK: u16 = 13;
 }
 
-pub const INVENTORY_CAP: usize = 16;
+/// The pack is unbounded during play; this is only a load-time sanity guard
+/// so a corrupt/hostile save can't allocate an unbounded inventory.
+pub const INVENTORY_LOAD_LIMIT: usize = 512;
 pub const STACK_CAP: u16 = 99;
 
 /// Player walk speed: 1.25 px/tick = 75 px/s, close to LA's feel.
@@ -77,7 +79,13 @@ const UNARMED_DAMAGE: i16 = 1;
 const PLAYER_IFRAMES: u8 = 60;
 const ENEMY_IFRAMES: u8 = 10;
 const RESPAWN_TICKS: u32 = 120;
-const ENEMY_RESPAWN_TICKS: u32 = 1800; // screen empty 30s -> enemies return
+// A cleared screen only repopulates after this long AND once every player is
+// far away (see RESPAWN_MIN_SCREENS) — so you can't clear a room, step next
+// door, and find it full again.
+const ENEMY_RESPAWN_TICKS: u32 = 3600; // 60s
+/// Manhattan distance (in screens) every player must be from a cleared screen
+/// before its enemies are allowed to come back.
+const RESPAWN_MIN_SCREENS: i32 = 10;
 
 /// Sprite is 16x16; movement collides on a small feet box near the bottom
 /// (forgiving, LA-style: you slip past corners instead of snagging).
@@ -282,7 +290,7 @@ enum QuestEvent {
 }
 
 /// Add `qty` of `def` to the inventory; weapons get their full durability.
-/// Returns false if there was no room.
+/// The pack is unbounded (no "full pack"): always succeeds, returns true.
 pub fn give_item(p: &mut Player, defs: &Defs, def: u8, qty: u16) -> bool {
     let item = &defs.items[def as usize];
     if item.stackable() {
@@ -290,9 +298,6 @@ pub fn give_item(p: &mut Player, defs: &Defs, def: u8, qty: u16) -> bool {
             stack.qty = (stack.qty + qty).min(STACK_CAP);
             return true;
         }
-    }
-    if p.inventory.len() >= INVENTORY_CAP {
-        return false;
     }
     p.inventory.push(ItemStack {
         def,
@@ -402,14 +407,21 @@ impl Sim {
         let mut spawned = Vec::new();
         for sp in &screen.spawns {
             let def = &self.defs.enemies[sp.enemy as usize];
+            // Keep spawns off the screen edges so enemies never sit right where
+            // a player walks in (you enter at an edge). Nudge any edge-hugging
+            // spawn one tile inward.
+            let (sx_px, sy_px) = (
+                sp.x.clamp(16, SCREEN_W - 32),
+                sp.y.clamp(HUD_H + 16, SCREEN_H - 32),
+            );
             let mut e = Entity::enemy(
                 self.next_id,
                 sp.enemy,
                 def.hp,
                 screen.x,
                 screen.y,
-                sp.x,
-                sp.y,
+                sx_px,
+                sy_px,
             );
             e.big = def.big;
             spawned.push(e);
@@ -663,6 +675,57 @@ impl Sim {
             .map_or(0, |m| self.defs.items[m as usize].fuse_damage);
         let attach = self.attach_bonus(stack, AttachEffect::Damage);
         (def.damage + fuse + attach) as i32
+    }
+
+    /// Full durability of a gear instance (base + the +10 a fuse reinforces it
+    /// with). Matches the UI's `max_dur`.
+    fn max_durability(&self, stack: &ItemStack) -> u16 {
+        let def = &self.defs.items[stack.def as usize];
+        def.durability + if stack.fused.is_some() { 10 } else { 0 }
+    }
+
+    /// A rough "worth" of an item instance in shells, used for selling/repair
+    /// pricing. Weapons scale with damage + durability + mods; stackables are a
+    /// small flat per-unit value.
+    fn item_value(&self, stack: &ItemStack) -> u32 {
+        let def = &self.defs.items[stack.def as usize];
+        if def.is_weapon() {
+            let dmg = self.weapon_damage(stack).max(0) as u32;
+            let maxd = self.max_durability(stack) as u32;
+            let mods = (stack.fused.is_some() as u32 + stack.attached.is_some() as u32) * 8;
+            10 + dmg * 8 + maxd / 4 + mods
+        } else {
+            match def.kind {
+                ItemKind::Food => 4,
+                ItemKind::BodyPart => 12,
+                ItemKind::Material => 6,
+                ItemKind::Bomb | ItemKind::Arrow => 2,
+                _ => 6,
+            }
+        }
+    }
+
+    /// Shells a vendor pays for one of this item (they lowball ~40% of worth,
+    /// scaled by remaining durability for gear). Always at least 1.
+    fn sell_price(&self, stack: &ItemStack) -> u32 {
+        let def = &self.defs.items[stack.def as usize];
+        let mut v = self.item_value(stack) * 2 / 5;
+        if def.is_weapon() {
+            let maxd = self.max_durability(stack).max(1) as u32;
+            v = v * (stack.durability as u32) / maxd;
+        }
+        v.max(1)
+    }
+
+    /// Shells to fully repair a worn weapon: missing durability × a per-point
+    /// rate that rises with the weapon's power (fancier blades cost more).
+    fn repair_cost(&self, stack: &ItemStack) -> u32 {
+        let missing = self.max_durability(stack).saturating_sub(stack.durability) as u32;
+        if missing == 0 {
+            return 0;
+        }
+        let rate = 1 + self.weapon_damage(stack).max(0) as u32; // 1..n shells/point
+        (missing * rate / 2).max(1)
     }
 
     /// Magnitude of an attached body part's effect on this gear, or 0 if the
@@ -946,6 +1009,15 @@ impl Sim {
             if let Some(npc) = self.npc_in_front(&pl) {
                 pl.dialogue = Some(self.choose_dialogue(&pl, npc));
                 pl.fishing = None;
+                pl.prev_buttons = pl.buttons;
+                self.players[slot] = Some(pl);
+                return;
+            }
+            // Drinking from a town fountain (faced, A pressed) refills HP.
+            if pl.hp < pl.max_hp && self.facing_heal(&pl) {
+                pl.hp = pl.max_hp;
+                self.emit_cue(pl.sx, pl.sy, cues::HEART);
+                self.emit_toast(slot, "THE FOUNTAIN RESTORES YOU");
                 pl.prev_buttons = pl.buttons;
                 self.players[slot] = Some(pl);
                 return;
@@ -1372,6 +1444,63 @@ impl Sim {
             }
         }
         -1
+    }
+
+    /// NPC index of a weaponsmith the slot player is standing near, or -1.
+    pub fn smith_here(&self, slot: usize) -> i32 {
+        match &self.players[slot.min(MAX_PLAYERS - 1)] {
+            Some(p) => self.smith_here_for(p),
+            None => -1,
+        }
+    }
+
+    pub fn smith_here_for(&self, p: &Player) -> i32 {
+        let Some(screen) = self.world.screen_at(p.sx, p.sy) else {
+            return -1;
+        };
+        let (cx, cy) = (to_px(p.x) + 8, to_px(p.y) + 8);
+        for n in &screen.npcs {
+            if self.defs.npcs[n.npc as usize].smith
+                && (n.x + 8 - cx).abs() <= 28
+                && (n.y + 8 - cy).abs() <= 28
+            {
+                return n.npc as i32;
+            }
+        }
+        -1
+    }
+
+    /// Per-item sell + repair prices for the slot player's inventory, as JSON:
+    /// [{i, sell, repair}] where repair is 0 if not a mendable weapon / not worn.
+    /// The UI shows SELL near a vendor and REPAIR near a smith.
+    pub fn price_json(&self, slot: usize) -> String {
+        match self.players.get(slot.min(MAX_PLAYERS - 1)).and_then(|p| p.as_ref()) {
+            Some(p) => self.price_json_for(p),
+            None => "[]".to_string(),
+        }
+    }
+
+    pub fn price_json_for(&self, p: &Player) -> String {
+        #[derive(serde::Serialize)]
+        struct Price {
+            i: usize,
+            sell: u32,
+            repair: u32,
+        }
+        let prices: Vec<Price> = p
+            .inventory
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                let is_weapon = self.defs.items[s.def as usize].is_weapon();
+                Price {
+                    i,
+                    sell: self.sell_price(s),
+                    repair: if is_weapon { self.repair_cost(s) } else { 0 },
+                }
+            })
+            .collect();
+        serde_json::to_string(&prices).unwrap_or_else(|_| "[]".to_string())
     }
 
     /// Pick what an NPC says: turn-in beats nudge beats new offer beats chatter.
@@ -1963,17 +2092,27 @@ impl Sim {
                 continue;
             }
             let coords = (screen.x, screen.y);
-            let occupied = self
-                .players
-                .iter()
-                .flatten()
-                .any(|p| p.sx == screen.x && p.sy == screen.y);
             let has_living = self
                 .entities
                 .iter()
                 .any(|e| e.etype == ET_ENEMY && e.home == coords);
+            if has_living {
+                continue;
+            }
+            // A cleared room only repopulates once EVERY player is far away —
+            // at least RESPAWN_MIN_SCREENS away (Manhattan, in screen units). So
+            // clearing a room and ducking into an adjacent one never refills it
+            // behind you; you have to genuinely travel off before it resets.
+            // With no players in the world at all, treat it as far.
+            let nearest = self
+                .players
+                .iter()
+                .flatten()
+                .map(|p| (p.sx - screen.x).abs() + (p.sy - screen.y).abs())
+                .min();
+            let far = nearest.is_none_or(|d| d >= RESPAWN_MIN_SCREENS);
             let last = self.last_spawn.get(&coords).copied().unwrap_or(0);
-            if !occupied && !has_living && self.tick.saturating_sub(last) > ENEMY_RESPAWN_TICKS {
+            if far && self.tick.saturating_sub(last) > ENEMY_RESPAWN_TICKS {
                 to_spawn.push(idx);
             }
         }
@@ -2098,6 +2237,69 @@ impl Sim {
                 } else {
                     self.emit_toast(slot, "PACK IS FULL");
                 }
+            }
+            // Sell one item to a vendor in reach. a = inventory index. Pays
+            // sell_price; removes one unit (a whole gear item, one of a stack).
+            "sell" => {
+                let npc = act.a as usize;
+                let idx = act.b as usize;
+                let Some(def) = self.defs.npcs.get(npc) else {
+                    return;
+                };
+                // Only an actual vendor (has a shop) in reach can buy from you.
+                if def.shop.is_empty() || !self.vendor_in_reach(&p, npc as u8) {
+                    return;
+                }
+                let Some(stack) = p.inventory.get(idx).copied() else {
+                    return;
+                };
+                let item_def = &self.defs.items[stack.def as usize];
+                // Don't let players sell quest keys.
+                if matches!(item_def.name.as_str(), "small_key" | "boss_key" | "surfboard") {
+                    self.emit_toast(slot, "CAN'T SELL THAT");
+                    self.players[slot] = Some(p);
+                    return;
+                }
+                let price = self.sell_price(&stack);
+                let label = item_def.label.clone();
+                consume_one(&mut p, idx);
+                p.shells = p.shells.saturating_add(price);
+                self.emit_toast(slot, &format!("SOLD {label} +{price}"));
+                self.emit_cue(p.sx, p.sy, cues::SHELL);
+            }
+            // Repair a worn weapon at a weaponsmith in reach. a = npc, b = inv idx.
+            "repair" => {
+                let npc = act.a as usize;
+                let idx = act.b as usize;
+                let Some(def) = self.defs.npcs.get(npc) else {
+                    return;
+                };
+                if !def.smith || !self.vendor_in_reach(&p, npc as u8) {
+                    return;
+                }
+                let Some(stack) = p.inventory.get(idx).copied() else {
+                    return;
+                };
+                if !self.defs.items[stack.def as usize].is_weapon() {
+                    return;
+                }
+                let maxd = self.max_durability(&stack);
+                if stack.durability >= maxd {
+                    self.emit_toast(slot, "NOTHING TO MEND");
+                    self.players[slot] = Some(p);
+                    return;
+                }
+                let cost = self.repair_cost(&stack);
+                if p.shells < cost {
+                    self.emit_toast(slot, "NOT ENOUGH SHELLS");
+                    self.players[slot] = Some(p);
+                    return;
+                }
+                p.shells -= cost;
+                p.inventory[idx].durability = maxd;
+                let label = self.defs.items[stack.def as usize].label.clone();
+                self.emit_toast(slot, &format!("MENDED {label} -{cost}"));
+                self.emit_cue(p.sx, p.sy, cues::FUSE);
             }
             "cook" => {
                 let Some(recipe) = self.defs.recipes.get(act.a as usize) else {
@@ -3275,6 +3477,18 @@ fn facing_tile_center(p: &Player) -> (i32, i32) {
     }
 }
 
+/// True when the tile the player faces (or stands on) is a healing fountain.
+impl Sim {
+    fn facing_heal(&self, p: &Player) -> bool {
+        let Some(screen) = self.world.screen_at(p.sx, p.sy) else {
+            return false;
+        };
+        let (fx_, fy_) = facing_tile_center(p);
+        let (cx, cy) = (to_px(p.x) + 8, to_px(p.y) + 8);
+        self.world.is_heal(screen, fx_, fy_) || self.world.is_heal(screen, cx, cy)
+    }
+}
+
 /// True when any of the 4 tiles around the player's center is a campfire.
 fn near_fire(world: &World, p: &Player) -> bool {
     let Some(screen) = world.screen_at(p.sx, p.sy) else {
@@ -3335,6 +3549,7 @@ mod tests {
                 tiles[3 * 10 + 5] = 2; // water
                 tiles[4 * 10 + 3] = 3; // campfire
                 tiles[2 * 10 + 6] = 4; // tree (harvestable)
+                tiles[5 * 10 + 6] = 5; // healing fountain
             }
             let entities = if sx == 0 {
                 r#"[{"t":"thornling","tx":2,"ty":2},{"t":"gel","tx":7,"ty":5}]"#
@@ -3379,10 +3594,11 @@ mod tests {
         ];
         let sprite_names = sprites.map(|s| format!("\"{s}\"")).join(",");
         format!(
-            r#"{{"world":{{"tile_names":["floor","wall","water","fire","tree"],
-"tile_solid":[false,true,true,true,true],"tile_water":[false,false,true,false,false],
-"tile_fire":[false,false,false,true,false],
-"tile_tree":[false,false,false,false,true],
+            r#"{{"world":{{"tile_names":["floor","wall","water","fire","tree","fountain"],
+"tile_solid":[false,true,true,true,true,true],"tile_water":[false,false,true,false,false,false],
+"tile_fire":[false,false,false,true,false,false],
+"tile_tree":[false,false,false,false,true,false],
+"tile_heal":[false,false,false,false,false,true],
 "sprite_names":[{sprite_names}],"font_chars":"0123456789#%&$",
 "screens":[{}],"spawn":{{"sx":0,"sy":0,"x":72,"y":64}}}},
 "items":[
@@ -3816,6 +4032,129 @@ mod tests {
         assert!(
             sim.players[0].as_ref().unwrap().wave_boost > 0,
             "overlapping a wave while surfing grants a speed boost"
+        );
+    }
+
+    #[test]
+    fn cleared_room_does_not_respawn_until_player_is_far() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 5).unwrap();
+        sim.add_player(0);
+        // Screen (0,0) has spawns in the test bundle. Kill everything there.
+        // (Gels split into minis on death, so loop until the room is truly clear.)
+        let count = |s: &Sim| s.entities.iter().filter(|e| e.etype == ET_ENEMY && e.home == (0, 0)).count();
+        for _ in 0..5 {
+            for e in sim.entities.iter_mut() {
+                if e.etype == ET_ENEMY && e.home == (0, 0) {
+                    e.hp = 0;
+                    e.alive = false;
+                }
+            }
+            sim.cleanup_and_drops();
+            if count(&sim) == 0 {
+                break;
+            }
+        }
+        assert_eq!(count(&sim), 0, "room cleared");
+
+        // Player stands one screen away (close). Even after a long time, the
+        // cleared room must NOT repopulate.
+        sim.players[0].as_mut().unwrap().sx = 1;
+        sim.players[0].as_mut().unwrap().sy = 0;
+        sim.tick = sim.tick.wrapping_add(ENEMY_RESPAWN_TICKS + 100);
+        sim.respawn_screens();
+        assert_eq!(count(&sim), 0, "stays cleared while a player is nearby");
+
+        // Move the player far away (>= RESPAWN_MIN_SCREENS) and tick again.
+        sim.players[0].as_mut().unwrap().sx = RESPAWN_MIN_SCREENS + 1;
+        sim.players[0].as_mut().unwrap().sy = 0;
+        sim.respawn_screens();
+        assert!(count(&sim) > 0, "repopulates once every player is far away");
+    }
+
+    #[test]
+    fn sell_and_repair_at_npcs() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 7).unwrap();
+        sim.add_player(0);
+        give_starter_kit(&mut sim, 0);
+        // Stand next to the elder (the test bundle's vendor) at tile (4,1)->px(64,32).
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.sx = 0;
+            p.sy = 0;
+            p.x = fx(64);
+            p.y = fx(48);
+            p.shells = 0;
+        }
+        let elder = sim.defs.npc_def_index("elder").unwrap() as i32;
+        assert!(sim.vendor_here(0) == elder, "elder is the vendor in reach");
+
+        // Sell the wooden shield: shells go up, item leaves the pack.
+        let (shield_idx, shells_before) = {
+            let p = sim.players[0].as_ref().unwrap();
+            let si = p
+                .inventory
+                .iter()
+                .position(|s| sim.defs.items[s.def as usize].kind == ItemKind::Shield)
+                .unwrap();
+            (si, p.shells)
+        };
+        sim.ui_action(0, &format!(r#"{{"action":"sell","a":{elder},"b":{shield_idx}}}"#));
+        let p = sim.players[0].as_ref().unwrap();
+        assert!(p.shells > shells_before, "selling pays shells");
+        assert!(
+            !p.inventory.iter().any(|s| sim.defs.items[s.def as usize].kind == ItemKind::Shield),
+            "sold shield left the pack"
+        );
+
+        // Repair: wear the sword down, then mend it at a smith.
+        // The test bundle has no smith NPC, so repair pricing is unit-tested
+        // directly via repair_cost + the cost/restore math.
+        let sword_idx = sim
+            .players[0]
+            .as_ref()
+            .unwrap()
+            .inventory
+            .iter()
+            .position(|s| sim.defs.items[s.def as usize].kind == ItemKind::Sword)
+            .unwrap();
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.inventory[sword_idx].durability = 1;
+            p.shells = 9999;
+        }
+        let worn = sim.players[0].as_ref().unwrap().inventory[sword_idx];
+        let cost = sim.repair_cost(&worn);
+        assert!(cost > 0, "a worn weapon has a repair cost");
+        let maxd = sim.max_durability(&worn);
+        assert!(maxd > 1);
+    }
+
+    #[test]
+    fn fountain_drink_restores_health() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 8).unwrap();
+        sim.add_player(0);
+        // Fountain tile is at (6,5) on screen (1,0): px (96, 5*16+HUD=96).
+        // Stand just below it, facing up, hurt.
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.sx = 1;
+            p.sy = 0;
+            p.x = fx(6 * 16);
+            p.y = fx(6 * 16 + HUD_H);
+            p.facing = 1; // up, toward the fountain
+            p.max_hp = 8;
+            p.hp = 2;
+        }
+        // Press A to drink.
+        sim.set_input(0, BTN_A);
+        sim.step();
+        assert_eq!(
+            sim.players[0].as_ref().unwrap().hp,
+            8,
+            "drinking from the fountain refills to full HP"
         );
     }
 

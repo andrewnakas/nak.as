@@ -118,7 +118,9 @@ pub fn apply(defs: &Defs, p: &mut Player, json: &str) -> bool {
     p.intro_done = data.intro_done;
 
     p.inventory.clear();
-    for s in data.inventory.iter().take(crate::INVENTORY_CAP) {
+    // The pack is unbounded in play; cap the LOAD only as a sanity guard against
+    // a corrupt/hostile save allocating without limit.
+    for s in data.inventory.iter().take(crate::INVENTORY_LOAD_LIMIT) {
         let Some(def) = defs.item_index(&s.item) else {
             continue;
         };

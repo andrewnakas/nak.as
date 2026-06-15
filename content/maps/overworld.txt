@@ -26,6 +26,7 @@ o window
 d dock
 g tall_grass
 C campfire
+Q fountain
 f dungeon_floor
 x dungeon_wall
 B bramble
@@ -95,16 +96,19 @@ T.**.**.,T
 T.F.FF.F.T
 T,......,T
 TT.s..s.TT
-E marsh_gel 3 3
-E shellsnatcher 7 6
-E thicket_hare 6 3
+E brackling_runt 3 3
+E brackling_runt 6 3
+E brackling_scout 1 6
+E brackling_lout 7 6
+E brackling_runt 4 6
+E thicket_hare 2 1
 N bramble 2 6
 
 SCREEN 1 1 driftwood_village
 TT..--..TT
 ..RR--RR..
 ..oD--Do..
-....--....
+...Q--....
 .!--------
 ....--....
 ..C.--.,..
@@ -113,6 +117,7 @@ N elder_maru 2 3
 N tink 7 3
 N wren 3 6
 N shopkeep 7 6
+N smith 6 6
 
 SCREEN 2 1 village_east
 TTT....TTT
@@ -123,7 +128,11 @@ TTT....TTT
 ...,...,..
 .,...b....
 ..s....s..
-E marsh_gel 7 6
+E brackling_runt 2 5
+E brackling_scout 7 5
+E brackling_lout 4 6
+E brackling_runt 1 7
+E brackling_runt 6 7
 
 SCREEN 3 1 greenreach
 ccc....ccc
@@ -134,10 +143,14 @@ c.gg.ggg.-
 c..ggg...c
 c.,...,..c
 cc.s...scc
-E thornling 4 3
-E shellsnatcher 6 5
-E hollow_stag 7 1
-E thicket_hare 2 6
+E brackling_runt 2 1
+E brackling_runt 6 1
+E brackling_scout 4 2
+E brackling_lout 3 4
+E brackling_runt 6 4
+E brackling_scout 2 6
+E brackling_lout 6 6
+E hollow_stag 4 3
 
 SCREEN 0 2 shellcomb_west
 TT.s..s.TT

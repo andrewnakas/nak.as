@@ -267,6 +267,9 @@ pub struct NpcJson {
     /// If non-empty, this NPC is a vendor selling these (item name, price).
     #[serde(default)]
     pub shop: Vec<ShopEntryJson>,
+    /// Weaponsmith: can repair worn gear for shells.
+    #[serde(default)]
+    pub smith: bool,
 }
 
 fn one_u16() -> u16 {
@@ -293,6 +296,7 @@ pub struct NpcDef {
     pub sprite: u16,
     pub lines: Vec<Vec<String>>,
     pub shop: Vec<ShopEntry>,
+    pub smith: bool,
 }
 
 #[derive(Deserialize)]
@@ -451,8 +455,19 @@ impl Defs {
                 Ok(EnemyDef {
                     brain,
                     hp: e.hp,
-                    damage: e.damage,
-                    speed: e.speed,
+                    // Non-boss enemies are eased globally: slower and gentler so
+                    // the early game is forgiving. Bosses keep their authored
+                    // numbers. (Speed ×0.7, damage capped at 1.)
+                    damage: if matches!(brain, Brain::Boss) {
+                        e.damage
+                    } else {
+                        e.damage.min(1)
+                    },
+                    speed: if matches!(brain, Brain::Boss) {
+                        e.speed
+                    } else {
+                        e.speed * 7 / 10
+                    },
                     sprite: sprite_index(&e.sprite)?,
                     drop_table,
                     hunt_xp: e.hunt_xp,
@@ -566,6 +581,7 @@ impl Defs {
                     label: n.label,
                     lines: n.lines,
                     shop,
+                    smith: n.smith,
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;

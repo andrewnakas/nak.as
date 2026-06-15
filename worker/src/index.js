@@ -76,10 +76,22 @@ const FALLBACK_ICE = [
 // Build the ICE server list. With Cloudflare Realtime TURN configured
 // (TURN_KEY_ID + TURN_API_TOKEN secrets) we mint short-lived credentials so
 // every pair has a reliable relay; otherwise we return the free fallback.
+// Returns { ice, diag } — diag is a SECRET-SAFE summary of what happened (no
+// token, no full key) for the /ice?debug view.
 async function iceServers(env) {
-  const keyId = env.TURN_KEY_ID;
-  const token = env.TURN_API_TOKEN;
-  if (!keyId || !token) return FALLBACK_ICE;
+  const keyId = (env.TURN_KEY_ID || '').trim();
+  const token = (env.TURN_API_TOKEN || '').trim();
+  const diag = {
+    source: 'fallback',
+    keyIdSet: !!env.TURN_KEY_ID,
+    tokenSet: !!env.TURN_API_TOKEN,
+    keyIdLen: keyId.length,
+    tokenLen: token.length,
+  };
+  if (!keyId || !token) {
+    diag.reason = 'secrets not set';
+    return { ice: FALLBACK_ICE, diag };
+  }
   try {
     const r = await fetch(
       `https://rtc.live.cloudflare.com/v1/turn/keys/${keyId}/credentials/generate`,
@@ -91,16 +103,27 @@ async function iceServers(env) {
         body: JSON.stringify({ ttl: 86400 }),
       },
     );
-    if (!r.ok) return FALLBACK_ICE;
+    diag.status = r.status;
+    if (!r.ok) {
+      // Surface a trimmed body so we can tell 401 (bad token) from 404 (bad
+      // key id) etc. — body is Cloudflare's error JSON, never our secret.
+      diag.reason = (await r.text().catch(() => '')).slice(0, 200);
+      return { ice: FALLBACK_ICE, diag };
+    }
     const data = await r.json();
     // Cloudflare returns { iceServers: { urls:[...], username, credential } }.
     // Keep a public STUN too so the host-candidate / reflexive path is tried
     // before falling back to the (metered) relay.
     const cf = data.iceServers;
-    if (!cf) return FALLBACK_ICE;
-    return [{ urls: 'stun:stun.cloudflare.com:3478' }, cf];
-  } catch {
-    return FALLBACK_ICE;
+    if (!cf) {
+      diag.reason = 'response had no iceServers; keys=' + Object.keys(data).join(',');
+      return { ice: FALLBACK_ICE, diag };
+    }
+    diag.source = 'cloudflare';
+    return { ice: [{ urls: 'stun:stun.cloudflare.com:3478' }, cf], diag };
+  } catch (e) {
+    diag.reason = 'fetch threw: ' + (e?.message || String(e)).slice(0, 120);
+    return { ice: FALLBACK_ICE, diag };
   }
 }
 
@@ -187,12 +210,15 @@ export default {
     // working relay. Falls back to STUN + the free openrelay TURN otherwise.
     // No auth: guests use voice too. Cached briefly at the edge.
     if (method === 'GET' && url.pathname === '/ice') {
-      const ice = await iceServers(env);
-      return new Response(JSON.stringify({ iceServers: ice }), {
+      const debug = url.searchParams.has('debug');
+      const { ice, diag } = await iceServers(env);
+      const body = debug ? { iceServers: ice, diag } : { iceServers: ice };
+      return new Response(JSON.stringify(body), {
         status: 200,
         headers: {
           'Content-Type': 'application/json',
-          'Cache-Control': 'public, max-age=300',
+          // Don't cache the debug view (we want live diagnostics).
+          'Cache-Control': debug ? 'no-store' : 'public, max-age=300',
           ...corsHeaders(request),
         },
       });

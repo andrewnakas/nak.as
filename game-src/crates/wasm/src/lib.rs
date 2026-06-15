@@ -122,6 +122,24 @@ impl Game {
         }
     }
 
+    /// Weaponsmith NPC the viewpoint player can repair with right now, or -1.
+    pub fn smith_here(&self, slot: u8) -> i32 {
+        if self.role == ROLE_CLIENT {
+            self.view.smith_here(&self.sim, slot)
+        } else {
+            self.sim.smith_here(slot as usize)
+        }
+    }
+
+    /// Per-item sell/repair prices JSON for the viewpoint player's inventory.
+    pub fn price_json(&self, slot: u8) -> String {
+        if self.role == ROLE_CLIENT {
+            self.view.price_json(&self.sim, slot)
+        } else {
+            self.sim.price_json(slot as usize)
+        }
+    }
+
     /// Encode a UI action for sending to the host (client role).
     pub fn encode_ui_action(&self, json: &str) -> Vec<u8> {
         protocol::encode(&C2H::UiAction {

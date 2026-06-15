@@ -537,6 +537,19 @@ export class InventoryUI {
     const cats = InventoryUI.CATEGORIES;
     const inCat = (cat, it) => cats.find((c) => c.key === cat)?.match(it);
 
+    // Vendor / smith reach + per-item prices, fetched once per render so the
+    // detail panel can offer SELL (near a vendor) and REPAIR (near a smith).
+    const g = this.session.game;
+    const slot = this.session.slot;
+    this._vendor = g.vendor_here(slot);
+    this._smith = g.smith_here?.(slot) ?? -1;
+    this._prices = {};
+    try {
+      for (const p of JSON.parse(g.price_json?.(slot) ?? '[]')) this._prices[p.i] = p;
+    } catch {
+      /* prices optional */
+    }
+
     // Category chips (only those with items; counts shown). Keep `this.cat`
     // valid — fall back to the first non-empty category.
     const nonEmpty = cats.filter((c) => state.inventory.some((it) => c.match(it)));
@@ -695,6 +708,25 @@ export class InventoryUI {
             this.render();
           }),
         );
+    }
+    // Repair at a weaponsmith in reach (worn weapons only).
+    const price = this._prices?.[item.i];
+    const sellable = !['key', 'bodypart'].includes(item.kind) && item.label !== 'SURFBOARD';
+    if (this._smith >= 0 && ['sword', 'bow', 'shield'].includes(item.kind) && price?.repair > 0) {
+      box.appendChild(
+        this.button(`REPAIR (${price.repair})`, false, () =>
+          this.action({ action: 'repair', a: this._smith, b: item.i }),
+        ),
+      );
+    }
+    // Sell to a vendor in reach.
+    if (this._vendor >= 0 && sellable && price) {
+      box.appendChild(
+        this.button(`SELL (${price.sell})`, false, () => {
+          this.action({ action: 'sell', a: this._vendor, b: item.i });
+          this.sel = null; // selection index shifts after removal
+        }),
+      );
     }
   }
 

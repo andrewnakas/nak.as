@@ -144,6 +144,36 @@
     "combat_xp": 40
   },
   {
+    "name": "brackling_runt",
+    "brain": "brackling",
+    "hp": 2,
+    "damage": 1,
+    "speed": 104,
+    "sprite": "brackling_0",
+    "drops": "brackling_field",
+    "combat_xp": 8
+  },
+  {
+    "name": "brackling_scout",
+    "brain": "brackling",
+    "hp": 3,
+    "damage": 1,
+    "speed": 120,
+    "sprite": "brackling_archer_0",
+    "drops": "brackling_field",
+    "combat_xp": 10
+  },
+  {
+    "name": "brackling_lout",
+    "brain": "brackling",
+    "hp": 4,
+    "damage": 1,
+    "speed": 88,
+    "sprite": "brackling_blue_0",
+    "drops": "brackling_field",
+    "combat_xp": 12
+  },
+  {
     "name": "tidewarden",
     "brain": "boss",
     "hp": 34,

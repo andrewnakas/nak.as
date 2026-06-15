@@ -170,6 +170,7 @@ const world = {
   tile_water: TILES.map((t) => !!t.water),
   tile_fire: TILES.map((t) => !!t.fire),
   tile_tree: TILES.map((t) => !!t.tree),
+  tile_heal: TILES.map((t) => !!t.heal),
   tile_gate: TILES.map((t) => t.gate ?? 0),
   tile_cleared: TILES.map((t) => {
     if (!t.cleared) return -1;

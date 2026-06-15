@@ -218,6 +218,27 @@ export class Game {
         }
     }
     /**
+     * Per-item sell/repair prices JSON for the viewpoint player's inventory.
+     * @param {number} slot
+     * @returns {string}
+     */
+    price_json(slot) {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.game_price_json(retptr, this.__wbg_ptr, slot);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            deferred1_0 = r0;
+            deferred1_1 = r1;
+            return getStringFromWasm0(r0, r1);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+            wasm.__wbindgen_export3(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
      * @param {number} slot
      */
     remove_player(slot) {
@@ -275,6 +296,15 @@ export class Game {
             wasm.__wbindgen_add_to_stack_pointer(16);
             wasm.__wbindgen_export3(deferred1_0, deferred1_1, 1);
         }
+    }
+    /**
+     * Weaponsmith NPC the viewpoint player can repair with right now, or -1.
+     * @param {number} slot
+     * @returns {number}
+     */
+    smith_here(slot) {
+        const ret = wasm.game_smith_here(this.__wbg_ptr, slot);
+        return ret;
     }
     /**
      * Serialized full snapshot (every player + active entities). For solo

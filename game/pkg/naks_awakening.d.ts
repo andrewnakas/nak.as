@@ -44,6 +44,10 @@ export class Game {
      * [sx, sy] of the viewpoint player's screen, or empty if unknown.
      */
     player_screen(slot: number): Int32Array;
+    /**
+     * Per-item sell/repair prices JSON for the viewpoint player's inventory.
+     */
+    price_json(slot: number): string;
     remove_player(slot: number): void;
     render_frame(viewpoint: number, now_ms: number): Uint16Array;
     set_input(slot: number, buttons: number): void;
@@ -52,6 +56,10 @@ export class Game {
      * Shop listing JSON for a vendor (role-aware), or "null".
      */
     shop_json(slot: number, npc: number): string;
+    /**
+     * Weaponsmith NPC the viewpoint player can repair with right now, or -1.
+     */
+    smith_here(slot: number): number;
     /**
      * Serialized full snapshot (every player + active entities). For solo
      * and small parties where broadcasting one snapshot to all is cheapest.
@@ -121,11 +129,13 @@ export interface InitOutput {
     readonly game_handle_client_msg: (a: number, b: number, c: number, d: number) => void;
     readonly game_new: (a: number, b: number, c: number, d: bigint) => number;
     readonly game_player_screen: (a: number, b: number, c: number) => void;
+    readonly game_price_json: (a: number, b: number, c: number) => void;
     readonly game_remove_player: (a: number, b: number) => void;
     readonly game_render_frame: (a: number, b: number, c: number, d: number) => void;
     readonly game_set_input: (a: number, b: number, c: number) => void;
     readonly game_set_local_slot: (a: number, b: number) => void;
     readonly game_shop_json: (a: number, b: number, c: number, d: number) => void;
+    readonly game_smith_here: (a: number, b: number) => number;
     readonly game_snapshot_bytes: (a: number, b: number) => void;
     readonly game_snapshot_bytes_for: (a: number, b: number, c: number) => void;
     readonly game_snapshot_content_hash: (a: number, b: number) => bigint;
