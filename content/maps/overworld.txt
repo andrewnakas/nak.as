@@ -406,26 +406,27 @@ xxxxxxxxxx
 E cave_pip 5 5
 
 SCREEN 12 12 d_bosskey
+xxxxffxxxx
+xffffffffx
+xfBfffBfBx
+xfffffffff
+xfBfffBfBx
+xffffffffx
+xffffffffx
 xxxxxxxxxx
-xffffffffx
-xfffBBfffx
-LffBffBffx
-xfffBBfffx
-xffffffffx
-xffffffffx
-xxxxxxxxxx
-I boss_key 5 3
+I boss_key 4 3
 E rootbound_sentry 2 5
 
 SCREEN 13 12 d_boss
 xxxxxxxxxx
 xffffffffx
 xffffffffx
-Kffffffffx
+fKfffffffx
 xffffffffx
-xffffffffx
+xfffff<ffx
 xffffffffx
 xxxxxxxxxx
+W 5 5 3 0 64 40
 E moldra 5 2
 
 # ===== TIDECRAG HOLLOW (dungeon 2; surfboard utility item) =====
@@ -515,19 +516,20 @@ xffffffffx
 xffffffffx
 xffffffffx
 xffffffffx
+xxxKKxxxxx
 xffffffffx
-xffffffffx
-xxxxKKxxxx
+xxxxffxxxx
 E brackling_archer 6 2
 E brackling_blue 3 4
 
 SCREEN 9 12 tc_boss
-xxxxKKxxxx
+xxxxffxxxx
 xffffffffx
 xffffffffx
-xffffffffx
+xfffff<ffx
 xffffffffx
 xffffffffx
 xffffffffx
 xxxxxxxxxx
+W 5 3 4 2 72 64
 E tidewarden 4 3

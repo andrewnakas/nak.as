@@ -224,6 +224,7 @@ fn lerp_player(pa: Option<&PlayerSnap>, pb: &PlayerSnap, num: u64, den: u64) -> 
         skills: pb.skills,
         level: pb.level,
         xp: pb.xp,
+        bonus_hp: 0, // remote players: max_hp comes straight from the snapshot
         fishing: pb.fishing.map(|f| {
             if f == 0 {
                 crate::FishPhase::Cast { t: 1 }

@@ -109,12 +109,16 @@ pub fn apply(defs: &Defs, p: &mut Player, json: &str) -> bool {
         return false;
     };
 
-    p.max_hp = data.max_hp.clamp(2, 40);
+    p.max_hp = data.max_hp.clamp(2, 60);
     p.hp = data.hp.clamp(1, p.max_hp);
     p.shells = data.shells;
     p.skills = data.skills;
     p.xp = data.xp;
     p.level = crate::level_for_xp(data.xp);
+    // Heart-container bonus = saved max above what the level alone grants. This
+    // reconstructs bonus_hp from the stored max_hp, so no new save field is
+    // needed and old saves load with bonus 0.
+    p.bonus_hp = (p.max_hp - crate::max_hp_for_level(p.level)).max(0);
     p.intro_done = data.intro_done;
 
     p.inventory.clear();

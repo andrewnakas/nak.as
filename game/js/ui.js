@@ -391,6 +391,7 @@ export class InventoryUI {
     $('#inv-close').onclick = () => this.toggle();
     for (const t of document.querySelectorAll('.inv-tab')) {
       t.onclick = () => {
+        if (this.tab === 'map' && t.dataset.tab !== 'map') this._hideMap();
         this.tab = t.dataset.tab;
         this.fuseFrom = null;
         this.attachFrom = null;
@@ -399,22 +400,42 @@ export class InventoryUI {
     }
   }
 
+  /// Re-hide the minimap canvas when leaving the MAP tab / closing the overlay.
+  _hideMap() {
+    const mm = document.getElementById('minimap');
+    if (mm) {
+      // Move #minimap back to its original parent BEFORE render() wipes the list
+      // with list.textContent='', which would otherwise destroy the canvas element.
+      if (mm._mapHome && mm._mapHome !== mm.parentElement) {
+        mm._mapHome.appendChild(mm);
+      }
+      mm.hidden = true;
+      mm.classList.remove('in-menu');
+    }
+  }
+
   toggle() {
     this.open = !this.open;
     this.fuseFrom = null;
     this.attachFrom = null;
+    if (!this.open) this._hideMap();
     $('#inv').style.display = this.open ? 'flex' : 'none';
     this.session.input.suppressed = this.open;
     if (this.open) this.render();
   }
 
   render() {
-    const state = JSON.parse(this.session.game.ui_state(this.session.slot));
     const list = $('#inv-list');
     list.textContent = '';
     for (const t of document.querySelectorAll('.inv-tab')) {
       t.classList.toggle('active', t.dataset.tab === this.tab);
     }
+    // The MAP tab doesn't need ui_state and works with an empty pack.
+    if (this.tab === 'map') {
+      this._renderMap(list);
+      return;
+    }
+    const state = JSON.parse(this.session.game.ui_state(this.session.slot));
     if (!state) {
       list.appendChild(this._empty('your pack is empty.'));
       return;
@@ -422,6 +443,26 @@ export class InventoryUI {
     if (this.tab === 'items') this._renderItems(list, state);
     else if (this.tab === 'quests') this._renderQuests(list, state);
     else this._renderSkills(list, state);
+  }
+
+  // ---- MAP tab: the discovered-screens minimap, rendered into the overlay ----
+  _renderMap(list) {
+    list.appendChild(this._section('MAP'));
+    const holder = document.createElement('div');
+    holder.className = 'inv-map';
+    // Re-parent the persistent #minimap canvas into the overlay while the MAP
+    // tab is open; World.renderMap draws the discovered region into it.
+    const mm = document.getElementById('minimap');
+    if (mm) {
+      mm._mapHome = mm._mapHome || mm.parentElement; // remember home before reparenting
+      mm.hidden = false;
+      mm.classList.add('in-menu');
+      holder.appendChild(mm);
+      list.appendChild(holder);
+      this.session.renderMap?.();
+    } else {
+      list.appendChild(this._empty('map unavailable.'));
+    }
   }
 
   // ---- ITEMS tab: gear/consumables, plus campfire + vendor when nearby ----

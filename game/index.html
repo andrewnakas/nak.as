@@ -225,6 +225,17 @@
   .inv-row button:hover { border-color: var(--gb-light); }
   .inv-row button.active { background: var(--gb-dark); border-color: var(--gb-light); }
   .inv-empty { color: #6c7c6c; font-size: 12px; padding: 16px 4px; text-align: center; }
+  .inv-map { display: flex; justify-content: center; padding: 8px; }
+  /* In the MAP tab the minimap canvas flows in the panel instead of floating. */
+  #minimap.in-menu {
+    position: static;
+    inset: auto;
+    width: auto;
+    max-width: 100%;
+    image-rendering: pixelated;
+    border: 1px solid var(--gb-dark);
+    border-radius: 4px;
+  }
 
   /* ---- BotW-style visual inventory: category chips + icon grid + detail ---- */
   .inv-cats {
@@ -650,6 +661,7 @@
       <div id="inv-head">
         <div id="inv-tabs">
           <button class="inv-tab" data-tab="items">ITEMS</button>
+          <button class="inv-tab" data-tab="map">MAP</button>
           <button class="inv-tab" data-tab="quests">QUESTS</button>
           <button class="inv-tab" data-tab="skills">SKILLS</button>
         </div>

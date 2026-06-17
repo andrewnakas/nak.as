@@ -53,6 +53,12 @@
     "kind": "bomb"
   },
   {
+    "name": "exploding_seed",
+    "label": "EXPLODING SEED",
+    "sprite": "seed",
+    "kind": "bomb"
+  },
+  {
     "name": "arrow",
     "label": "ARROW",
     "sprite": "arrow_h",

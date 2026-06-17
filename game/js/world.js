@@ -179,8 +179,20 @@ export class World {
   _startMinimap(localSlot) {
     const worldObj = JSON.parse(this.deps.worldJson);
     this._map = new Minimap(worldObj, this.name);
+    // The map lives in the menu now (not always on screen); keep #minimap hidden
+    // during play. The inventory MAP tab renders it on demand via renderMap().
     const mm = document.getElementById('minimap');
-    if (mm) mm.hidden = false;
+    if (mm) mm.hidden = true;
+    this._mapSelf = null;
+    this._mapOthers = [];
+    // Expose a render hook for the inventory MAP tab (the InventoryUI reads it
+    // off the session).
+    this.renderMap = () => {
+      const m = document.getElementById('minimap');
+      if (m) m.hidden = false;
+      this._map.render(this._mapSelf, this._mapOthers);
+    };
+    if (this.session) this.session.renderMap = this.renderMap;
 
     this.session.onFrame = () => {
       const v = this.session.game.visible_players?.() ?? [];
@@ -196,22 +208,26 @@ export class World {
       // Auto-follow a party member across screen changes.
       this._followTick(v, localSlot);
       if (self) this._map.visit(self.sx, self.sy);
-      // Throttle the actual draw to ~6/s; visit() already redraws on discovery.
+      // Track positions for the menu map; don't draw during play.
+      this._mapSelf = self;
+      this._mapOthers = others;
+      // Throttle debug overlay updates to ~6/s.
       const now = performance.now();
       if (now - (this._mapDrawAt || 0) > 160) {
         this._mapDrawAt = now;
-        this._map.render(self, others);
-        // Surface voice diagnostics in the debug overlay (helps debug on real
-        // devices: shows mic state + each peer's connection/ICE state).
-        const dbg = this.deps.debugEl;
-        if (dbg && this._voice && dbg.style.display !== 'none') {
-          let line = dbg.querySelector('#voice-dbg');
-          if (!line) {
-            line = document.createElement('div');
-            line.id = 'voice-dbg';
-            dbg.appendChild(line);
+        {
+          // Surface voice diagnostics in the debug overlay (helps debug on real
+          // devices: shows mic state + each peer's connection/ICE state).
+          const dbg = this.deps.debugEl;
+          if (dbg && this._voice && dbg.style.display !== 'none') {
+            let line = dbg.querySelector('#voice-dbg');
+            if (!line) {
+              line = document.createElement('div');
+              line.id = 'voice-dbg';
+              dbg.appendChild(line);
+            }
+            line.textContent = this._voice.status();
           }
-          line.textContent = this._voice.status();
         }
       }
     };

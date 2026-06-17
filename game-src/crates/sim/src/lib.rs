@@ -190,6 +190,9 @@ pub struct Player {
     /// combat XP raises `level`, which raises max HP and base damage.
     pub level: u32,
     pub xp: u32,
+    /// Permanent bonus max-HP from heart containers (boss rewards), on top of
+    /// the level-derived max. Persisted; survives level-ups.
+    pub bonus_hp: i16,
     pub fishing: Option<FishPhase>,
     pub dialogue: Option<Dialogue>,
     pub quests: Vec<PlayerQuest>,
@@ -233,13 +236,13 @@ impl Player {
     }
 }
 
-/// Surfboard equipped in the B slot? (gates water traversal). The item index
-/// is resolved against the defs each call — cheap and avoids caching.
+/// Does the player OWN the surfboard? (gates water traversal). No equip needed —
+/// owning it auto-surfs on water. The item index is resolved each call (cheap).
 fn has_surfboard(defs: &Defs, p: &Player) -> bool {
     let Some(board) = defs.item_index("surfboard") else {
         return false;
     };
-    p.equipped(p.equip_b).is_some_and(|s| s.def == board)
+    p.inventory.iter().any(|s| s.def == board)
 }
 
 #[derive(Deserialize)]
@@ -486,6 +489,7 @@ impl Sim {
             skills: [0, 0, 0],
             level: 1,
             xp: 0,
+            bonus_hp: 0,
             fishing: None,
             dialogue: None,
             quests: Vec::new(),
@@ -651,6 +655,15 @@ impl Sim {
 
     /// Character XP from a kill. Levels raise max HP and base damage.
     fn award_combat_xp(&mut self, pl: &mut Player, slot: usize, enemy_def: u8) {
+        // Beating a boss grants a permanent heart container (+1 heart = 2 HP),
+        // tracked in bonus_hp so a later level-up doesn't wipe it.
+        if self.defs.enemies[enemy_def as usize].brain == Brain::Boss {
+            pl.bonus_hp = (pl.bonus_hp + 2).min(40);
+            pl.max_hp = (max_hp_for_level(pl.level) + pl.bonus_hp).min(60);
+            pl.hp = pl.max_hp; // a heart container fully heals you
+            self.emit_toast(slot, "HEART CONTAINER!");
+            self.emit_cue(pl.sx, pl.sy, cues::HEART);
+        }
         let amount = self.defs.enemies[enemy_def as usize].combat_xp;
         if amount == 0 {
             return;
@@ -659,7 +672,7 @@ impl Sim {
         pl.xp = pl.xp.saturating_add(amount);
         pl.level = level_for_xp(pl.xp);
         if pl.level > before {
-            let new_max = max_hp_for_level(pl.level);
+            let new_max = (max_hp_for_level(pl.level) + pl.bonus_hp).min(60);
             let gained = new_max - pl.max_hp;
             pl.max_hp = new_max;
             pl.hp = (pl.hp + gained.max(0)).min(pl.max_hp); // heal the new hearts
@@ -861,33 +874,45 @@ impl Sim {
         }
     }
 
-    /// Ocean waves: on screens where someone is surfing, periodically spawn a
-    /// crest that drifts shoreward (north→south here). A surfing player who
-    /// overlaps a wave catches it for a speed boost. Deterministic: spawn cadence
-    /// is tied to the tick, lateral offset to the rng.
+    /// Ocean waves: real, predictable swells that originate offshore and roll
+    /// toward the beach. A wave spawns from the deep-water (top) side of an ocean
+    /// screen a player is on, rolls shoreward (south), and breaks slightly left
+    /// or right so a surfer can angle across it and ride it down the beach.
+    /// Farther out (deeper, more-water screens) the swells are longer & faster.
+    /// A surfing player overlapping a wave catches it for a speed boost.
     fn step_waves(&mut self) {
-        // Screens with a surfing player are "active oceans".
-        let mut active: Vec<(i32, i32)> = Vec::new();
+        // Ocean screens a player currently occupies. "Ocean" = the screen has a
+        // band of water (so beaches/coast count, but inland rooms don't).
+        let mut oceans: Vec<(i32, i32)> = Vec::new();
         for p in self.players.iter().flatten() {
-            if p.surfing && !active.contains(&(p.sx, p.sy)) {
-                active.push((p.sx, p.sy));
+            if !oceans.contains(&(p.sx, p.sy)) && self.ocean_depth(p.sx, p.sy) > 0 {
+                oceans.push((p.sx, p.sy));
             }
         }
-        // Spawn a wave every ~2.5s on each active ocean screen (cap one per
-        // screen in flight to keep it sparse).
-        if self.tick % 150 == 0 {
+        // Spawn cadence: a fresh swell about every 2s per ocean screen, capped at
+        // 2 in flight so crests stay readable rather than a wall of foam.
+        if self.tick % 120 == 0 {
             let mut to_spawn = Vec::new();
-            for &(sx, sy) in &active {
-                let already = self
+            for &(sx, sy) in &oceans {
+                let live = self
                     .entities
                     .iter()
-                    .any(|e| e.etype == ET_WAVE && e.sx == sx && e.sy == sy);
-                if !already {
-                    let jx = self.rng.below(120) as i32; // lateral start jitter
-                    let mut w = entity::blank(ET_WAVE, sx, sy, fx(jx), fx(HUD_H));
-                    w.vy = fx(1); // drift south toward the shore
-                    to_spawn.push(w);
+                    .filter(|e| e.etype == ET_WAVE && e.sx == sx && e.sy == sy)
+                    .count();
+                if live >= 2 {
+                    continue;
                 }
+                let depth = self.ocean_depth(sx, sy); // 1..=8 water rows
+                // Start near the deep (top) edge, roll south toward shore.
+                let jx = self.rng.below(96) as i32 + 16;
+                let mut w = entity::blank(ET_WAVE, sx, sy, fx(jx), fx(HUD_H));
+                // Deeper water → faster, longer-traveling swells ("long waves").
+                w.vy = fx(1) + (depth as Fx) * 24; // ~1.1..1.75 px/tick
+                // Break left or right (deterministic from tick+coords parity).
+                let break_dir = ((self.tick / 120) as i32 + sx + sy) % 2 * 2 - 1;
+                w.vx = break_dir * 48; // gentle lateral drift = the "break"
+                w.data = depth as i32; // render width scales with depth
+                to_spawn.push(w);
             }
             for mut w in to_spawn {
                 w.id = self.next_id;
@@ -895,7 +920,7 @@ impl Sim {
                 self.entities.push(w);
             }
         }
-        // Catch: a surfing player overlapping a wave gets a ~1s boost.
+        // Catch: a surfing player overlapping a wave (in x AND y) rides it.
         for slot in 0..MAX_PLAYERS {
             let Some(mut p) = self.players[slot].clone() else {
                 continue;
@@ -903,19 +928,44 @@ impl Sim {
             if !p.surfing {
                 continue;
             }
+            let (px, py) = (to_px(p.x), to_px(p.y));
             let caught = self.entities.iter().any(|e| {
                 e.etype == ET_WAVE
                     && e.alive
                     && e.sx == p.sx
                     && e.sy == p.sy
-                    && (to_px(e.y) - to_px(p.y)).abs() < 12
+                    && (to_px(e.y) - py).abs() < 12
+                    && (to_px(e.x) - px).abs() < 40 // must be near the crest, not the whole row
             });
             if caught && p.wave_boost == 0 {
-                p.wave_boost = 60;
+                p.wave_boost = 75;
                 self.emit_cue(p.sx, p.sy, cues::SWING);
                 self.players[slot] = Some(p);
             }
         }
+    }
+
+    /// How many tile rows of this screen are water (0 = not an ocean). Used to
+    /// decide where waves spawn and how big/fast they are (deeper = longer).
+    fn ocean_depth(&self, sx: i32, sy: i32) -> i32 {
+        let Some(screen) = self.world.screen_at(sx, sy) else {
+            return 0;
+        };
+        let mut rows = 0;
+        for ty in 0..world::SCREEN_ROWS {
+            let py = ty * 16 + HUD_H + 8;
+            let mut watery = false;
+            for tx in 0..world::SCREEN_COLS {
+                if self.world.is_water(screen, tx * 16 + 8, py) {
+                    watery = true;
+                    break;
+                }
+            }
+            if watery {
+                rows += 1;
+            }
+        }
+        rows
     }
 
     fn wrapping_tick(&self) -> u32 {
@@ -2061,8 +2111,8 @@ impl Sim {
                 };
                 let jx = self.rng.below(13) as i32 - 6;
                 let jy = self.rng.below(13) as i32 - 6;
-                let mut d =
-                    entity::blank(ET_PICKUP, e.sx, e.sy, e.x + fx(jx), e.y + fx(jy));
+                let (dx, dy) = self.drop_spot(e.sx, e.sy, e.x + fx(jx), e.y + fx(jy));
+                let mut d = entity::blank(ET_PICKUP, e.sx, e.sy, dx, dy);
                 d.def = def_kind;
                 d.data = data;
                 d.home = e.home;
@@ -2083,6 +2133,22 @@ impl Sim {
             self.next_id += 1;
             self.entities.push(d);
         }
+    }
+
+    /// Find a reachable spot for a dropped pickup near (x,y): clamp into the
+    /// playfield, and if that lands on a wall/water nudge to the nearest tile a
+    /// player can actually stand on (so loot is never stuck inside scenery).
+    fn drop_spot(&self, sx: i32, sy: i32, x: Fx, y: Fx) -> (Fx, Fx) {
+        let x = x.clamp(MIN_X, MAX_X);
+        let y = y.clamp(MIN_Y, MAX_Y);
+        if let Some(screen) = self.world.screen_at(sx, sy) {
+            if !self.feet_clear_on(screen, x, y, false) {
+                if let Some((cx, cy)) = self.find_clear_near(screen, x, y, false) {
+                    return (cx, cy);
+                }
+            }
+        }
+        (x, y)
     }
 
     fn respawn_screens(&mut self) {
@@ -3621,7 +3687,8 @@ mod tests {
  {{"name":"gel","brain":"gel","hp":2,"damage":1,"speed":128,"sprite":"gel_0","drops":"basic"}},
  {{"name":"brackling","brain":"brackling","hp":3,"damage":1,"speed":176,"sprite":"thornling_0","drops":"brack","combat_xp":14}},
  {{"name":"archer","brain":"brackling_archer","hp":3,"damage":1,"speed":160,"sprite":"thornling_0","drops":"brack","combat_xp":14}},
- {{"name":"hare","brain":"critter","hp":1,"damage":0,"speed":320,"sprite":"gel_0","drops":"basic","hunt_xp":20}}],
+ {{"name":"hare","brain":"critter","hp":1,"damage":0,"speed":320,"sprite":"gel_0","drops":"basic","hunt_xp":20}},
+ {{"name":"warden","brain":"boss","hp":10,"damage":2,"speed":96,"sprite":"thornling_0","drops":"basic","big":true,"combat_xp":100}}],
 "drops":{{"basic":[{{"item":"heart","p":400}},{{"item":"shells","p":600,"min":1,"max":3}},{{"item":"crab_claw","p":300}}],
  "brack":[{{"item":"shells","p":1000,"min":2,"max":4}},{{"item":"brackling_claw","p":1000}}]}},
 "skills":{{"curve":{{"base":100,"growth":50,"max_level":15}},
@@ -4016,18 +4083,20 @@ mod tests {
         assert!(surfed, "equipped surfboard lets the player ride onto water");
         assert!(to_px(sim.players[0].as_ref().unwrap().x) > 70, "moved onto the water tile");
 
-        // Catch a wave: drop one onto the surfer and confirm the boost lands.
+        // Catch a wave: drop one right on the surfer (same x and y) and confirm
+        // the boost lands. The catch needs the crest near the player in BOTH
+        // axes now (not the whole row), so spawn it at the player's position.
         {
-            let (sx, sy, py) = {
+            let (sx, sy, px, py) = {
                 let p = sim.players[0].as_ref().unwrap();
-                (p.sx, p.sy, p.y)
+                (p.sx, p.sy, p.x, p.y)
             };
-            let mut w = entity::blank(ET_WAVE, sx, sy, fx(20), py);
+            let mut w = entity::blank(ET_WAVE, sx, sy, px, py);
             w.id = sim.next_id;
             sim.next_id += 1;
             sim.entities.push(w);
         }
-        sim.set_input(0, BTN_RIGHT);
+        sim.set_input(0, 0); // stop moving so we stay on the crest
         sim.step();
         assert!(
             sim.players[0].as_ref().unwrap().wave_boost > 0,
@@ -4129,6 +4198,33 @@ mod tests {
         assert!(cost > 0, "a worn weapon has a repair cost");
         let maxd = sim.max_durability(&worn);
         assert!(maxd > 1);
+    }
+
+    #[test]
+    fn boss_kill_grants_heart_container() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 3).unwrap();
+        sim.add_player(0);
+        let warden = sim.defs.enemy_index("warden").unwrap();
+        let (max0, bonus0) = {
+            let p = sim.players[0].as_ref().unwrap();
+            (p.max_hp, p.bonus_hp)
+        };
+        // Award a boss kill directly.
+        let mut p = sim.players[0].take().unwrap();
+        sim.award_combat_xp(&mut p, 0, warden);
+        sim.players[0] = Some(p);
+        let p = sim.players[0].as_ref().unwrap();
+        assert_eq!(p.bonus_hp, bonus0 + 2, "boss grants +1 heart (2 HP) bonus");
+        assert!(p.max_hp > max0, "max HP increased");
+        assert_eq!(p.hp, p.max_hp, "heart container fully heals");
+        // The bonus survives a later level-up (doesn't get wiped by the recompute).
+        let mut p = sim.players[0].take().unwrap();
+        p.xp = 0;
+        p.level = 1;
+        sim.award_combat_xp(&mut p, 0, warden); // second boss -> +2 more
+        assert_eq!(p.bonus_hp, 4, "heart containers stack and persist");
+        sim.players[0] = Some(p);
     }
 
     #[test]
