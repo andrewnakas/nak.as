@@ -1380,18 +1380,32 @@ impl Sim {
             let cx = to_px(pl.x) + 8;
             let cy = to_px(pl.y) + 8;
             let (wtx, wty) = (cx.div_euclid(16), (cy - HUD_H).div_euclid(16));
-            if let Some(w) = screen.warps.iter().find(|w| w.tx == wtx && w.ty == wty) {
+            let dest = screen
+                .warps
+                .iter()
+                .find(|w| w.tx == wtx && w.ty == wty)
+                .map(|w| (w.sx, w.sy, w.px, w.py));
+            if let Some((dsx, dsy, dpx, dpy)) = dest {
                 let was_beach = pl.sx >= TUTORIAL_COL;
-                pl.sx = w.sx;
-                pl.sy = w.sy;
-                pl.x = fx(w.px).clamp(MIN_X, MAX_X);
-                pl.y = fx(w.py).clamp(MIN_Y, MAX_Y);
+                let (from_sx, from_sy) = (pl.sx, pl.sy);
+                pl.sx = dsx;
+                pl.sy = dsy;
+                pl.x = fx(dpx).clamp(MIN_X, MAX_X);
+                pl.y = fx(dpy).clamp(MIN_Y, MAX_Y);
                 pl.transition = None;
                 pl.iframes = pl.iframes.max(30);
                 // Leaving the tutorial beach for the mainland completes the intro.
                 if was_beach && pl.sx < TUTORIAL_COL && !pl.intro_done {
                     pl.intro_done = true;
                     self.emit_toast(slot, "WELCOME TO DRIFTWOOD VILLAGE");
+                }
+                // Dungeon-mouth banner: name the dungeon when you first drop in
+                // from the overworld (warp only fires on stairs/cave tiles, so
+                // this reads once per descent — not on every interior screen).
+                if let Some(name) = dungeon_entry_name(dsx, dsy) {
+                    if (from_sx, from_sy) != (dsx, dsy) {
+                        self.emit_toast(slot, name);
+                    }
                 }
             }
         }
@@ -3603,6 +3617,16 @@ impl Sim {
     }
 }
 
+/// Display name for a dungeon-entry screen, or None for ordinary screens.
+/// Keyed on the entry screen's grid coords (dungeons live off the world grid).
+fn dungeon_entry_name(sx: i32, sy: i32) -> Option<&'static str> {
+    match (sx, sy) {
+        (10, 10) => Some("THE ROOTCELLAR"),
+        (7, 12) => Some("TIDECRAG HOLLOW"),
+        _ => None,
+    }
+}
+
 /// True when any of the 4 tiles around the player's center is a campfire.
 fn near_fire(world: &World, p: &Player) -> bool {
     let Some(screen) = world.screen_at(p.sx, p.sy) else {
@@ -4350,6 +4374,17 @@ mod tests {
             !sim.effective_solid(screen, dpx, dpy, false),
             "switch door is walkable after the lever is pulled"
         );
+    }
+
+    #[test]
+    fn dungeon_entry_names_only_dungeon_mouths() {
+        // The Rootcellar and Tidecrag Hollow entry screens get a banner; the
+        // overworld and dungeon-interior screens do not.
+        assert_eq!(dungeon_entry_name(10, 10), Some("THE ROOTCELLAR"));
+        assert_eq!(dungeon_entry_name(7, 12), Some("TIDECRAG HOLLOW"));
+        assert_eq!(dungeon_entry_name(1, 1), None); // town
+        assert_eq!(dungeon_entry_name(11, 10), None); // dungeon interior
+        assert_eq!(dungeon_entry_name(13, 12), None); // boss room
     }
 
     #[test]

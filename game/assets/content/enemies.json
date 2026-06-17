@@ -195,5 +195,16 @@
     "drops": "tide_sentinel",
     "big": true,
     "combat_xp": 90
+  },
+  {
+    "name": "root_warden",
+    "brain": "brackling",
+    "hp": 10,
+    "damage": 2,
+    "speed": 120,
+    "sprite": "sentry_0",
+    "drops": "root_warden",
+    "big": true,
+    "combat_xp": 80
   }
 ]

@@ -87,7 +87,7 @@ ccc....ccc
 E dune_wasp 4 3
 E dune_wasp 7 5
 E hollow_stag 4 5
-W 4 1 10 10 72 112
+W 4 1 10 10 64 40
 
 SCREEN 0 1 west_fields
 TT..--..TT
@@ -281,143 +281,117 @@ E brackling_blue 6 3
 W 4 5 7 12 72 40
 W 5 5 7 12 72 40
 
-# ===== THE ROOTCELLAR (dungeon) =====
-# Layout (sx 10-13, sy 10-12):
-#  entry(10,10) - hall(11,10) - pips(12,10) L keyroom(13,10)
-#  brambles(10,11) - gels(11,11) - sentry(12,11) - junction(13,11)
-#  key2(10,12) - corridor(11,12) L bosskey(12,12) K boss(13,12)
+# ===== THE ROOTCELLAR (dungeon 1; minor ROOT/BRAMBLE dungeon) =====
+# A choked old cellar of strangling roots. Trimmed to a tight 9 rooms; every
+# room has a job. Warp in from cliff_overlook(3,0) tile(4,1) -> d_entry top.
+# Critical path to the boss:
+#   entry(10,10) >E hall(11,10) >S gels(11,11)  [BRAMBLE wall: burn/bomb to
+#   reach the east exit] >E sentry(12,11)  [ROOT WARDEN sub-boss + a LEVER that
+#   raises the switch_door sealing the south passage] >S bosskey(12,12) >E
+#   boss(13,12)  [interior BOSS DOOR (K), Moldra].
+# Optional reward branch:
+#   entry >S brambles(10,11)  [BRAMBLE wall hides a SMALL KEY] ; spend it east
+#   of the entry: hall >E pips(12,10) >E keyroom(13,10)  [interior LOCKED DOOR
+#   (L) caging an IRON SWORD].
+# NOTE: gate tiles (B,L,K,=) are INTERIOR only; every screen-transition edge
+# (the 'ff' gaps in xxxx..xxxx walls and the open side rows) stays walkable.
 
 SCREEN 10 10 d_entry
 xxxxxxxxxx
 xffffffffx
 xffffffffx
-ffffffffff
+xfffffffff
 xffffffffx
+xf<ffffffx
 xffffffffx
-xfff<fff.x
 xxxxffxxxx
-W 4 6 3 0 64 40
-W 5 6 3 0 64 40
+W 2 5 3 0 64 40
+E cave_pip 6 2
 
 SCREEN 11 10 d_hall
 xxxxxxxxxx
 xffffffffx
-xfBffffBfx
+xffffffffx
 ffffffffff
-xfBffffBfx
+xffffffffx
 xffffffffx
 xffffffffx
 xxxxffxxxx
-E cave_pip 3 3
+E cave_pip 3 2
 E cave_pip 6 4
+E cave_pip 2 5
 
 SCREEN 12 10 d_pips
 xxxxxxxxxx
 xffffffffx
 xffffffffx
-fffffffffL
+ffffffffff
 xffffffffx
 xffffffffx
 xffffffffx
 xxxxxxxxxx
 E cave_pip 2 2
-E cave_pip 7 2
+E cave_pip 6 2
 E cave_pip 4 5
-I small_key 8 6
 
 SCREEN 13 10 d_keyroom
 xxxxxxxxxx
-xffffffffx
-xfBBBBBBfx
-LfBffffBff
-xfBffffBfx
-xfBBBBfBfx
-xffffffffx
-xxxxffxxxx
-I small_key 4 3
+xfxffffffx
+xfxffffffx
+ffLffffffx
+xfxffffffx
+xfxffffffx
+xfxffffffx
+xxxxxxxxxx
+I iron_sword 5 3
 
 SCREEN 10 11 d_brambles
 xxxxffxxxx
 xffffffffx
-xBBBBBBBfx
-xffffffBfx
-xfBBBBfBfx
-xfBffffffx
-xfBfBBBBBx
-xxxxffxxxx
-I small_key 3 5
+xffffffffx
+xBBBBBBBBx
+xffffffffx
+xffffffffx
+xffffffffx
+xxxxxxxxxx
+I small_key 4 5
 
 SCREEN 11 11 d_gels
 xxxxffxxxx
-xffffffffx
-xffffffffx
-ffffffffff
-xffffffffx
-xffffffffx
-xffffffffx
-xxxxffxxxx
-E marsh_gel 3 2
-E marsh_gel 6 3
-E marsh_gel 4 5
+xfffffBffx
+xfffffBffx
+xfffffBfff
+xfffffBffx
+xfffffBffx
+xfffffBffx
+xxxxxxxxxx
+E marsh_gel 2 2
+E marsh_gel 4 4
+E marsh_gel 3 5
 
 SCREEN 12 11 d_sentry
 xxxxxxxxxx
 xffffffffx
 xffffffffx
-ffffffffff
+fffffffffx
 xffffffffx
-xffffffffx
-xffffffffx
+xfvffffffx
+xxxx==xxxx
 xxxxffxxxx
-E rootbound_sentry 4 3
-E cave_pip 7 2
-
-SCREEN 13 11 d_junction
-xxxxffxxxx
-xffffffffx
-xffffffffx
-ffffffffff
-xffffffffx
-xffffffffx
-xffffffffx
-xxxxxxxxxx
-E cave_pip 3 3
-E cave_pip 6 4
-
-SCREEN 10 12 d_key2
-xxxxffxxxx
-xffffffffx
-xffffffffx
-xffffffffx
-xffffffffx
-xffffffffx
-xffffffffx
-xxxxxxxxxx
-E rootbound_sentry 5 4
-E marsh_gel 2 2
-
-SCREEN 11 12 d_corridor
-xxxxffxxxx
-xffffffffx
-xfBfBfBffx
-xffffffffx
-xfBfBfBffx
-xffffffffx
-xffffffffx
-xxxxxxxxxx
-E cave_pip 5 5
+E root_warden 5 3
+E cave_pip 7 1
 
 SCREEN 12 12 d_bosskey
 xxxxffxxxx
 xffffffffx
-xfBfffBfBx
+xffffffffx
 xfffffffff
-xfBfffBfBx
+xffffffffx
 xffffffffx
 xffffffffx
 xxxxxxxxxx
-I boss_key 4 3
-E rootbound_sentry 2 5
+I boss_key 4 4
+E rootbound_sentry 6 5
 
 SCREEN 13 12 d_boss
 xxxxxxxxxx

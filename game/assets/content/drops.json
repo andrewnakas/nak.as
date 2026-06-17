@@ -109,5 +109,12 @@
     { "item": "shells", "p": 1000, "min": 20, "max": 35 },
     { "item": "small_key", "p": 1000 },
     { "item": "crab_claw", "p": 500 }
+  ],
+  "root_warden": [
+    { "item": "heart", "p": 1000 },
+    { "item": "shells", "p": 1000, "min": 18, "max": 30 },
+    { "item": "hardwood", "p": 700, "min": 1, "max": 2 },
+    { "item": "ember_cap", "p": 400 },
+    { "item": "iron_sword", "p": 400 }
   ]
 }
