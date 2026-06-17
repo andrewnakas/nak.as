@@ -981,6 +981,33 @@ export const SPRITES = [
     }),
   },
 
+  // ---- climbing claws (cliff-traversal key item) ----
+  {
+    // Inventory icon: a pair of clawed climbing gauntlets, hooks splayed.
+    name: 'itm_claws',
+    palette: 'stone',
+    grid: grid((x, y) => {
+      // two gauntlet cuffs at the bottom, three hooked talons rising from each
+      // toward the top (mirrored left/right).
+      const hand = (cx) => {
+        // wrist cuff
+        if (y >= 11 && y <= 13 && Math.abs(x - cx) <= 2) return y === 13 ? 0 : 2;
+        // three talons curving up from the cuff
+        for (const k of [-2, 0, 2]) {
+          const tx = cx + k + (y < 6 ? Math.sign(k) : 0); // hook the tips inward
+          if (y >= 2 && y <= 10 && x === tx) return y <= 4 ? 3 : 1;
+          if (y >= 2 && y <= 4 && x === tx + Math.sign(k || 1)) return 0; // tip
+        }
+        return null;
+      };
+      const l = hand(4);
+      if (l !== null) return l;
+      const r = hand(11);
+      if (r !== null) return r;
+      return '.';
+    }),
+  },
+
   // ---- surfboard + waves ----
   {
     // Inventory icon: a longboard seen from above.

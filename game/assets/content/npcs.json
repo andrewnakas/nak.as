@@ -91,5 +91,41 @@
       ["WORN BLADE? BRING", "IT HERE. I'LL HAMMER", "IT GOOD AS NEW."],
       ["REPAIRS COST SHELLS", "BY THE BITE THE", "STEEL HAS TAKEN."]
     ]
+  },
+  {
+    "name": "skral_matron",
+    "label": "MATRON VESS",
+    "sprite": "npc_elder",
+    "lines": [
+      ["SO. A GROUNDLING", "WHO CLIMBS. THE", "CRAGS LET YOU PASS."],
+      ["WE ARE SKRAL. WE", "ROOST WHERE WIND", "AND STONE MEET SKY."],
+      ["YOUR ISLE FORGOT", "US WHEN THE ROOTS", "ROSE. WE DID NOT", "FORGET THE ISLE."],
+      ["CLIMB FREELY, WING-", "LESS ONE. THE HIGH", "PLACES ARE OPEN", "TO YOU NOW."]
+    ]
+  },
+  {
+    "name": "skral_skipper",
+    "label": "SKIPPER KAW",
+    "sprite": "npc_a",
+    "lines": [
+      ["WIND-TRADER, ME!", "I GLIDE THE THERMALS", "AND HAUL GOOD WARES."],
+      ["NO ROADS UP HERE,", "FRIEND. ONLY UPDRAFTS", "AND OPEN PALMS."]
+    ],
+    "shop": [
+      { "item": "oak_bow", "price": 40 },
+      { "item": "arrow", "price": 7, "qty": 12 },
+      { "item": "bomb", "price": 12, "qty": 3 },
+      { "item": "hearty_roast", "price": 30 },
+      { "item": "ember_cap", "price": 18 }
+    ]
+  },
+  {
+    "name": "skral_glider",
+    "label": "FLEDGLING TIRRA",
+    "sprite": "npc_b",
+    "lines": [
+      ["YOU CLIMBED? WITH", "NO WINGS? THAT IS", "THE BRAVEST THING!"],
+      ["THE STAGS UP HERE", "ARE FAT AND FAST.", "MATRON CRAVES ONE."]
+    ]
   }
 ]

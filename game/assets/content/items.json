@@ -79,6 +79,13 @@
     "durability": 9999
   },
   {
+    "name": "climb_claws",
+    "label": "CLIMB CLAWS",
+    "sprite": "itm_claws",
+    "kind": "rod",
+    "durability": 9999
+  },
+  {
     "name": "raw_perch",
     "label": "RAW PERCH",
     "sprite": "itm_fish",

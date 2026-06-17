@@ -48,7 +48,8 @@
   ],
   "moldra": [
     { "item": "heart", "p": 1000 },
-    { "item": "shells", "p": 1000, "min": 30, "max": 50 }
+    { "item": "shells", "p": 1000, "min": 30, "max": 50 },
+    { "item": "climb_claws", "p": 1000 }
   ],
   "brackling_field": [
     { "item": "heart", "p": 300 },

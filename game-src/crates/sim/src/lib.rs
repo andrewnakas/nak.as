@@ -204,6 +204,9 @@ pub struct Player {
     pub surfing: bool,
     /// Ticks of wave speed boost remaining (caught an ocean wave while surfing).
     pub wave_boost: u32,
+    /// Scaling a cliff (owns the climb claws + feet on a cliff tile). Anim/
+    /// flavor only; cliff traversal itself is gated by owning the claws.
+    pub climbing: bool,
 }
 
 /// Total combat XP required to reach a level (level 1 = 0). Gentle quadratic.
@@ -243,6 +246,15 @@ fn has_surfboard(defs: &Defs, p: &Player) -> bool {
         return false;
     };
     p.inventory.iter().any(|s| s.def == board)
+}
+
+/// Does the player OWN the climbing claws? (gates cliff traversal). Like the
+/// surfboard, just owning it lets you scale cliff tiles — no equip needed.
+fn has_climb_claws(defs: &Defs, p: &Player) -> bool {
+    let Some(claws) = defs.item_index("climb_claws") else {
+        return false;
+    };
+    p.inventory.iter().any(|s| s.def == claws)
 }
 
 #[derive(Deserialize)]
@@ -435,9 +447,17 @@ impl Sim {
     }
 
     /// Tile solidity including door/bramble overrides (player path only;
-    /// enemies keep using the pristine map). When `water_ok` (the player has
-    /// the surfboard equipped) water tiles are treated as passable.
-    fn effective_solid(&self, screen: &world::Screen, px: i32, py: i32, water_ok: bool) -> bool {
+    /// enemies keep using the pristine map). When `water_ok` (the player owns
+    /// the surfboard) water tiles are treated as passable; when `climb_ok` (the
+    /// player owns the climb claws) cliff tiles are treated as passable.
+    fn effective_solid(
+        &self,
+        screen: &world::Screen,
+        px: i32,
+        py: i32,
+        water_ok: bool,
+        climb_ok: bool,
+    ) -> bool {
         let tx = px.div_euclid(16);
         let ty = (py - HUD_H).div_euclid(16);
         if (0..world::SCREEN_COLS).contains(&tx) && (0..world::SCREEN_ROWS).contains(&ty) {
@@ -447,10 +467,14 @@ impl Sim {
             {
                 let solid = self.world.tile_solid.get(t as usize).copied().unwrap_or(true);
                 let water = self.world.tile_water.get(t as usize).copied().unwrap_or(false);
-                return solid && !(water_ok && water);
+                let cliff = self.world.tile_cliff.get(t as usize).copied().unwrap_or(false);
+                return solid && !(water_ok && water) && !(climb_ok && cliff);
             }
         }
         if water_ok && self.world.is_water(screen, px, py) {
+            return false;
+        }
+        if climb_ok && self.world.is_cliff(screen, px, py) {
             return false;
         }
         self.world.is_solid(screen, px, py)
@@ -496,6 +520,7 @@ impl Sim {
             intro_done: false,
             surfing: false,
             wave_boost: 0,
+            climbing: false,
         };
         // No starting kit: you begin empty-handed. The first weapon is a
         // stick picked up off the ground in the intro; real gear is bought
@@ -1026,13 +1051,14 @@ impl Sim {
         if pl.kvx != 0 || pl.kvy != 0 {
             let screen = self.world.screen_at(pl.sx, pl.sy);
             let water_ok = has_surfboard(&self.defs, &pl);
+            let climb_ok = has_climb_claws(&self.defs, &pl);
             if let Some(screen) = screen {
                 let nx = pl.x + pl.kvx;
-                if self.feet_clear(screen, nx, pl.y, water_ok) {
+                if self.feet_clear(screen, nx, pl.y, water_ok, climb_ok) {
                     pl.x = nx.clamp(MIN_X, MAX_X);
                 }
                 let ny = pl.y + pl.kvy;
-                if self.feet_clear(screen, pl.x, ny, water_ok) {
+                if self.feet_clear(screen, pl.x, ny, water_ok, climb_ok) {
                     pl.y = ny.clamp(MIN_Y, MAX_Y);
                 }
             }
@@ -1220,6 +1246,14 @@ impl Sim {
         if pl.wave_boost > 0 {
             pl.wave_boost -= 1;
         }
+        // Climbing: with the claws owned you can scale cliff tiles. Flavor flag
+        // (anim) only; the traversal itself is gated below in feet_clear.
+        let claws = has_climb_claws(&self.defs, &pl);
+        let on_cliff = self
+            .world
+            .screen_at(pl.sx, pl.sy)
+            .is_some_and(|s| self.world.is_cliff(s, to_px(pl.x) + 8, to_px(pl.y) + 12));
+        pl.climbing = claws && on_cliff;
 
         // Shielding slows you down; an attached wing speeds you up.
         let wing = self.equipped_attach_bonus(&pl, AttachEffect::Speed) as Fx;
@@ -1274,13 +1308,13 @@ impl Sim {
         // Axis-separated movement against the feet box for wall sliding.
         if dx != 0 {
             let nx = pl.x + dx;
-            if self.feet_clear(screen, nx, pl.y, board) {
+            if self.feet_clear(screen, nx, pl.y, board, claws) {
                 pl.x = nx;
             }
         }
         if dy != 0 {
             let ny = pl.y + dy;
-            if self.feet_clear(screen, pl.x, ny, board) {
+            if self.feet_clear(screen, pl.x, ny, board, claws) {
                 pl.y = ny;
             }
         }
@@ -1311,7 +1345,7 @@ impl Sim {
             };
             // Only cross if the landing spot is walkable — walking off an
             // open edge into a rock on the neighbor screen would trap you.
-            let clear = dest.is_some_and(|s| self.feet_clear_on(s, dx_, dy_, board));
+            let clear = dest.is_some_and(|s| self.feet_clear_on(s, dx_, dy_, board, claws));
             if clear {
                 pl.sx = nsx;
                 pl.sy = nsy;
@@ -1327,8 +1361,8 @@ impl Sim {
         // Belt and braces: if anything still left us inside a wall (bad
         // warp target, old save), slide to the nearest clear spot.
         if let Some(screen) = self.world.screen_at(pl.sx, pl.sy) {
-            if !self.feet_clear_on(screen, pl.x, pl.y, board) {
-                if let Some((ux, uy)) = self.find_clear_near(screen, pl.x, pl.y, board) {
+            if !self.feet_clear_on(screen, pl.x, pl.y, board, claws) {
+                if let Some((ux, uy)) = self.find_clear_near(screen, pl.x, pl.y, board, claws) {
                     pl.x = ux;
                     pl.y = uy;
                 }
@@ -2167,8 +2201,8 @@ impl Sim {
         let x = x.clamp(MIN_X, MAX_X);
         let y = y.clamp(MIN_Y, MAX_Y);
         if let Some(screen) = self.world.screen_at(sx, sy) {
-            if !self.feet_clear_on(screen, x, y, false) {
-                if let Some((cx, cy)) = self.find_clear_near(screen, x, y, false) {
+            if !self.feet_clear_on(screen, x, y, false, false) {
+                if let Some((cx, cy)) = self.find_clear_near(screen, x, y, false, false) {
                     return (cx, cy);
                 }
             }
@@ -2212,17 +2246,24 @@ impl Sim {
         }
     }
 
-    fn feet_clear(&self, screen: &world::Screen, x: Fx, y: Fx, water_ok: bool) -> bool {
-        self.feet_clear_on(screen, x, y, water_ok)
+    fn feet_clear(&self, screen: &world::Screen, x: Fx, y: Fx, water_ok: bool, climb_ok: bool) -> bool {
+        self.feet_clear_on(screen, x, y, water_ok, climb_ok)
     }
 
-    fn feet_clear_on(&self, screen: &world::Screen, x: Fx, y: Fx, water_ok: bool) -> bool {
+    fn feet_clear_on(
+        &self,
+        screen: &world::Screen,
+        x: Fx,
+        y: Fx,
+        water_ok: bool,
+        climb_ok: bool,
+    ) -> bool {
         let px = to_px(x);
         let py = to_px(y);
-        !(self.effective_solid(screen, px + FEET_X0, py + FEET_Y0, water_ok)
-            || self.effective_solid(screen, px + FEET_X1, py + FEET_Y0, water_ok)
-            || self.effective_solid(screen, px + FEET_X0, py + FEET_Y1, water_ok)
-            || self.effective_solid(screen, px + FEET_X1, py + FEET_Y1, water_ok))
+        !(self.effective_solid(screen, px + FEET_X0, py + FEET_Y0, water_ok, climb_ok)
+            || self.effective_solid(screen, px + FEET_X1, py + FEET_Y0, water_ok, climb_ok)
+            || self.effective_solid(screen, px + FEET_X0, py + FEET_Y1, water_ok, climb_ok)
+            || self.effective_solid(screen, px + FEET_X1, py + FEET_Y1, water_ok, climb_ok))
     }
 
     /// Nearest walkable position to (x, y), searched in growing rings.
@@ -2232,6 +2273,7 @@ impl Sim {
         x: Fx,
         y: Fx,
         water_ok: bool,
+        climb_ok: bool,
     ) -> Option<(Fx, Fx)> {
         for r in 1..=10 {
             let step = fx(4) * r;
@@ -2241,7 +2283,7 @@ impl Sim {
             ] {
                 let nx = (x + ddx * step).clamp(MIN_X, MAX_X);
                 let ny = (y + ddy * step).clamp(MIN_Y, MAX_Y);
-                if self.feet_clear_on(screen, nx, ny, water_ok) {
+                if self.feet_clear_on(screen, nx, ny, water_ok, climb_ok) {
                     return Some((nx, ny));
                 }
             }
@@ -2523,9 +2565,10 @@ impl Sim {
                 p.iframes = p.iframes.max(30);
                 // Nudge off a wall/water if we landed somewhere we can't stand.
                 let board = has_surfboard(&self.defs, &p);
+                let claws = has_climb_claws(&self.defs, &p);
                 if let Some(screen) = self.world.screen_at(p.sx, p.sy) {
-                    if !self.feet_clear_on(screen, p.x, p.y, board) {
-                        if let Some((ux, uy)) = self.find_clear_near(screen, p.x, p.y, board) {
+                    if !self.feet_clear_on(screen, p.x, p.y, board, claws) {
+                        if let Some((ux, uy)) = self.find_clear_near(screen, p.x, p.y, board, claws) {
                             p.x = ux;
                             p.y = uy;
                         }
@@ -3690,6 +3733,7 @@ mod tests {
                 tiles[5 * 10 + 6] = 5; // healing fountain
                 tiles[1 * 10 + 1] = 6; // lever
                 tiles[1 * 10 + 2] = 7; // switch door (gate 4)
+                tiles[4 * 10 + 7] = 8; // cliff (gated by climb claws)
             }
             let entities = if sx == 0 {
                 r#"[{"t":"thornling","tx":2,"ty":2},{"t":"gel","tx":7,"ty":5}]"#
@@ -3734,14 +3778,15 @@ mod tests {
         ];
         let sprite_names = sprites.map(|s| format!("\"{s}\"")).join(",");
         format!(
-            r#"{{"world":{{"tile_names":["floor","wall","water","fire","tree","fountain","lever","switch_door"],
-"tile_solid":[false,true,true,true,true,true,true,true],"tile_water":[false,false,true,false,false,false,false,false],
-"tile_fire":[false,false,false,true,false,false,false,false],
-"tile_tree":[false,false,false,false,true,false,false,false],
-"tile_heal":[false,false,false,false,false,true,false,false],
-"tile_lever":[false,false,false,false,false,false,true,false],
-"tile_gate":[0,0,0,0,0,0,0,4],
-"tile_cleared":[-1,-1,-1,-1,-1,-1,-1,0],
+            r#"{{"world":{{"tile_names":["floor","wall","water","fire","tree","fountain","lever","switch_door","cliff"],
+"tile_solid":[false,true,true,true,true,true,true,true,true],"tile_water":[false,false,true,false,false,false,false,false,false],
+"tile_fire":[false,false,false,true,false,false,false,false,false],
+"tile_tree":[false,false,false,false,true,false,false,false,false],
+"tile_heal":[false,false,false,false,false,true,false,false,false],
+"tile_lever":[false,false,false,false,false,false,true,false,false],
+"tile_cliff":[false,false,false,false,false,false,false,false,true],
+"tile_gate":[0,0,0,0,0,0,0,4,0],
+"tile_cleared":[-1,-1,-1,-1,-1,-1,-1,0,-1],
 "sprite_names":[{sprite_names}],"font_chars":"0123456789#%&$",
 "screens":[{}],"spawn":{{"sx":0,"sy":0,"x":72,"y":64}}}},
 "items":[
@@ -3755,6 +3800,7 @@ mod tests {
  {{"name":"wasp_stinger","label":"WASP STINGER","sprite":"claw","kind":"material","fuse_effect":"poison"}},
  {{"name":"fishing_rod","label":"FISHING ROD","sprite":"itm_rod","kind":"rod","durability":25}},
  {{"name":"surfboard","label":"SURFBOARD","sprite":"itm_rod","kind":"rod","durability":9999}},
+ {{"name":"climb_claws","label":"CLIMB CLAWS","sprite":"itm_rod","kind":"rod","durability":9999}},
  {{"name":"raw_perch","label":"RAW PERCH","sprite":"itm_fish","kind":"material"}},
  {{"name":"brackling_claw","label":"BRACKLING CLAW","sprite":"claw","kind":"bodypart","attach_effect":"damage","attach_mag":2}},
  {{"name":"flutterwing","label":"FLUTTERWING","sprite":"claw","kind":"bodypart","attach_effect":"speed","attach_mag":96}},
@@ -4182,6 +4228,50 @@ mod tests {
     }
 
     #[test]
+    fn climb_claws_gates_cliff_traversal() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 2).unwrap();
+        sim.add_player(0);
+        // Screen (1,0) has a cliff tile at column 7, row 4 -> px (112, 64+HUD).
+        // Stand the player on the cliff tile's row, just to its left.
+        let claws = sim.defs.item_index("climb_claws").unwrap();
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.sx = 1;
+            p.sy = 0;
+            p.x = fx(96);
+            p.y = fx(4 * 16 + HUD_H);
+        }
+        // Without the claws: walking right into the cliff tile is blocked.
+        sim.set_input(0, BTN_RIGHT);
+        for _ in 0..40 {
+            sim.step();
+        }
+        let blocked_x = to_px(sim.players[0].as_ref().unwrap().x);
+        assert!(blocked_x < 110, "cliff should block without the climb claws, got {blocked_x}");
+        assert!(!sim.players[0].as_ref().unwrap().climbing);
+
+        // Own the claws and try again: now the cliff is passable and climbing sets.
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            give_item(p, &sim.defs, claws, 1);
+            p.x = fx(96);
+            p.y = fx(4 * 16 + HUD_H);
+        }
+        sim.set_input(0, BTN_RIGHT);
+        let mut climbed = false;
+        for _ in 0..60 {
+            sim.step();
+            if sim.players[0].as_ref().unwrap().climbing {
+                climbed = true;
+                break;
+            }
+        }
+        assert!(climbed, "owning the climb claws lets the player scale onto the cliff");
+        assert!(to_px(sim.players[0].as_ref().unwrap().x) > 104, "moved onto the cliff tile");
+    }
+
+    #[test]
     fn cleared_room_does_not_respawn_until_player_is_far() {
         let bundle = test_bundle();
         let mut sim = Sim::new(&bundle, 5).unwrap();
@@ -4371,7 +4461,7 @@ mod tests {
         );
         let screen = sim.world.screen_at(1, 0).unwrap();
         assert!(
-            !sim.effective_solid(screen, dpx, dpy, false),
+            !sim.effective_solid(screen, dpx, dpy, false, false),
             "switch door is walkable after the lever is pulled"
         );
     }

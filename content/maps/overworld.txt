@@ -525,3 +525,60 @@ xffffffffx
 xxxxxxxxxx
 W 5 3 4 2 72 64
 E tidewarden 4 3
+
+# ===== THE WINDWARD CRAGS (highland zone; gated by CLIMB CLAWS) =====
+# Home of the SKRAL, cliff-dwelling bird-folk who roost where stone meets sky.
+# This zone sits NORTH of cliff_overlook(3,0), whose entire top row is cliff (c).
+# Without the climb claws those cliff tiles are solid, so the top edge can never
+# be crossed and the crags are unreachable. Owning the claws makes cliff tiles
+# passable, letting you scale the overlook's top wall up into crag_ascent.
+#  cliff_overlook(3,0) --climb up--> crag_ascent(3,-1) --N--> skral_roost(3,-2)
+#                                    crag_ascent(3,-1) --E--> wind_terrace(4,-1)
+# NOTE: every screen-transition edge that should connect is OPEN (non-cliff);
+# every other border stays cliff so the climb is the only way in.
+
+# Crag ascent: the ledge you haul yourself onto. Bottom row (cols 2-7) is the
+# landing from the overlook climb; top (cols 3-6) opens N to the roost; right
+# edge (row 3) opens E to the wind terrace. Sides walled with cliff.
+SCREEN 3 -1 crag_ascent
+ccc....ccc
+cc......cc
+c..r..r..c
+c.........
+c,......,c
+c..rPr..,c
+cc......cc
+cc......cc
+E dune_wasp 4 2
+E hollow_stag 6 4
+
+# Skral roost: nest-towers (roof/door/window), a wind-fed fountain, and the
+# Skral themselves. Top/sides sealed (edge of the world); bottom (cols 3-6)
+# opens S back down to crag_ascent. Gate-free interior.
+SCREEN 3 -2 skral_roost
+cccccccccc
+cRRR..RRRc
+cDoo..ooDc
+c........c
+c...,Q...c
+c,......,c
+c..r..r..c
+ccc....ccc
+N skral_matron 3 3
+N skral_skipper 6 3
+N skral_glider 4 5
+
+# Wind terrace: a blustery shelf east of the ascent. Left edge (row 3) opens W
+# back to crag_ascent; all other borders are cliff. A vista sign and prey for
+# the Skral hunt quest.
+SCREEN 4 -1 wind_terrace
+cccccccccc
+c,......,c
+c..r..r..c
+.........c
+c..,.,...c
+c.r....r.c
+c,..!...,c
+cccccccccc
+E hollow_stag 5 4
+E dune_wasp 3 2

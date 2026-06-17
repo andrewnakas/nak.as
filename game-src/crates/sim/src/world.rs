@@ -25,6 +25,9 @@ pub struct WorldJson {
     /// Lever tiles (dungeon switches): press A facing one to open gate-4 doors.
     #[serde(default)]
     pub tile_lever: Vec<bool>,
+    /// Cliff tiles: solid, but passable once the player owns the climb claws.
+    #[serde(default)]
+    pub tile_cliff: Vec<bool>,
     /// Per tile: 0 = plain, 1 = small-key door, 2 = boss-key door,
     /// 3 = bramble (cleared by fire weapons / bombs).
     #[serde(default)]
@@ -155,6 +158,7 @@ pub struct World {
     pub tile_tree: Vec<bool>,
     pub tile_heal: Vec<bool>,
     pub tile_lever: Vec<bool>,
+    pub tile_cliff: Vec<bool>,
     pub tile_gate: Vec<u8>,
     pub tile_cleared: Vec<i32>,
     pub screens: Vec<Screen>,
@@ -272,6 +276,7 @@ impl World {
             tile_tree: raw.tile_tree,
             tile_heal: raw.tile_heal,
             tile_lever: raw.tile_lever,
+            tile_cliff: raw.tile_cliff,
             tile_gate: raw.tile_gate,
             tile_cleared: raw.tile_cleared,
             screens,
@@ -320,6 +325,10 @@ impl World {
 
     pub fn is_lever(&self, screen: &Screen, px: i32, py: i32) -> bool {
         self.tile_flag(&self.tile_lever, screen, px, py)
+    }
+
+    pub fn is_cliff(&self, screen: &Screen, px: i32, py: i32) -> bool {
+        self.tile_flag(&self.tile_cliff, screen, px, py)
     }
 
     /// Out-of-playfield pixels report false for every flag.

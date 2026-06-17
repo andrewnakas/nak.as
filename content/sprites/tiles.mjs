@@ -120,6 +120,7 @@ export const TILES = [
     name: 'cliff',
     palette: 'stone',
     solid: true,
+    cliff: true,
     grid: grid((x, y) => {
       if (y === 0) return 3;
       if (y === 1) return 2;

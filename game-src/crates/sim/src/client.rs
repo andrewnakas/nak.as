@@ -254,6 +254,7 @@ fn lerp_player(pa: Option<&PlayerSnap>, pb: &PlayerSnap, num: u64, den: u64) -> 
         intro_done: true, // remote players' intro state is irrelevant locally
         surfing: pb.surfing,
         wave_boost: 0, // local-only timer; not needed for rendering
+        climbing: false, // anim/flavor only; recomputed locally each step
     }
 }
 

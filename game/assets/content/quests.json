@@ -87,5 +87,20 @@
     ],
     "objectives": [{ "type": "kill", "target": "moldra", "count": 1 }],
     "rewards": { "shells": 200, "items": [{ "item": "hearty_roast", "qty": 3 }] }
+  },
+  {
+    "id": "wind_and_antler",
+    "giver": "skral_glider",
+    "title": "WIND AND ANTLER",
+    "offer": [
+      ["A HOLLOW STAG HAUNTS", "THE WIND TERRACE,", "EAST OF THE ROOST."],
+      ["BRING IT DOWN AND", "MATRON VESS WILL", "CALL YOU SKRAL-KIN."]
+    ],
+    "incomplete": [["THE STAG STILL RUNS", "THE EASTERN CRAG.", "LOOSE A SWIFT ARROW."]],
+    "complete": [
+      ["THE WHOLE ROOST", "SAW THAT SHOT! YOU", "FLY WITHOUT WINGS."]
+    ],
+    "objectives": [{ "type": "kill", "target": "hollow_stag", "count": 1 }],
+    "rewards": { "shells": 60, "items": [{ "item": "brackling_fang", "qty": 1 }] }
   }
 ]
