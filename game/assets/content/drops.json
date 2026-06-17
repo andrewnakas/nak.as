@@ -103,5 +103,11 @@
     { "item": "shells", "p": 1000, "min": 60, "max": 90 },
     { "item": "iron_sword", "p": 1000 },
     { "item": "brackling_fang", "p": 1000 }
+  ],
+  "tide_sentinel": [
+    { "item": "heart", "p": 1000 },
+    { "item": "shells", "p": 1000, "min": 20, "max": 35 },
+    { "item": "small_key", "p": 1000 },
+    { "item": "crab_claw", "p": 500 }
   ]
 }

@@ -1072,6 +1072,17 @@ impl Sim {
                 self.players[slot] = Some(pl);
                 return;
             }
+            // Pulling a dungeon lever (faced, A pressed) permanently opens every
+            // gate-4 switch door on this screen. One-way: simple, deterministic,
+            // and replicates for free through the `overrides` snapshot.
+            if self.facing_lever(&pl) {
+                let opened = self.pull_lever(pl.sx, pl.sy);
+                self.emit_cue(pl.sx, pl.sy, cues::SWING);
+                self.emit_toast(slot, if opened > 0 { "THE GATE GRINDS OPEN" } else { "CLUNK. NOTHING HAPPENS." });
+                pl.prev_buttons = pl.buttons;
+                self.players[slot] = Some(pl);
+                return;
+            }
         }
 
         // Attack: A edge starts a swing (sword) or a punch/kick (unarmed);
@@ -3553,6 +3564,43 @@ impl Sim {
         let (cx, cy) = (to_px(p.x) + 8, to_px(p.y) + 8);
         self.world.is_heal(screen, fx_, fy_) || self.world.is_heal(screen, cx, cy)
     }
+
+    /// True when the tile the player faces is a dungeon lever.
+    fn facing_lever(&self, p: &Player) -> bool {
+        let Some(screen) = self.world.screen_at(p.sx, p.sy) else {
+            return false;
+        };
+        let (fx_, fy_) = facing_tile_center(p);
+        self.world.is_lever(screen, fx_, fy_)
+    }
+
+    /// Permanently open every gate-4 switch door on the given screen by writing
+    /// each to its `tile_cleared` target in `overrides`. Returns how many were
+    /// opened (0 if they were all already open / there were none).
+    fn pull_lever(&mut self, sx: i32, sy: i32) -> u32 {
+        let mut to_open: Vec<(i32, u16)> = Vec::new();
+        if let Some(screen) = self.world.screen_at(sx, sy) {
+            for (idx, &tile) in screen.tiles.iter().enumerate() {
+                let gate = self.world.tile_gate.get(tile as usize).copied().unwrap_or(0);
+                if gate != 4 {
+                    continue;
+                }
+                let cleared = self.world.tile_cleared.get(tile as usize).copied().unwrap_or(-1);
+                if cleared < 0 {
+                    continue;
+                }
+                let key = (sx, sy, idx as i32);
+                if !self.overrides.contains_key(&key) {
+                    to_open.push((idx as i32, cleared as u16));
+                }
+            }
+        }
+        let opened = to_open.len() as u32;
+        for (idx, cleared) in to_open {
+            self.overrides.insert((sx, sy, idx), cleared);
+        }
+        opened
+    }
 }
 
 /// True when any of the 4 tiles around the player's center is a campfire.
@@ -3616,6 +3664,8 @@ mod tests {
                 tiles[4 * 10 + 3] = 3; // campfire
                 tiles[2 * 10 + 6] = 4; // tree (harvestable)
                 tiles[5 * 10 + 6] = 5; // healing fountain
+                tiles[1 * 10 + 1] = 6; // lever
+                tiles[1 * 10 + 2] = 7; // switch door (gate 4)
             }
             let entities = if sx == 0 {
                 r#"[{"t":"thornling","tx":2,"ty":2},{"t":"gel","tx":7,"ty":5}]"#
@@ -3660,11 +3710,14 @@ mod tests {
         ];
         let sprite_names = sprites.map(|s| format!("\"{s}\"")).join(",");
         format!(
-            r#"{{"world":{{"tile_names":["floor","wall","water","fire","tree","fountain"],
-"tile_solid":[false,true,true,true,true,true],"tile_water":[false,false,true,false,false,false],
-"tile_fire":[false,false,false,true,false,false],
-"tile_tree":[false,false,false,false,true,false],
-"tile_heal":[false,false,false,false,false,true],
+            r#"{{"world":{{"tile_names":["floor","wall","water","fire","tree","fountain","lever","switch_door"],
+"tile_solid":[false,true,true,true,true,true,true,true],"tile_water":[false,false,true,false,false,false,false,false],
+"tile_fire":[false,false,false,true,false,false,false,false],
+"tile_tree":[false,false,false,false,true,false,false,false],
+"tile_heal":[false,false,false,false,false,true,false,false],
+"tile_lever":[false,false,false,false,false,false,true,false],
+"tile_gate":[0,0,0,0,0,0,0,4],
+"tile_cleared":[-1,-1,-1,-1,-1,-1,-1,0],
 "sprite_names":[{sprite_names}],"font_chars":"0123456789#%&$",
 "screens":[{}],"spawn":{{"sx":0,"sy":0,"x":72,"y":64}}}},
 "items":[
@@ -4251,6 +4304,51 @@ mod tests {
             sim.players[0].as_ref().unwrap().hp,
             8,
             "drinking from the fountain refills to full HP"
+        );
+    }
+
+    #[test]
+    fn lever_opens_switch_door() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 11).unwrap();
+        sim.add_player(0);
+        // Lever is at tile (1,1) on screen (1,0); the gate-4 switch door is at
+        // tile (2,1) -> tile index 1*10+2 = 12. Stand below the lever facing up.
+        let door_idx = 1 * (world::SCREEN_COLS) + 2;
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.sx = 1;
+            p.sy = 0;
+            p.x = fx(1 * 16);
+            p.y = fx(2 * 16 + HUD_H);
+            p.facing = 1; // up, toward the lever
+        }
+        // Door starts closed (no override, solid).
+        assert!(
+            !sim.overrides.contains_key(&(1, 0, door_idx)),
+            "switch door is closed before the lever is pulled"
+        );
+        let screen = sim.world.screen_at(1, 0).unwrap();
+        // Door tile center: tx=2,ty=1 -> px 2*16+8=40, py HUD+1*16+8.
+        let (dpx, dpy) = (2 * 16 + 8, HUD_H + 1 * 16 + 8);
+        assert!(
+            sim.world.is_solid(screen, dpx, dpy),
+            "switch door is solid before the lever is pulled"
+        );
+
+        // Press A facing the lever.
+        sim.set_input(0, BTN_A);
+        sim.step();
+
+        assert_eq!(
+            sim.overrides.get(&(1, 0, door_idx)).copied(),
+            Some(0u16),
+            "pulling the lever overrides the switch door to floor (tile 0)"
+        );
+        let screen = sim.world.screen_at(1, 0).unwrap();
+        assert!(
+            !sim.effective_solid(screen, dpx, dpy, false),
+            "switch door is walkable after the lever is pulled"
         );
     }
 

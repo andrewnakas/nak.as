@@ -319,6 +319,35 @@ export const TILES = [
     }),
   },
   {
+    name: 'lever',
+    palette: 'stone',
+    solid: true,
+    lever: true,
+    grid: grid((x, y) => {
+      // stone base block with a wooden handle angled to the upper-right.
+      if (y >= 11) return (x + y) % 3 === 0 ? 1 : 2; // base plinth
+      // diagonal handle: rises from the base center toward the top-right
+      const hx = 6 + Math.floor((13 - y) * 0.45);
+      if (Math.abs(x - hx) <= 1 && y >= 2 && y <= 11) return 3; // bright handle
+      // knob at the top of the handle
+      if (Math.hypot(x - (hx + 0.5), y - 2) < 2) return 3;
+      return 0; // dark recess behind the lever
+    }),
+  },
+  {
+    name: 'switch_door',
+    palette: 'stone',
+    solid: true,
+    gate: 4,
+    cleared: 'dungeon_floor',
+    grid: grid((x, y) => {
+      // portcullis bars: vertical metal bars with cross beams.
+      if (x < 1 || x > 14 || y < 1 || y > 14) return 0; // frame
+      if (y === 1 || y === 8 || y === 14) return 3; // cross beams
+      return x % 3 === 0 ? 2 : 1; // vertical bars
+    }),
+  },
+  {
     name: 'campfire',
     palette: 'sand',
     solid: true,

@@ -184,5 +184,16 @@
     "big": true,
     "summons": "brackling_blue",
     "combat_xp": 260
+  },
+  {
+    "name": "tide_sentinel",
+    "brain": "brackling",
+    "hp": 12,
+    "damage": 2,
+    "speed": 128,
+    "sprite": "moldra_0",
+    "drops": "tide_sentinel",
+    "big": true,
+    "combat_xp": 90
   }
 ]

@@ -32,6 +32,8 @@ x dungeon_wall
 B bramble
 L locked_door
 K boss_door
+v lever
+= switch_door
 < stairs_up
 > stairs_down
 
@@ -429,17 +431,22 @@ xxxxxxxxxx
 W 5 5 3 0 64 40
 E moldra 5 2
 
-# ===== TIDECRAG HOLLOW (dungeon 2; surfboard utility item) =====
-# A flooded sea-cave. Grab the SURFBOARD mid-way, then use it to cross the
-# flooded back rooms that gate the boss (classic item-gates-the-dungeon).
+# ===== TIDECRAG HOLLOW (dungeon 2; surfboard utility + lever puzzle) =====
+# A flooded sea-cave. Pull LEVERS to raise portcullis (switch_door) gates,
+# grab the SURFBOARD, then use it to cross the flooded back rooms that gate
+# the boss. A TIDE SENTINEL sub-boss guards the surfboard chamber.
 # Layout (sx 7-9, sy 10-12):
 #  keyroom(7,10) - pool(8,10) - bosskey(9,10)
-#  hall(7,11) - surf(8,11) - approach(9,11)
-#  entry(7,12) ........... boss(9,12)
-# Critical path: entry >N hall >E surf (SURFBOARD) >N pool (water, needs board)
-#  >E bosskey (water, boss key) >S approach >S boss (tidewarden, K boss-door).
-# Optional: hall >N keyroom (L small-key door) for an extra reward.
+#  hall(7,11) -- surf(8,11) -- approach(9,11)
+#  entry(7,12) ............... boss(9,12)
+# Critical path: entry >N hall (LEVER -> opens switch_door to keyroom + surf)
+#  >E surf (TIDE SENTINEL guards SURFBOARD behind a 2nd LEVER->gate)
+#  >N pool (water, needs board) >E bosskey (water, LEVER->gate to boss_key)
+#  back to surf >E approach >S boss (tidewarden, K boss-door).
+# Optional: hall >N keyroom (small-key door, behind the hall lever gate) reward.
 # Warp in from foothills_low(4,2) -> tile (4,1) of tc_entry.
+# NOTE: gate tiles (=,L,K) are INTERIOR only; screen-transition edge tiles
+# (the 'ff' gaps in xxxx..xxxx walls and open side rows) stay walkable.
 
 SCREEN 7 12 tc_entry
 xxxxffxxxx
@@ -453,68 +460,79 @@ xxxxxxxxxx
 W 3 2 4 2 72 64
 E cave_pip 6 4
 
+# Hall: a LEVER (v) at (1,5) raises the interior switch_door (=) walls that
+# block the north passage (to keyroom) and the east passage (to surf chamber).
+# Edge tiles (top cols 4-5, right row 3, bottom cols 4-5) stay open floor.
 SCREEN 7 11 tc_hall
 xxxxffxxxx
-xffffffffx
+xfff==fffx
 xffBffBffx
-ffffffffff
+ffffff==ff
 xffBffBffx
-xffffffffx
+xvfffffffx
 xffffffffx
 xxxxffxxxx
-E cave_pip 3 2
-E cave_pip 6 5
-I small_key 4 6
+E cave_pip 3 5
+E cave_pip 6 6
+I small_key 2 6
 
+# Reward room: enter from the hall (bottom edge, cols 4-5 open floor) past the
+# hall lever's switch_door, then spend the hall SMALL KEY on the locked_door
+# (L) caging the iron sword in the NW alcove.
 SCREEN 7 10 tc_keyroom
 xxxxxxxxxx
-xffffffffx
-xffffffffx
-xfffffffff
+xffxxxxxxx
+xffLfffffx
+xffxxxxxxx
 xffffffffx
 xffffffffx
 xffffffffx
 xxxxffxxxx
-I iron_sword 4 3
+I iron_sword 2 2
 
+# Surf chamber: the TIDE SENTINEL sub-boss guards a LEVER (v) at (2,5); pull
+# it to raise the interior switch_door (=) wall caging the SURFBOARD in the
+# SE alcove. All edge tiles (top cols4-5, left/right row3) stay open floor.
 SCREEN 8 11 tc_surf
 xxxxffxxxx
 xffffffffx
 xffffffffx
 ffffffffff
-xffffffffx
-xffffffffx
-xffffffffx
+xfffff===x
+xfvfff=ffx
+xfffff=ffx
 xxxxxxxxxx
-I surfboard 4 3
-E brackling_blue 6 5
+I surfboard 7 6
+E tide_sentinel 5 2
 
 SCREEN 8 10 tc_pool
 xxxxxxxxxx
 xfffwwfffx
 xwwwwwwwfx
-Lwwwwwwwwf
+fwwwwwwwwf
 xwwwwwwwfx
 xfffwwfffx
 xffffffffx
 xxxxffxxxx
 
+# Boss-key vault: cross the water to a LEVER (v) at (2,3) that raises the
+# switch_door (=) sealing the BOSS KEY in the eastern dry alcove.
 SCREEN 9 10 tc_bosskey
 xxxxxxxxxx
-xffwwffffx
-xwwwwwwffx
-fwwwwwwffx
-xwwwwwwffx
-xffwwffffx
-xffffffffx
-xxxxffxxxx
-I boss_key 6 6
+xffwwff=fx
+xwwwwww=fx
+fwvwwww=fx
+xwwwwww=fx
+xffwwww=fx
+xfffwww=fx
+xxxxxxxxxx
+I boss_key 8 3
 
 SCREEN 9 11 tc_approach
 xxxxffxxxx
 xffffffffx
 xffffffffx
-xffffffffx
+fffffffffx
 xffffffffx
 xxxKKxxxxx
 xffffffffx
