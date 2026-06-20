@@ -1823,7 +1823,21 @@ impl Sim {
                     }
                 }
                 ET_BLAST => entity::step_blast(&mut e),
-                ET_WAVE => entity::step_wave(&mut e),
+                ET_WAVE => {
+                    entity::step_wave(&mut e);
+                    // A wave only exists over water — the instant its crest rolls
+                    // off the waterline onto sand/land, it breaks and dies (no
+                    // waves sweeping across the beach).
+                    if e.alive {
+                        let on_water = self
+                            .world
+                            .screen_at(e.sx, e.sy)
+                            .is_some_and(|s| self.world.is_water(s, to_px(e.x) + 8, to_px(e.y) + 8));
+                        if !on_water {
+                            e.alive = false;
+                        }
+                    }
+                }
                 _ => entity::step_pickup(&mut e),
             }
             // Poison: 1 damage per second while poisoned.
@@ -3413,11 +3427,19 @@ fn draw_entities_on(
                 }
             }
             ET_WAVE => {
-                // A long cresting line: tile the wave sprite across the width.
+                // A long cresting line: tile the wave sprite across the width,
+                // but only draw each segment where there's water beneath it — so
+                // a wave never paints over sand/land, only the sea surface.
                 let frame = ((e.anim >> 3) & 1) as u16;
                 let s = world.sprites.wave + frame;
-                for dx in [-32, -16, 0, 16, 32] {
-                    out.sprite(s, px + dx, py, 0, 0);
+                let wy = to_px(e.y) + 8; // playfield-space y (pre-offset)
+                if let Some(screen) = world.screen_at(sx, sy) {
+                    for dx in [-32, -16, 0, 16, 32] {
+                        let wx = to_px(e.x) + dx + 8; // playfield-space x
+                        if world.is_water(screen, wx, wy) {
+                            out.sprite(s, px + dx, py, 0, 0);
+                        }
+                    }
                 }
             }
             _ => {}
