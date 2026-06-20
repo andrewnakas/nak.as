@@ -914,9 +914,9 @@ impl Sim {
                 oceans.push((p.sx, p.sy));
             }
         }
-        // Spawn cadence: a fresh swell about every 2s per ocean screen, capped at
-        // 2 in flight so crests stay readable rather than a wall of foam.
-        if self.tick % 120 == 0 {
+        // Spawn cadence: a fresh swell about every 1.3s per ocean screen, capped
+        // at 2 in flight so crests stay readable rather than a wall of foam.
+        if self.tick % 80 == 0 {
             let mut to_spawn = Vec::new();
             for &(sx, sy) in &oceans {
                 let live = self
@@ -927,16 +927,31 @@ impl Sim {
                 if live >= 2 {
                     continue;
                 }
-                let depth = self.ocean_depth(sx, sy); // 1..=8 water rows
-                // Start near the deep (top) edge, roll south toward shore.
+                // Find the water band: topmost & bottommost water rows. Waves
+                // originate at the DEEP edge and roll toward the SHORE edge. On a
+                // beach the sea is at the bottom (deep = bottom row) and the shore
+                // is up-screen, so the swell rolls NORTH onto the sand. A screen
+                // that is water to an edge treats that edge as the deep side.
+                let (top_w, bot_w, depth) = self.water_band(sx, sy);
+                if depth == 0 {
+                    continue;
+                }
+                // Deep edge = whichever water edge is closer to the screen border
+                // (open sea). Prefer the bottom (most beaches face the sea south).
+                let sea_at_bottom = bot_w >= world::SCREEN_ROWS - 1 || bot_w >= 8 - top_w;
+                let (start_row, vy) = if sea_at_bottom {
+                    (bot_w, -(fx(1) + depth * 18)) // roll north toward shore
+                } else {
+                    (top_w, fx(1) + depth * 18) // roll south toward shore
+                };
                 let jx = self.rng.below(96) as i32 + 16;
-                let mut w = entity::blank(ET_WAVE, sx, sy, fx(jx), fx(HUD_H));
-                // Deeper water → faster, longer-traveling swells ("long waves").
-                w.vy = fx(1) + (depth as Fx) * 24; // ~1.1..1.75 px/tick
+                let mut w =
+                    entity::blank(ET_WAVE, sx, sy, fx(jx), fx(start_row * 16 + HUD_H));
+                w.vy = vy;
                 // Break left or right (deterministic from tick+coords parity).
-                let break_dir = ((self.tick / 120) as i32 + sx + sy) % 2 * 2 - 1;
-                w.vx = break_dir * 48; // gentle lateral drift = the "break"
-                w.data = depth as i32; // render width scales with depth
+                let break_dir = ((self.tick / 80) as i32 + sx + sy) % 2 * 2 - 1;
+                w.vx = break_dir * 40; // gentle lateral drift = the "break"
+                w.data = depth; // render width scales with depth
                 to_spawn.push(w);
             }
             for mut w in to_spawn {
@@ -970,27 +985,33 @@ impl Sim {
         }
     }
 
-    /// How many tile rows of this screen are water (0 = not an ocean). Used to
-    /// decide where waves spawn and how big/fast they are (deeper = longer).
+    /// How many tile rows of this screen are water (0 = not an ocean).
     fn ocean_depth(&self, sx: i32, sy: i32) -> i32 {
+        self.water_band(sx, sy).2
+    }
+
+    /// (topmost water row, bottommost water row, count of water rows) for a
+    /// screen. Used to spawn waves at the deep edge rolling toward the shore.
+    fn water_band(&self, sx: i32, sy: i32) -> (i32, i32, i32) {
         let Some(screen) = self.world.screen_at(sx, sy) else {
-            return 0;
+            return (0, 0, 0);
         };
-        let mut rows = 0;
+        let (mut top, mut bot, mut count) = (i32::MAX, -1, 0);
         for ty in 0..world::SCREEN_ROWS {
             let py = ty * 16 + HUD_H + 8;
-            let mut watery = false;
-            for tx in 0..world::SCREEN_COLS {
-                if self.world.is_water(screen, tx * 16 + 8, py) {
-                    watery = true;
-                    break;
-                }
-            }
+            let watery = (0..world::SCREEN_COLS)
+                .any(|tx| self.world.is_water(screen, tx * 16 + 8, py));
             if watery {
-                rows += 1;
+                top = top.min(ty);
+                bot = bot.max(ty);
+                count += 1;
             }
         }
-        rows
+        if count == 0 {
+            (0, 0, 0)
+        } else {
+            (top, bot, count)
+        }
     }
 
     fn wrapping_tick(&self) -> u32 {

@@ -229,8 +229,12 @@ T,.s..s.,T
 Ts......sT
 Tss....ssT
 N drifter 5 5
+W 2 0 1 1 80 96
+W 3 0 1 1 80 96
 W 4 0 1 1 64 96
 W 5 0 1 1 80 96
+W 6 0 1 1 80 96
+W 7 0 1 1 80 96
 
 SPAWN 5 1 72 40
 
@@ -402,7 +406,7 @@ xffffffffx
 xfffff<ffx
 xffffffffx
 xxxxxxxxxx
-W 5 5 3 0 64 40
+W 6 5 3 0 64 40
 E moldra 5 2
 
 # ===== TIDECRAG HOLLOW (dungeon 2; surfboard utility + lever puzzle) =====
@@ -425,13 +429,14 @@ E moldra 5 2
 SCREEN 7 12 tc_entry
 xxxxffxxxx
 xffffffffx
-xfff<ffffx
+xff<<ffffx
 xffffffffx
 xffffffffx
 xffffffffx
 xffffffffx
 xxxxxxxxxx
 W 3 2 4 2 72 64
+W 4 2 4 2 72 64
 E cave_pip 6 4
 
 # Hall: a LEVER (v) at (1,5) raises the interior switch_door (=) walls that
@@ -523,7 +528,7 @@ xffffffffx
 xffffffffx
 xffffffffx
 xxxxxxxxxx
-W 5 3 4 2 72 64
+W 6 3 4 2 72 64
 E tidewarden 4 3
 
 # ===== THE WINDWARD CRAGS (highland zone; gated by CLIMB CLAWS) =====
