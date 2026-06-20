@@ -323,7 +323,8 @@ xffffffffx
 xxxxffxxxx
 E cave_pip 3 2
 E cave_pip 6 4
-E cave_pip 2 5
+I bomb 2 5
+I bomb 7 5
 
 SCREEN 12 10 d_pips
 xxxxxxxxxx
@@ -353,7 +354,7 @@ SCREEN 10 11 d_brambles
 xxxxffxxxx
 xffffffffx
 xffffffffx
-xBBBBBBBBx
+xffBBBBffx
 xffffffffx
 xffffffffx
 xffffffffx
@@ -362,16 +363,16 @@ I small_key 4 5
 
 SCREEN 11 11 d_gels
 xxxxffxxxx
-xfffffBffx
-xfffffBffx
-xfffffBfff
-xfffffBffx
-xfffffBffx
-xfffffBffx
+xffffffffx
+xffffBfffx
+xffffBffff
+xffffBfffx
+xffffffffx
+xffffffffx
 xxxxxxxxxx
 E marsh_gel 2 2
-E marsh_gel 4 4
-E marsh_gel 3 5
+E marsh_gel 4 5
+E marsh_gel 6 3
 
 SCREEN 12 11 d_sentry
 xxxxxxxxxx
