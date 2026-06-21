@@ -12,10 +12,16 @@ const QUEST_IDS = new Set(quests.map((q) => q.id));
 const LIMITS = {
   maxShells: 1000000,
   maxSkillXp: 10000000,
-  maxHp: 40,
-  maxInventory: 16,
+  // Combat XP cap (generous; the sim caps level at 30 well under this).
+  maxXp: 100000000,
+  // Heart containers can push max HP above the old base of 40 (sim clamps 60).
+  maxHp: 60,
+  // The pack is unbounded in play now; this is just a sanity ceiling so a
+  // corrupt/hostile save can't store an enormous inventory.
+  maxInventory: 512,
   maxQty: 99,
-  maxDurability: 250,
+  // Fusing reinforces durability (+10); leave generous headroom.
+  maxDurability: 9999,
   maxProgress: 10000,
 };
 
@@ -30,6 +36,11 @@ export function validateSave(data) {
 
   if (!Number.isInteger(data.shells) || data.shells < 0 || data.shells > LIMITS.maxShells) {
     return 'shells out of range';
+  }
+
+  // Combat XP is optional (older saves omit it; defaults to 0 in the sim).
+  if (data.xp != null && (!Number.isInteger(data.xp) || data.xp < 0 || data.xp > LIMITS.maxXp)) {
+    return 'xp out of range';
   }
 
   if (!Array.isArray(data.skills) || data.skills.length !== 3) return 'bad skills';
@@ -48,6 +59,7 @@ export function validateSave(data) {
       return 'item durability';
     }
     if (s.fused != null && !ITEM_NAMES.has(s.fused)) return 'unknown fused item';
+    if (s.attached != null && !ITEM_NAMES.has(s.attached)) return 'unknown attached item';
   }
 
   if (!Array.isArray(data.quests)) return 'bad quests';

@@ -3,7 +3,6 @@
 
 import { validateSave } from './validate.js';
 
-const WRITE_INTERVAL_MS = 10000;
 const MAX_CHARACTERS = 3;
 const MAX_SAVE_BYTES = 32 * 1024;
 
@@ -51,9 +50,9 @@ export async function updateCharacter(db, accountId, id, data) {
     .bind(id, accountId)
     .first();
   if (!row) return { error: 'not found', status: 404 };
-  if (Date.now() - row.updated_at < WRITE_INTERVAL_MS) {
-    return { error: 'too many saves; slow down', status: 429 };
-  }
+  // No hard rate-limit reject: the client already throttles periodic saves to
+  // ~15s, and the final save on tab-close (a one-shot sendBeacon) MUST be
+  // accepted — dropping it with a 429 is exactly how progress was being lost.
 
   const err = checkPayload(data);
   if (err) return err;

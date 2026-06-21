@@ -4,7 +4,7 @@
 import { TICK_MS, MAX_CATCHUP_TICKS } from './config.js';
 import { PeerLink, getIceConfig } from './net/rtc.js';
 import { toast } from './ui.js';
-import { persist } from './saves.js';
+import { persist, flush } from './saves.js';
 
 const SNAPSHOT_EVERY = 3; // host ticks between snapshots (60/3 = 20 Hz)
 const INPUT_KEEPALIVE_MS = 100; // direct (lossy WebRTC): resend input often
@@ -103,10 +103,18 @@ export class HostSession extends BaseSession {
     // when its bytes are unchanged since last tick, with a periodic keyframe so
     // a just-joined or packet-dropped client always recovers within KEYFRAME_MS.
     this._snapHist = new Map(); // key -> { hash, lastFullAt }
-    // Save the local character when the tab closes (cloud write may not
-    // finish, but localStorage always does).
-    window.addEventListener('beforeunload', () => {
-      if (!this.stopped) persist(this.game.export_save(0));
+    // Save the character when the tab closes / backgrounds. flush() writes
+    // localStorage AND fires a keepalive cloud PUT that survives teardown, so
+    // the session's final progress reaches the cloud (previously lost: the old
+    // fire-and-forget push didn't finish before the tab closed). pagehide fires
+    // reliably on mobile/Safari where beforeunload often doesn't.
+    const saveOnExit = () => {
+      if (!this.stopped) flush(this.game.export_save(0));
+    };
+    window.addEventListener('beforeunload', saveOnExit);
+    window.addEventListener('pagehide', saveOnExit);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') saveOnExit();
     });
   }
 
