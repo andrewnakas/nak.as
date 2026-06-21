@@ -28,8 +28,13 @@ pub struct WorldJson {
     /// Cliff tiles: solid, but passable once the player owns the climb claws.
     #[serde(default)]
     pub tile_cliff: Vec<bool>,
+    /// Slippery (ice) tiles: not solid, but standing on one makes the player
+    /// slide in their last move direction until they hit a wall or non-ice.
+    #[serde(default)]
+    pub tile_slip: Vec<bool>,
     /// Per tile: 0 = plain, 1 = small-key door, 2 = boss-key door,
-    /// 3 = bramble (cleared by fire weapons / bombs).
+    /// 3 = bramble (cleared by fire weapons / bombs), 4 = switch door,
+    /// 8 = eye-target wall (opens the screen's gate-8 group when shot/burned/blasted).
     #[serde(default)]
     pub tile_gate: Vec<u8>,
     /// Tile id this gate turns into when opened/cleared (-1 = none).
@@ -159,6 +164,7 @@ pub struct World {
     pub tile_heal: Vec<bool>,
     pub tile_lever: Vec<bool>,
     pub tile_cliff: Vec<bool>,
+    pub tile_slip: Vec<bool>,
     pub tile_gate: Vec<u8>,
     pub tile_cleared: Vec<i32>,
     pub screens: Vec<Screen>,
@@ -277,6 +283,7 @@ impl World {
             tile_heal: raw.tile_heal,
             tile_lever: raw.tile_lever,
             tile_cliff: raw.tile_cliff,
+            tile_slip: raw.tile_slip,
             tile_gate: raw.tile_gate,
             tile_cleared: raw.tile_cleared,
             screens,
@@ -329,6 +336,10 @@ impl World {
 
     pub fn is_cliff(&self, screen: &Screen, px: i32, py: i32) -> bool {
         self.tile_flag(&self.tile_cliff, screen, px, py)
+    }
+
+    pub fn is_slip(&self, screen: &Screen, px: i32, py: i32) -> bool {
+        self.tile_flag(&self.tile_slip, screen, px, py)
     }
 
     /// Out-of-playfield pixels report false for every flag.

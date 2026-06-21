@@ -34,6 +34,8 @@ L locked_door
 K boss_door
 v lever
 = switch_door
+i ice
+@ eye_target
 < stairs_up
 > stairs_down
 

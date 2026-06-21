@@ -207,6 +207,11 @@ pub struct Player {
     /// Scaling a cliff (owns the climb claws + feet on a cliff tile). Anim/
     /// flavor only; cliff traversal itself is gated by owning the claws.
     pub climbing: bool,
+    /// Sliding across ice: the locked move direction (0 down, 1 up, 2 left,
+    /// 3 right) while the player's feet are on a slip tile, or -1 when not
+    /// sliding. Sim-local (hashed for determinism, never sent in PlayerSnap —
+    /// the client renders from interpolated x/y).
+    pub slide_dir: i8,
 }
 
 /// Total combat XP required to reach a level (level 1 = 0). Gentle quadratic.
@@ -450,6 +455,18 @@ impl Sim {
     /// enemies keep using the pristine map). When `water_ok` (the player owns
     /// the surfboard) water tiles are treated as passable; when `climb_ok` (the
     /// player owns the climb claws) cliff tiles are treated as passable.
+    /// The tile id currently in effect at screen-cell `idx`: the one-way
+    /// `overrides` value (opened door / cleared bramble / shot eye-target) if
+    /// present, else the screen's static tile. Single chokepoint for layered
+    /// world state so later passes (pressure plates / water level) extend one
+    /// place. `idx` is the in-screen cell index (ty*COLS+tx).
+    fn effective_tile(&self, sx: i32, sy: i32, idx: i32, static_tile: u16) -> u16 {
+        self.overrides
+            .get(&(sx, sy, idx))
+            .copied()
+            .unwrap_or(static_tile)
+    }
+
     fn effective_solid(
         &self,
         screen: &world::Screen,
@@ -461,21 +478,13 @@ impl Sim {
         let tx = px.div_euclid(16);
         let ty = (py - HUD_H).div_euclid(16);
         if (0..world::SCREEN_COLS).contains(&tx) && (0..world::SCREEN_ROWS).contains(&ty) {
-            if let Some(&t) = self
-                .overrides
-                .get(&(screen.x, screen.y, ty * world::SCREEN_COLS + tx))
-            {
-                let solid = self.world.tile_solid.get(t as usize).copied().unwrap_or(true);
-                let water = self.world.tile_water.get(t as usize).copied().unwrap_or(false);
-                let cliff = self.world.tile_cliff.get(t as usize).copied().unwrap_or(false);
-                return solid && !(water_ok && water) && !(climb_ok && cliff);
-            }
-        }
-        if water_ok && self.world.is_water(screen, px, py) {
-            return false;
-        }
-        if climb_ok && self.world.is_cliff(screen, px, py) {
-            return false;
+            let idx = ty * world::SCREEN_COLS + tx;
+            let static_tile = screen.tiles[idx as usize];
+            let t = self.effective_tile(screen.x, screen.y, idx, static_tile);
+            let solid = self.world.tile_solid.get(t as usize).copied().unwrap_or(true);
+            let water = self.world.tile_water.get(t as usize).copied().unwrap_or(false);
+            let cliff = self.world.tile_cliff.get(t as usize).copied().unwrap_or(false);
+            return solid && !(water_ok && water) && !(climb_ok && cliff);
         }
         self.world.is_solid(screen, px, py)
     }
@@ -521,6 +530,7 @@ impl Sim {
             surfing: false,
             wave_boost: 0,
             climbing: false,
+            slide_dir: -1,
         };
         // No starting kit: you begin empty-handed. The first weapon is a
         // stick picked up off the ground in the intro; real gear is bought
@@ -809,6 +819,7 @@ impl Sim {
             return false;
         };
         let mut cleared = Vec::new();
+        let mut hit_eye = false;
         let (ty0, ty1) = ((y0 - HUD_H).div_euclid(16), (y1 - 1 - HUD_H).div_euclid(16));
         let (tx0, tx1) = (x0.div_euclid(16), (x1 - 1).div_euclid(16));
         for ty in ty0..=ty1 {
@@ -823,20 +834,58 @@ impl Sim {
                     continue;
                 }
                 let tile = screen.tiles[idx as usize] as usize;
-                if self.world.tile_gate.get(tile).copied().unwrap_or(0) == 3 {
-                    if let Some(&target) = self.world.tile_cleared.get(tile) {
-                        if target >= 0 {
-                            cleared.push((idx, target as u16));
+                match self.world.tile_gate.get(tile).copied().unwrap_or(0) {
+                    // Bramble: each tile in the swing/blast arc burns away on its own.
+                    3 => {
+                        if let Some(&target) = self.world.tile_cleared.get(tile) {
+                            if target >= 0 {
+                                cleared.push((idx, target as u16));
+                            }
                         }
                     }
+                    // Eye-target: hitting any tile of the group (with fire/blast)
+                    // opens the whole same-screen gate-8 group at once.
+                    8 => hit_eye = true,
+                    _ => {}
                 }
             }
         }
-        let any = !cleared.is_empty();
+        let mut any = !cleared.is_empty();
         for (idx, target) in cleared {
             self.overrides.insert((sx, sy, idx), target);
         }
+        if hit_eye {
+            any |= self.open_gate_group(sx, sy, 8) > 0;
+        }
         any
+    }
+
+    /// Open every unopened tile of one gate value on a screen to its cleared
+    /// target, all at once (same-screen group, like a lever). Returns how many
+    /// tiles opened. Reused for eye-targets (gate 8): shooting/burning/blasting
+    /// any one tile of the group removes them all via one-way `overrides`.
+    fn open_gate_group(&mut self, sx: i32, sy: i32, gate: u8) -> u32 {
+        let mut to_open: Vec<(i32, u16)> = Vec::new();
+        if let Some(screen) = self.world.screen_at(sx, sy) {
+            for (idx, &tile) in screen.tiles.iter().enumerate() {
+                if self.world.tile_gate.get(tile as usize).copied().unwrap_or(0) != gate {
+                    continue;
+                }
+                let cleared = self.world.tile_cleared.get(tile as usize).copied().unwrap_or(-1);
+                if cleared < 0 {
+                    continue;
+                }
+                let key = (sx, sy, idx as i32);
+                if !self.overrides.contains_key(&key) {
+                    to_open.push((idx as i32, cleared as u16));
+                }
+            }
+        }
+        let opened = to_open.len() as u32;
+        for (idx, cleared) in to_open {
+            self.overrides.insert((sx, sy, idx), cleared);
+        }
+        opened
     }
 
     /// Durability loss on a connect; breaks the item at 0 (removed from
@@ -1326,7 +1375,40 @@ impl Sim {
             }
         };
 
+        // Ice-slide: while the player's feet are on a slip tile they glide in a
+        // locked direction at walk speed, ignoring steering. The slide starts in
+        // whatever direction the player was last moving (or is pressing as they
+        // step onto the ice) and ends when the next step is blocked by a wall or
+        // leaves the ice — then normal control resumes. Movement-only; the slide
+        // direction is hashed for determinism but never sent over the wire.
+        let on_slip = self.is_slip_at(screen, to_px(pl.x) + 8, to_px(pl.y) + 12);
+        if on_slip {
+            if pl.slide_dir < 0 && pl.walking {
+                pl.slide_dir = pl.facing as i8; // pick up the entry direction
+            }
+            if pl.slide_dir >= 0 {
+                let d = pl.slide_dir as u8;
+                let glide = WALK_SPEED;
+                dx = match d {
+                    2 => -glide,
+                    3 => glide,
+                    _ => 0,
+                };
+                dy = match d {
+                    1 => -glide,
+                    0 => glide,
+                    _ => 0,
+                };
+                pl.facing = d;
+                pl.walking = true;
+                pl.anim = pl.anim.wrapping_add(1);
+            }
+        } else {
+            pl.slide_dir = -1; // off the ice: full control
+        }
+
         // Axis-separated movement against the feet box for wall sliding.
+        let (px0, py0) = (pl.x, pl.y);
         if dx != 0 {
             let nx = pl.x + dx;
             if self.feet_clear(screen, nx, pl.y, board, claws) {
@@ -1337,6 +1419,16 @@ impl Sim {
             let ny = pl.y + dy;
             if self.feet_clear(screen, pl.x, ny, board, claws) {
                 pl.y = ny;
+            }
+        }
+
+        // Slide stops the moment the glide is blocked by a wall, or once the
+        // player has coasted off the ice (no longer over a slip tile).
+        if pl.slide_dir >= 0 {
+            let moved = pl.x != px0 || pl.y != py0;
+            let still_on_ice = self.is_slip_at(screen, to_px(pl.x) + 8, to_px(pl.y) + 12);
+            if !moved || !still_on_ice {
+                pl.slide_dir = -1;
             }
         }
 
@@ -1799,7 +1891,28 @@ impl Sim {
                         new_entities.push(spawn);
                     }
                 }
-                ET_PROJECTILE => entity::step_projectile(&mut e, &self.world),
+                ET_PROJECTILE => {
+                    let was_alive = e.alive;
+                    entity::step_projectile(&mut e, &self.world);
+                    // A player arrow that just died into a wall opens the
+                    // screen's eye-target (gate-8) group if it struck one.
+                    if was_alive
+                        && !e.alive
+                        && e.owner >= 0
+                        && e.def == PJ_ARROW
+                    {
+                        let (px, py) = (to_px(e.x) + 8, to_px(e.y) + 8);
+                        let eye = self.world.screen_at(e.sx, e.sy).and_then(|s| {
+                            let (idx, tile) = self.world.tile_at(s, px, py)?;
+                            let g = self.world.tile_gate.get(tile as usize).copied().unwrap_or(0);
+                            (g == 8 && !self.overrides.contains_key(&(e.sx, e.sy, idx)))
+                                .then_some(())
+                        });
+                        if eye.is_some() && self.open_gate_group(e.sx, e.sy, 8) > 0 {
+                            self.emit_cue(e.sx, e.sy, cues::HIT);
+                        }
+                    }
+                }
                 ET_BOMB => {
                     if entity::step_bomb(&mut e) {
                         e.alive = false;
@@ -2283,6 +2396,19 @@ impl Sim {
 
     fn feet_clear(&self, screen: &world::Screen, x: Fx, y: Fx, water_ok: bool, climb_ok: bool) -> bool {
         self.feet_clear_on(screen, x, y, water_ok, climb_ok)
+    }
+
+    /// True if the tile under this pixel (respecting one-way overrides) is a
+    /// slip/ice tile. Out-of-playfield pixels are never slip.
+    fn is_slip_at(&self, screen: &world::Screen, px: i32, py: i32) -> bool {
+        let tx = px.div_euclid(16);
+        let ty = (py - HUD_H).div_euclid(16);
+        if !(0..world::SCREEN_COLS).contains(&tx) || !(0..world::SCREEN_ROWS).contains(&ty) {
+            return false;
+        }
+        let idx = ty * world::SCREEN_COLS + tx;
+        let t = self.effective_tile(screen.x, screen.y, idx, screen.tiles[idx as usize]);
+        self.world.tile_slip.get(t as usize).copied().unwrap_or(false)
     }
 
     fn feet_clear_on(
@@ -2887,6 +3013,7 @@ impl Sim {
                     h.u32(p.shielding as u32);
                     h.u32(p.surfing as u32);
                     h.u32(p.wave_boost);
+                    h.i32(p.slide_dir as i32);
                     h.i32(p.equip_a as i32);
                     h.i32(p.equip_b as i32);
                     for s in p.skills {
@@ -3777,6 +3904,13 @@ mod tests {
                 tiles[1 * 10 + 1] = 6; // lever
                 tiles[1 * 10 + 2] = 7; // switch door (gate 4)
                 tiles[4 * 10 + 7] = 8; // cliff (gated by climb claws)
+                // Ice strip on row 6: cols 2,3,4 are slippery; col 5 is a wall
+                // that stops the slide.
+                tiles[6 * 10 + 2] = 9; // ice (slip)
+                tiles[6 * 10 + 3] = 9; // ice (slip)
+                tiles[6 * 10 + 4] = 9; // ice (slip)
+                tiles[6 * 10 + 5] = 1; // wall: slide stopper
+                tiles[1 * 10 + 8] = 10; // eye_target (gate 8), clear row to its left
             }
             let entities = if sx == 0 {
                 r#"[{"t":"thornling","tx":2,"ty":2},{"t":"gel","tx":7,"ty":5}]"#
@@ -3821,15 +3955,16 @@ mod tests {
         ];
         let sprite_names = sprites.map(|s| format!("\"{s}\"")).join(",");
         format!(
-            r#"{{"world":{{"tile_names":["floor","wall","water","fire","tree","fountain","lever","switch_door","cliff"],
-"tile_solid":[false,true,true,true,true,true,true,true,true],"tile_water":[false,false,true,false,false,false,false,false,false],
-"tile_fire":[false,false,false,true,false,false,false,false,false],
-"tile_tree":[false,false,false,false,true,false,false,false,false],
-"tile_heal":[false,false,false,false,false,true,false,false,false],
-"tile_lever":[false,false,false,false,false,false,true,false,false],
-"tile_cliff":[false,false,false,false,false,false,false,false,true],
-"tile_gate":[0,0,0,0,0,0,0,4,0],
-"tile_cleared":[-1,-1,-1,-1,-1,-1,-1,0,-1],
+            r#"{{"world":{{"tile_names":["floor","wall","water","fire","tree","fountain","lever","switch_door","cliff","ice","eye_target"],
+"tile_solid":[false,true,true,true,true,true,true,true,true,false,true],"tile_water":[false,false,true,false,false,false,false,false,false,false,false],
+"tile_fire":[false,false,false,true,false,false,false,false,false,false,false],
+"tile_tree":[false,false,false,false,true,false,false,false,false,false,false],
+"tile_heal":[false,false,false,false,false,true,false,false,false,false,false],
+"tile_lever":[false,false,false,false,false,false,true,false,false,false,false],
+"tile_cliff":[false,false,false,false,false,false,false,false,true,false,false],
+"tile_slip":[false,false,false,false,false,false,false,false,false,true,false],
+"tile_gate":[0,0,0,0,0,0,0,4,0,0,8],
+"tile_cleared":[-1,-1,-1,-1,-1,-1,-1,0,-1,-1,0],
 "sprite_names":[{sprite_names}],"font_chars":"0123456789#%&$",
 "screens":[{}],"spawn":{{"sx":0,"sy":0,"x":72,"y":64}}}},
 "items":[
@@ -4312,6 +4447,104 @@ mod tests {
         }
         assert!(climbed, "owning the climb claws lets the player scale onto the cliff");
         assert!(to_px(sim.players[0].as_ref().unwrap().x) > 104, "moved onto the cliff tile");
+    }
+
+    #[test]
+    fn ice_slide_glides_then_stops_at_wall() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 7).unwrap();
+        sim.add_player(0);
+        // Screen (1,0) row 6 has ice at cols 2,3,4 and a wall at col 5.
+        // Start the player standing on the first ice tile (col 2) on row 6.
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.sx = 1;
+            p.sy = 0;
+            p.x = fx(2 * 16);
+            p.y = fx(6 * 16 + HUD_H);
+        }
+        // One step of right input latches the slide direction (feet on ice).
+        sim.set_input(0, BTN_RIGHT);
+        sim.step();
+        assert!(
+            sim.players[0].as_ref().unwrap().slide_dir >= 0,
+            "stepping on ice with input starts a slide"
+        );
+        // Release input: with no steering, the player should KEEP gliding right
+        // across the ice (slide_dir latched) until the wall at col 5 stops them.
+        sim.set_input(0, 0);
+        let mut kept_sliding = false;
+        for _ in 0..60 {
+            let before = sim.players[0].as_ref().unwrap().x;
+            sim.step();
+            let p = sim.players[0].as_ref().unwrap();
+            if p.slide_dir >= 0 && p.x > before {
+                kept_sliding = true;
+            }
+            if p.slide_dir < 0 {
+                break;
+            }
+        }
+        assert!(kept_sliding, "player keeps gliding on ice without input");
+        let p = sim.players[0].as_ref().unwrap();
+        assert_eq!(p.slide_dir, -1, "slide ends once stopped/off the ice");
+        // Stopped against the col-5 wall: feet box right edge can't enter col 5
+        // (x*16 + FEET_X1 must stay < 5*16). So x stays under col 5.
+        let px = to_px(p.x);
+        assert!(px < 5 * 16, "stops before the wall at col 5, got px={px}");
+        assert!(px >= 3 * 16, "actually slid across the ice, got px={px}");
+    }
+
+    #[test]
+    fn arrow_opens_eye_target_gate() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 8).unwrap();
+        sim.add_player(0);
+        // Screen (1,0) has an eye_target (gate 8) at tile (8,1) -> idx 1*10+8=18.
+        let eye_idx = 1 * (world::SCREEN_COLS) + 8;
+        // Gate starts closed (solid, no override).
+        assert!(
+            !sim.overrides.contains_key(&(1, 0, eye_idx)),
+            "eye-target is closed before being shot"
+        );
+        {
+            let screen = sim.world.screen_at(1, 0).unwrap();
+            let (ex, ey) = (8 * 16 + 8, HUD_H + 1 * 16 + 8);
+            assert!(sim.world.is_solid(screen, ex, ey), "eye-target solid initially");
+        }
+        // Spawn a player arrow on row 1 (clear path), flying right into the eye.
+        let dmg = 1;
+        let arrow = entity::spawn_arrow(
+            0,
+            1,
+            0,
+            fx(4 * 16),
+            fx(1 * 16 + HUD_H),
+            3, // facing right
+            dmg,
+        );
+        sim.entities.push(arrow);
+        // Step until the arrow reaches the eye-target and opens it.
+        let mut opened = false;
+        for _ in 0..40 {
+            sim.step();
+            if sim.overrides.contains_key(&(1, 0, eye_idx)) {
+                opened = true;
+                break;
+            }
+        }
+        assert!(opened, "an arrow striking the eye-target opens its gate-8 group");
+        assert_eq!(
+            sim.overrides.get(&(1, 0, eye_idx)).copied(),
+            Some(0u16),
+            "eye-target opens to floor (tile 0)"
+        );
+        let screen = sim.world.screen_at(1, 0).unwrap();
+        let (ex, ey) = (8 * 16 + 8, HUD_H + 1 * 16 + 8);
+        assert!(
+            !sim.effective_solid(screen, ex, ey, false, false),
+            "opened eye-target is walkable"
+        );
     }
 
     #[test]

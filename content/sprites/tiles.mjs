@@ -349,6 +349,37 @@ export const TILES = [
     }),
   },
   {
+    name: 'ice',
+    palette: 'water',
+    solid: false,
+    slip: true,
+    grid: grid((x, y) => {
+      // Pale, glassy sheet with a few diagonal cracks/glints so it reads as
+      // slippery ice rather than water. Lightest shades dominate.
+      const crack = (x + y) % 7 === 0 || (x - y + 16) % 9 === 0;
+      if (crack) return 3; // bright glint line
+      if ((x ^ y) % 5 === 0) return 1; // faint shadow fleck
+      return hash(x, y, 31) < 60 ? 0 : 2; // mostly mid/light pale blue
+    }),
+  },
+  {
+    name: 'eye_target',
+    palette: 'stone',
+    solid: true,
+    gate: 8,
+    cleared: 'dungeon_floor',
+    grid: grid((x, y) => {
+      // Stone block bearing a single carved eye; shoot/blast/burn it to open.
+      if (x === 0 || x === 15 || y === 0 || y === 15) return 0; // dark frame
+      const d = Math.hypot(x - 7.5, y - 7.5);
+      if (d > 6.2) return (x + y) % 4 === 0 ? 1 : 2; // stone face
+      if (d > 4.6) return 3; // bright eyelid ring
+      if (d > 2.4) return 1; // dark sclera shadow
+      if (d > 1.2) return 3; // iris ring
+      return 0; // pupil
+    }),
+  },
+  {
     name: 'campfire',
     palette: 'sand',
     solid: true,
