@@ -62,6 +62,7 @@ for (let i = 0; i < lines.length; i++) {
       entities: [],
       npcs: [],
       items: [],
+      blocks: [],
       warps: [],
       line: i,
     };
@@ -88,6 +89,16 @@ for (let i = 0; i < lines.length; i++) {
     const [, type, tx, ty] = line.split(/\s+/);
     if (!ITEM_NAMES.has(type)) fail(i, `unknown item '${type}'`);
     screen.items.push({ t: type, tx: Number(tx), ty: Number(ty), line: i });
+    continue;
+  }
+  if (mode === 'screen' && line.startsWith('O ')) {
+    // Pushable block spawn: `O block <tx> <ty>` (the `block` keyword keeps the
+    // syntax self-documenting and parallel to the E/N/I lines). A block needs
+    // only a position; it spawns as an ET_BLOCK entity whose home is this tile.
+    if (!screen) fail(i, 'O line outside a SCREEN');
+    const [, kind, tx, ty] = line.split(/\s+/);
+    if (kind !== 'block') fail(i, `unknown O kind '${kind}' (expected 'block')`);
+    screen.blocks.push({ tx: Number(tx), ty: Number(ty), line: i });
     continue;
   }
   if (mode === 'screen' && line.startsWith('W ')) {
@@ -143,6 +154,15 @@ for (const s of screens) {
       fail(e.line, `screen ${s.name}: '${e.t}' on solid tile '${TILES[tile].name}'`);
     }
   }
+  for (const b of s.blocks) {
+    if (b.tx < 0 || b.tx >= COLS || b.ty < 0 || b.ty >= ROWS) {
+      fail(b.line, `screen ${s.name}: block out of bounds`);
+    }
+    const tile = s.tiles[b.ty * COLS + b.tx];
+    if (TILES[tile].solid) {
+      fail(b.line, `screen ${s.name}: block on solid tile '${TILES[tile].name}'`);
+    }
+  }
   for (const w of s.warps) {
     if (w.tx < 0 || w.tx >= COLS || w.ty < 0 || w.ty >= ROWS) {
       fail(w.line, `screen ${s.name}: warp trigger out of bounds`);
@@ -191,6 +211,7 @@ const world = {
     entities: s.entities.map(({ t, tx, ty }) => ({ t, tx, ty })),
     npcs: s.npcs.map(({ t, tx, ty }) => ({ t, tx, ty })),
     items: s.items.map(({ t, tx, ty }) => ({ t, tx, ty })),
+    blocks: s.blocks.map(({ tx, ty }) => ({ tx, ty })),
     warps: s.warps.map(({ tx, ty, sx, sy, px, py }) => ({ tx, ty, sx, sy, px, py })),
   })),
   spawn,

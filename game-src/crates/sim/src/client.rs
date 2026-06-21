@@ -109,12 +109,33 @@ impl ClientView {
             .and_then(|p| p.fishing)
     }
 
-    /// Tile overrides from the freshest snapshot, keyed for the renderer.
+    /// Effective tiles from the freshest snapshot, keyed for the renderer:
+    /// reversible (plate/water state) layered OVER one-way overrides, matching
+    /// the host's `effective_tile`. The renderer paints whatever this returns.
     pub fn overrides(&self) -> std::collections::BTreeMap<(i32, i32, i32), u16> {
         self.snaps
             .last()
             .map(|(_, s)| {
-                s.overrides
+                let mut m: std::collections::BTreeMap<(i32, i32, i32), u16> = s
+                    .overrides
+                    .iter()
+                    .map(|&(sx, sy, idx, t)| ((sx, sy, idx), t))
+                    .collect();
+                for &(sx, sy, idx, t) in &s.reversible {
+                    m.insert((sx, sy, idx), t);
+                }
+                m
+            })
+            .unwrap_or_default()
+    }
+
+    /// Reversible plate/water tiles from the freshest snapshot (the subset that
+    /// recloses each tick), keyed for callers that need just that layer.
+    pub fn reversible(&self) -> std::collections::BTreeMap<(i32, i32, i32), u16> {
+        self.snaps
+            .last()
+            .map(|(_, s)| {
+                s.reversible
                     .iter()
                     .map(|&(sx, sy, idx, t)| ((sx, sy, idx), t))
                     .collect()
@@ -298,6 +319,8 @@ fn lerp_entity(ea: Option<&EntitySnap>, eb: &EntitySnap, num: u64, den: u64) -> 
         anim: eb.anim,
         iframes: u8::from(eb.flash),
         home: (eb.sx, eb.sy),
+        home_px: eb.x,
+        home_py: eb.y,
         alive: true,
         owner: -1,
         poison_t: 0,

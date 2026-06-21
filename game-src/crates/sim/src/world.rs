@@ -58,7 +58,15 @@ pub struct ScreenJson {
     #[serde(default)]
     items: Vec<EntitySpawnJson>,
     #[serde(default)]
+    blocks: Vec<BlockSpawnJson>,
+    #[serde(default)]
     warps: Vec<WarpJson>,
+}
+
+#[derive(Deserialize)]
+struct BlockSpawnJson {
+    tx: i32,
+    ty: i32,
 }
 
 #[derive(Deserialize)]
@@ -104,6 +112,12 @@ pub struct GroundItem {
     pub y: i32,
 }
 
+/// A pushable block's spawn / home position (tile coords within its screen).
+pub struct BlockSpawn {
+    pub tx: i32,
+    pub ty: i32,
+}
+
 #[derive(Clone, Copy)]
 pub struct Warp {
     /// Trigger tile within this screen.
@@ -123,6 +137,7 @@ pub struct Screen {
     pub spawns: Vec<EnemySpawn>,
     pub npcs: Vec<NpcSpawn>,
     pub items: Vec<GroundItem>,
+    pub blocks: Vec<BlockSpawn>,
     pub warps: Vec<Warp>,
 }
 
@@ -154,6 +169,8 @@ pub struct SpriteIds {
     pub surf: u16,
     /// Cresting ocean wave the player can catch for a speed boost.
     pub wave: u16,
+    /// Pushable block (ET_BLOCK entity).
+    pub block: u16,
 }
 
 pub struct World {
@@ -203,6 +220,7 @@ impl World {
             bobber: find("bobber")?,
             surf: find("surf_board")?,
             wave: find("wave_0")?,
+            block: find("block")?,
         };
 
         let font = raw
@@ -251,6 +269,11 @@ impl World {
                     })
                 })
                 .collect::<Result<Vec<_>, String>>()?;
+            let blocks = s
+                .blocks
+                .iter()
+                .map(|b| BlockSpawn { tx: b.tx, ty: b.ty })
+                .collect();
             let warps = s
                 .warps
                 .iter()
@@ -271,6 +294,7 @@ impl World {
                 spawns,
                 npcs,
                 items,
+                blocks,
                 warps,
             });
         }

@@ -14,6 +14,9 @@ pub const ET_BLAST: u8 = 4;
 /// Ocean wave: drifts shoreward; a surfing player who overlaps it gets a
 /// short speed boost ("catching the wave").
 pub const ET_WAVE: u8 = 5;
+/// Pushable block: a grid-snapped crate. Re-exported from the protocol so the
+/// snapshot tag and the sim agree. Moved host-side in step_player; slides on ice.
+pub const ET_BLOCK: u8 = protocol::ET_BLOCK;
 
 /// Projectile kinds (EntitySnap.def for ET_PROJECTILE).
 pub const PJ_SEED: u8 = 0;
@@ -50,6 +53,10 @@ pub struct Entity {
     pub anim: u32,
     pub iframes: u8,
     pub home: (i32, i32), // spawn screen, for respawn bookkeeping
+    /// Spawn tile pixel (top-left) within `home`'s screen. Used to snap a
+    /// pushable block back to where it started when its room empties.
+    pub home_px: i32,
+    pub home_py: i32,
     pub alive: bool,
     /// Player slot that owns this projectile/bomb, or -1 for enemies.
     pub owner: i8,
@@ -79,6 +86,8 @@ impl Entity {
             anim: 0,
             iframes: 0,
             home: (sx, sy),
+            home_px: x,
+            home_py: y,
             alive: true,
             owner: -1,
             poison_t: 0,
@@ -369,6 +378,8 @@ pub fn blank(etype: u8, sx: i32, sy: i32, x: Fx, y: Fx) -> Entity {
         anim: 0,
         iframes: 0,
         home: (sx, sy),
+        home_px: to_px(x),
+        home_py: to_px(y),
         alive: true,
         owner: -1,
         poison_t: 0,

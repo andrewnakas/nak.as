@@ -21,15 +21,15 @@ pub mod world;
 use defs::{AttachEffect, Brain, Defs, DropItem, FuseEffect, ItemKind};
 use draw::{DrawList, FLAG_FLIP_X, HUD_H, SCREEN_H, SCREEN_W};
 use entity::{
-    Entity, StepCtx, BLAST_RADIUS, ET_BLAST, ET_BOMB, ET_ENEMY, ET_PICKUP, ET_PROJECTILE, ET_WAVE,
-    PJ_ARROW, PK_HEART, PK_ITEM, PK_SHELLS,
+    Entity, StepCtx, BLAST_RADIUS, ET_BLAST, ET_BLOCK, ET_BOMB, ET_ENEMY, ET_PICKUP,
+    ET_PROJECTILE, ET_WAVE, PJ_ARROW, PK_HEART, PK_ITEM, PK_SHELLS,
 };
 use fixed::{fx, to_px, Fx};
 use input::*;
 use protocol::{EntitySnap, GameEvent, ItemSnap, PlayerSnap, SnapshotData};
 use rng::Pcg32;
 use serde::Deserialize;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use world::{World, WorldJson};
 
 pub const TICKS_PER_SEC: u32 = 60;
@@ -293,6 +293,13 @@ pub struct Sim {
     /// Mutated tiles: (sx, sy, tile index) -> new tile id. Opened doors,
     /// cleared brambles. Broadcast in snapshots so clients render them.
     pub overrides: BTreeMap<(i32, i32, i32), u16>,
+    /// Reversible tile state: (sx, sy, tile index) -> new tile id. Rebuilt from
+    /// scratch every tick by `recompute_reversible` (held pressure plates open
+    /// their gate-7 doors). Layered OVER `overrides`. Broadcast each snapshot.
+    pub reversible: BTreeMap<(i32, i32, i32), u16>,
+    /// Screens whose latch (gate-6) plate has been pressed at least once and
+    /// is sticky-held until the room empties of players.
+    latched_plates: BTreeSet<(i32, i32)>,
     pub content_hash: u64,
 }
 
@@ -397,12 +404,16 @@ impl Sim {
             events: Vec::new(),
             toasts: Vec::new(),
             overrides: BTreeMap::new(),
+            reversible: BTreeMap::new(),
+            latched_plates: BTreeSet::new(),
             content_hash: h.finish(),
         };
         for i in 0..sim.world.screens.len() {
             sim.spawn_screen(i);
         }
         // Ground items from the map: persistent pickups (state=1 -> no TTL).
+        // Pushable blocks from the map: one ET_BLOCK entity per `O block tx ty`,
+        // grid-snapped to its spawn tile (also its `home` for reset).
         let mut ground = Vec::new();
         for screen in &sim.world.screens {
             for gi in &screen.items {
@@ -410,6 +421,11 @@ impl Sim {
                 e.def = PK_ITEM;
                 e.data = gi.item as i32;
                 e.state = 1;
+                ground.push(e);
+            }
+            for b in &screen.blocks {
+                let (px, py) = (b.tx * 16, HUD_H + b.ty * 16);
+                let e = entity::blank(ET_BLOCK, screen.x, screen.y, fx(px), fx(py));
                 ground.push(e);
             }
         }
@@ -461,10 +477,112 @@ impl Sim {
     /// world state so later passes (pressure plates / water level) extend one
     /// place. `idx` is the in-screen cell index (ty*COLS+tx).
     fn effective_tile(&self, sx: i32, sy: i32, idx: i32, static_tile: u16) -> u16 {
-        self.overrides
+        // Layering order: reversible (this-tick plate/water state) wins over
+        // one-way `overrides` (opened doors / cleared bramble), which wins over
+        // the static map tile. `reversible` is recomputed at the END of step(),
+        // so reads during a tick see the PREVIOUS tick's reversible state.
+        self.reversible
             .get(&(sx, sy, idx))
+            .or_else(|| self.overrides.get(&(sx, sy, idx)))
             .copied()
             .unwrap_or(static_tile)
+    }
+
+    /// Index of a live pushable block occupying the tile cell under (px, py) on
+    /// the given screen, if any. Blocks are grid-snapped, so each owns exactly
+    /// one cell; a pixel test reduces to a tile-cell match.
+    fn block_at(&self, sx: i32, sy: i32, px: i32, py: i32) -> Option<usize> {
+        let tx = px.div_euclid(16);
+        let ty = (py - HUD_H).div_euclid(16);
+        self.entities.iter().position(|e| {
+            e.etype == ET_BLOCK
+                && e.alive
+                && e.sx == sx
+                && e.sy == sy
+                && to_px(e.x).div_euclid(16) == tx
+                && (to_px(e.y) - HUD_H).div_euclid(16) == ty
+        })
+    }
+
+    /// True if a pushable block currently occupies the tile cell under (px, py).
+    fn block_solid_at(&self, sx: i32, sy: i32, px: i32, py: i32) -> bool {
+        self.block_at(sx, sy, px, py).is_some()
+    }
+
+    /// True if the player's feet box at pixel (x, y) on this screen would land
+    /// inside a tile occupied by a pushable block. Blocks stop the player just
+    /// like a wall (resolved separately as a shove when the player pushes in).
+    fn feet_hit_block(&self, sx: i32, sy: i32, x: Fx, y: Fx) -> bool {
+        let px = to_px(x);
+        let py = to_px(y);
+        self.block_solid_at(sx, sy, px + FEET_X0, py + FEET_Y0)
+            || self.block_solid_at(sx, sy, px + FEET_X1, py + FEET_Y0)
+            || self.block_solid_at(sx, sy, px + FEET_X0, py + FEET_Y1)
+            || self.block_solid_at(sx, sy, px + FEET_X1, py + FEET_Y1)
+    }
+
+    /// True if a block can occupy the tile at cell (tx, ty) on this screen: the
+    /// cell must be in bounds, non-solid (respecting overrides/reversible), not
+    /// water, and not already holding another live block.
+    fn block_cell_open(&self, sx: i32, sy: i32, tx: i32, ty: i32) -> bool {
+        if !(0..world::SCREEN_COLS).contains(&tx) || !(0..world::SCREEN_ROWS).contains(&ty) {
+            return false; // off-screen: blocks never leave their room
+        }
+        let Some(screen) = self.world.screen_at(sx, sy) else {
+            return false;
+        };
+        let idx = ty * world::SCREEN_COLS + tx;
+        let t = self.effective_tile(sx, sy, idx, screen.tiles[idx as usize]);
+        let solid = self.world.tile_solid.get(t as usize).copied().unwrap_or(true);
+        let water = self.world.tile_water.get(t as usize).copied().unwrap_or(false);
+        if solid || water {
+            return false;
+        }
+        // The destination cell's center must be free of any other block.
+        let (cx, cy) = (tx * 16 + 8, HUD_H + ty * 16 + 8);
+        self.block_at(sx, sy, cx, cy).is_none()
+    }
+
+    /// Shove the block at entity index `bi` one tile in `dir` (0 down, 1 up,
+    /// 2 left, 3 right). Refuses solid tiles, water, another block, and the
+    /// screen edge. On ice (a slip tile) the block keeps sliding in `dir` until
+    /// the NEXT cell is blocked or no longer ice. Grid-aligned, host-side.
+    fn try_push_block(&mut self, bi: usize, dir: u8) {
+        let (dtx, dty): (i32, i32) = match dir {
+            0 => (0, 1),
+            1 => (0, -1),
+            2 => (-1, 0),
+            _ => (1, 0),
+        };
+        let (sx, sy) = (self.entities[bi].sx, self.entities[bi].sy);
+        let mut tx = to_px(self.entities[bi].x).div_euclid(16);
+        let mut ty = (to_px(self.entities[bi].y) - HUD_H).div_euclid(16);
+        // First step must be open or the shove fails entirely.
+        if !self.block_cell_open(sx, sy, tx + dtx, ty + dty) {
+            return;
+        }
+        tx += dtx;
+        ty += dty;
+        // Ice slide: keep going while the cell just entered is a slip tile and
+        // the next cell stays open. Capped at the screen width for safety.
+        for _ in 0..world::SCREEN_COLS.max(world::SCREEN_ROWS) {
+            let idx = ty * world::SCREEN_COLS + tx;
+            let here = self
+                .world
+                .screen_at(sx, sy)
+                .map(|s| self.effective_tile(sx, sy, idx, s.tiles[idx as usize]))
+                .unwrap_or(0);
+            let on_ice = self.world.tile_slip.get(here as usize).copied().unwrap_or(false);
+            if !on_ice || !self.block_cell_open(sx, sy, tx + dtx, ty + dty) {
+                break;
+            }
+            tx += dtx;
+            ty += dty;
+        }
+        let e = &mut self.entities[bi];
+        e.x = fx(tx * 16);
+        e.y = fx(HUD_H + ty * 16);
+        self.emit_cue(sx, sy, cues::SWING);
     }
 
     fn effective_solid(
@@ -888,6 +1006,122 @@ impl Sim {
         opened
     }
 
+    /// Rebuild `self.reversible` from scratch from live occupancy. Called at the
+    /// END of step() (after cleanup_and_drops) so it always reflects the tick's
+    /// final positions. Pure function of current state -> deterministic, no RNG.
+    ///
+    /// A screen's gate-7 plate-doors are OPEN when EITHER the screen is latched
+    /// (a gate-6 plate was pressed and the room hasn't emptied), OR a WEIGHT is
+    /// currently on any gate-5/gate-6 plate tile on that screen. Weight = a
+    /// player's feet box, a pushable block, or an enemy. A momentary (gate-5)
+    /// plate auto-recloses because this is recomputed every tick from occupancy;
+    /// a latch (gate-6) plate flips `latched_plates` sticky on first press.
+    fn recompute_reversible(&mut self) {
+        self.reversible.clear();
+        // Screens that currently have a weight on a plate, and whether the
+        // pressed plate is a latch (gate 6). Ordered set for determinism.
+        let mut pressed: BTreeSet<(i32, i32)> = BTreeSet::new();
+        let mut newly_latched: BTreeSet<(i32, i32)> = BTreeSet::new();
+        for screen in self.world.screens.iter() {
+            let (sx, sy) = (screen.x, screen.y);
+            for (idx, &tile) in screen.tiles.iter().enumerate() {
+                let t = self.effective_tile(sx, sy, idx as i32, tile);
+                let gate = self.world.tile_gate.get(t as usize).copied().unwrap_or(0);
+                if gate != 5 && gate != 6 {
+                    continue;
+                }
+                let (tx, ty) = (idx as i32 % world::SCREEN_COLS, idx as i32 / world::SCREEN_COLS);
+                if self.weight_on_cell(sx, sy, tx, ty) {
+                    pressed.insert((sx, sy));
+                    if gate == 6 {
+                        newly_latched.insert((sx, sy));
+                    }
+                }
+            }
+        }
+        // Latch plates pressed this tick stay latched until the room empties.
+        for s in newly_latched {
+            self.latched_plates.insert(s);
+        }
+        // Open every gate-7 plate-door on a screen that is pressed or latched.
+        for screen in &self.world.screens {
+            let (sx, sy) = (screen.x, screen.y);
+            let open = pressed.contains(&(sx, sy)) || self.latched_plates.contains(&(sx, sy));
+            if !open {
+                continue;
+            }
+            for (idx, &tile) in screen.tiles.iter().enumerate() {
+                if self.world.tile_gate.get(tile as usize).copied().unwrap_or(0) != 7 {
+                    continue;
+                }
+                let cleared = self.world.tile_cleared.get(tile as usize).copied().unwrap_or(-1);
+                if cleared >= 0 {
+                    self.reversible.insert((sx, sy, idx as i32), cleared as u16);
+                }
+            }
+        }
+    }
+
+    /// True if any WEIGHT (a player's feet box, a pushable block, or an enemy)
+    /// is on tile cell (tx, ty) of the given screen.
+    fn weight_on_cell(&self, sx: i32, sy: i32, tx: i32, ty: i32) -> bool {
+        // A block snapped to this cell.
+        let (cx, cy) = (tx * 16 + 8, HUD_H + ty * 16 + 8);
+        if self.block_at(sx, sy, cx, cy).is_some() {
+            return true;
+        }
+        // A player whose feet box overlaps this cell.
+        for p in self.players.iter().flatten() {
+            if p.sx != sx || p.sy != sy || p.dead_t > 0 {
+                continue;
+            }
+            let px = to_px(p.x);
+            let py = to_px(p.y);
+            let corners = [
+                (px + FEET_X0, py + FEET_Y0),
+                (px + FEET_X1, py + FEET_Y0),
+                (px + FEET_X0, py + FEET_Y1),
+                (px + FEET_X1, py + FEET_Y1),
+            ];
+            if corners.iter().any(|&(qx, qy)| {
+                qx.div_euclid(16) == tx && (qy - HUD_H).div_euclid(16) == ty
+            }) {
+                return true;
+            }
+        }
+        // An enemy standing on this cell.
+        for e in &self.entities {
+            if e.etype != ET_ENEMY || !e.alive || e.sx != sx || e.sy != sy {
+                continue;
+            }
+            let (qx, qy) = (to_px(e.x) + 8, to_px(e.y) + 8);
+            if qx.div_euclid(16) == tx && (qy - HUD_H).div_euclid(16) == ty {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Anti-softlock, multiplayer-safe puzzle reset. For every screen with NO
+    /// players present, snap each pushable block whose home is that screen back
+    /// to its home tile, and clear that screen's latch state. This is how a
+    /// botched block/plate puzzle resets: leave the empty room.
+    fn reset_unoccupied_puzzles(&mut self) {
+        let mut occupied: BTreeSet<(i32, i32)> = BTreeSet::new();
+        for p in self.players.iter().flatten() {
+            occupied.insert((p.sx, p.sy));
+        }
+        for e in &mut self.entities {
+            if e.etype == ET_BLOCK && !occupied.contains(&e.home) {
+                e.sx = e.home.0;
+                e.sy = e.home.1;
+                e.x = fx(e.home_px);
+                e.y = fx(e.home_py);
+            }
+        }
+        self.latched_plates.retain(|s| occupied.contains(s));
+    }
+
     /// Durability loss on a connect; breaks the item at 0 (removed from
     /// inventory, equips fixed up, toast + cue emitted).
     fn wear_weapon(&mut self, pl: &mut Player, slot: usize, which: WearSlot) {
@@ -936,6 +1170,7 @@ impl Sim {
 
     pub fn step(&mut self) {
         self.tick = self.wrapping_tick();
+        self.reset_unoccupied_puzzles();
         for slot in 0..MAX_PLAYERS {
             self.step_player(slot);
         }
@@ -946,6 +1181,10 @@ impl Sim {
         if self.tick % 60 == 0 {
             self.respawn_screens();
         }
+        // Recompute reversible LAST so it reflects this tick's final positions.
+        // Reads of effective_tile during the tick therefore see the PREVIOUS
+        // tick's reversible state (documented at effective_tile).
+        self.recompute_reversible();
     }
 
     /// Ocean waves: real, predictable swells that originate offshore and roll
@@ -1366,6 +1605,26 @@ impl Sim {
             pl.anim = pl.anim.wrapping_add(1);
         }
 
+        // Pushable blocks: if the player is walking INTO a block in the
+        // direction they face, try to shove it one tile (it slides on ice).
+        // Resolved here in step_player (before step_entities) so multiple
+        // players pushing resolve in slot order. The block becomes solid to the
+        // player below, so the player follows into the vacated cell next.
+        if pl.walking {
+            let pushing = matches!(
+                (pl.facing, pl.buttons),
+                (0, b) if b & BTN_DOWN != 0)
+                || matches!((pl.facing, pl.buttons), (1, b) if b & BTN_UP != 0)
+                || matches!((pl.facing, pl.buttons), (2, b) if b & BTN_LEFT != 0)
+                || matches!((pl.facing, pl.buttons), (3, b) if b & BTN_RIGHT != 0);
+            if pushing {
+                let (fx_, fy_) = facing_tile_center(&pl);
+                if let Some(bi) = self.block_at(pl.sx, pl.sy, fx_, fy_) {
+                    self.try_push_block(bi, pl.facing);
+                }
+            }
+        }
+
         let screen = match self.world.screen_at(pl.sx, pl.sy) {
             Some(s) => s,
             None => {
@@ -1407,17 +1666,23 @@ impl Sim {
             pl.slide_dir = -1; // off the ice: full control
         }
 
-        // Axis-separated movement against the feet box for wall sliding.
+        // Axis-separated movement against the feet box for wall sliding. A tile
+        // occupied by a pushable block is solid to the player (the shove above
+        // already had its chance to clear the way).
         let (px0, py0) = (pl.x, pl.y);
         if dx != 0 {
             let nx = pl.x + dx;
-            if self.feet_clear(screen, nx, pl.y, board, claws) {
+            if self.feet_clear(screen, nx, pl.y, board, claws)
+                && !self.feet_hit_block(pl.sx, pl.sy, nx, pl.y)
+            {
                 pl.x = nx;
             }
         }
         if dy != 0 {
             let ny = pl.y + dy;
-            if self.feet_clear(screen, pl.x, ny, board, claws) {
+            if self.feet_clear(screen, pl.x, ny, board, claws)
+                && !self.feet_hit_block(pl.sx, pl.sy, pl.x, ny)
+            {
                 pl.y = ny;
             }
         }
@@ -1936,6 +2201,9 @@ impl Sim {
                     }
                 }
                 ET_BLAST => entity::step_blast(&mut e),
+                // Blocks are static unless shoved (handled in step_player); they
+                // never self-animate or despawn. Don't fall into the pickup arm.
+                ET_BLOCK => {}
                 ET_WAVE => {
                     entity::step_wave(&mut e);
                     // A wave only exists over water — the instant its crest rolls
@@ -2961,19 +3229,30 @@ impl Sim {
                 .iter()
                 .map(|(&(sx, sy, idx), &t)| (sx, sy, idx, t))
                 .collect(),
+            // Reversible plate/water state, interest-filtered to visible screens.
+            reversible: self
+                .reversible
+                .iter()
+                .filter(|(&(sx, sy, _), _)| screens.contains(&(sx, sy)))
+                .map(|(&(sx, sy, idx), &t)| (sx, sy, idx, t))
+                .collect(),
         }
     }
 
     // ---- rendering ----
 
-    /// Emit the draw list as seen by `viewpoint`'s player.
+    /// Emit the draw list as seen by `viewpoint`'s player. The renderer paints
+    /// the EFFECTIVE tile at each cell: reversible (plate/water) layered over
+    /// one-way overrides over the static map, matching `effective_tile`.
     pub fn render(&self, viewpoint: usize, out: &mut DrawList) {
+        let mut tiles = self.overrides.clone();
+        tiles.extend(self.reversible.iter().map(|(&k, &v)| (k, v)));
         render_view(
             &self.world,
             &self.defs,
             &self.players,
             &self.entities,
-            &self.overrides,
+            &tiles,
             viewpoint,
             self.tick,
             out,
@@ -3091,6 +3370,17 @@ impl Sim {
             h.i32(sy);
             h.i32(idx);
             h.u32(t as u32);
+        }
+        // Reversible plate/water state + latch set (both BTree-ordered).
+        for (&(sx, sy, idx), &t) in &self.reversible {
+            h.i32(sx);
+            h.i32(sy);
+            h.i32(idx);
+            h.u32(t as u32);
+        }
+        for &(sx, sy) in &self.latched_plates {
+            h.i32(sx);
+            h.i32(sy);
         }
         h.finish()
     }
@@ -3553,6 +3843,10 @@ fn draw_entities_on(
                     out.sprite(s, px + dx, py + dy, 0, 0);
                 }
             }
+            ET_BLOCK => {
+                // A grid-snapped pushable crate; one 16x16 sprite at its cell.
+                out.sprite(world.sprites.block, px, py, 0, 0);
+            }
             ET_WAVE => {
                 // A long cresting line: tile the wave sprite across the width,
                 // but only draw each segment where there's water beneath it — so
@@ -3911,7 +4205,21 @@ mod tests {
                 tiles[6 * 10 + 4] = 9; // ice (slip)
                 tiles[6 * 10 + 5] = 1; // wall: slide stopper
                 tiles[1 * 10 + 8] = 10; // eye_target (gate 8), clear row to its left
+                // Pressure-plate puzzle on row 4 (the open mid corridor):
+                //   col 1 = momentary plate (gate 5)
+                //   col 8 = latch plate (gate 6)
+                //   col 9 = plate-door (gate 7) — held open when either plate is pressed
+                tiles[4 * 10 + 1] = 11; // plate (momentary)
+                tiles[4 * 10 + 8] = 13; // plate_latch
+                tiles[4 * 10 + 9] = 12; // plate_door
             }
+            let blocks = if sx == 1 {
+                // A pushable block sits at (3,2): a clear row-2 corridor (a tree
+                // at col 6 stops a rightward shove; cols 1..5 are open floor).
+                r#"[{"tx":3,"ty":2}]"#
+            } else {
+                "[]"
+            };
             let entities = if sx == 0 {
                 r#"[{"t":"thornling","tx":2,"ty":2},{"t":"gel","tx":7,"ty":5}]"#
             } else {
@@ -3923,7 +4231,7 @@ mod tests {
                 "[]"
             };
             screens.push(format!(
-                r#"{{"x":{sx},"y":0,"name":"t{sx}","tiles":{tiles:?},"entities":{entities},"npcs":{npcs}}}"#
+                r#"{{"x":{sx},"y":0,"name":"t{sx}","tiles":{tiles:?},"entities":{entities},"npcs":{npcs},"blocks":{blocks}}}"#
             ));
         }
         let sprites = [
@@ -3952,19 +4260,20 @@ mod tests {
             "surf_board",
             "wave_0",
             "wave_1",
+            "block",
         ];
         let sprite_names = sprites.map(|s| format!("\"{s}\"")).join(",");
         format!(
-            r#"{{"world":{{"tile_names":["floor","wall","water","fire","tree","fountain","lever","switch_door","cliff","ice","eye_target"],
-"tile_solid":[false,true,true,true,true,true,true,true,true,false,true],"tile_water":[false,false,true,false,false,false,false,false,false,false,false],
-"tile_fire":[false,false,false,true,false,false,false,false,false,false,false],
-"tile_tree":[false,false,false,false,true,false,false,false,false,false,false],
-"tile_heal":[false,false,false,false,false,true,false,false,false,false,false],
-"tile_lever":[false,false,false,false,false,false,true,false,false,false,false],
-"tile_cliff":[false,false,false,false,false,false,false,false,true,false,false],
-"tile_slip":[false,false,false,false,false,false,false,false,false,true,false],
-"tile_gate":[0,0,0,0,0,0,0,4,0,0,8],
-"tile_cleared":[-1,-1,-1,-1,-1,-1,-1,0,-1,-1,0],
+            r#"{{"world":{{"tile_names":["floor","wall","water","fire","tree","fountain","lever","switch_door","cliff","ice","eye_target","plate","plate_door","plate_latch"],
+"tile_solid":[false,true,true,true,true,true,true,true,true,false,true,false,true,false],"tile_water":[false,false,true,false,false,false,false,false,false,false,false,false,false,false],
+"tile_fire":[false,false,false,true,false,false,false,false,false,false,false,false,false,false],
+"tile_tree":[false,false,false,false,true,false,false,false,false,false,false,false,false,false],
+"tile_heal":[false,false,false,false,false,true,false,false,false,false,false,false,false,false],
+"tile_lever":[false,false,false,false,false,false,true,false,false,false,false,false,false,false],
+"tile_cliff":[false,false,false,false,false,false,false,false,true,false,false,false,false,false],
+"tile_slip":[false,false,false,false,false,false,false,false,false,true,false,false,false,false],
+"tile_gate":[0,0,0,0,0,0,0,4,0,0,8,5,7,6],
+"tile_cleared":[-1,-1,-1,-1,-1,-1,-1,0,-1,-1,0,-1,0,-1],
 "sprite_names":[{sprite_names}],"font_chars":"0123456789#%&$",
 "screens":[{}],"spawn":{{"sx":0,"sy":0,"x":72,"y":64}}}},
 "items":[
@@ -4544,6 +4853,263 @@ mod tests {
         assert!(
             !sim.effective_solid(screen, ex, ey, false, false),
             "opened eye-target is walkable"
+        );
+    }
+
+    /// Index of the single ET_BLOCK entity on screen (1,0), if alive.
+    fn block_idx(sim: &Sim) -> Option<usize> {
+        sim.entities.iter().position(|e| e.etype == ET_BLOCK && e.alive)
+    }
+    /// The block's current tile cell (tx, ty) on its screen.
+    fn block_cell(sim: &Sim) -> (i32, i32) {
+        let e = &sim.entities[block_idx(sim).unwrap()];
+        (to_px(e.x).div_euclid(16), (to_px(e.y) - HUD_H).div_euclid(16))
+    }
+
+    #[test]
+    fn block_pushes_one_tile_and_refuses_into_a_wall() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 4).unwrap();
+        sim.add_player(0);
+        // Screen (1,0): a block spawns at cell (3,2) on a clear row-2 corridor.
+        // Stand the player at cell (2,2) facing/holding right so the shove lands
+        // in cell (4,2) (floor). A tree at col 6 stops further travel.
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.sx = 1;
+            p.sy = 0;
+            p.x = fx(2 * 16);
+            p.y = fx(2 * 16 + HUD_H);
+            p.facing = 3;
+        }
+        assert_eq!(block_cell(&sim), (3, 2), "block starts at its home cell");
+        sim.set_input(0, BTN_RIGHT);
+        sim.step();
+        assert_eq!(block_cell(&sim), (4, 2), "pushing right shoves the block one tile");
+
+        // Keep pushing right: the block slides across open floor one tile per
+        // shove, but col 6 is a tree (solid) — it must STOP before it (at col 5).
+        for _ in 0..60 {
+            sim.step();
+        }
+        let (bx, _) = block_cell(&sim);
+        assert_eq!(bx, 5, "block refuses to move into the solid tree, stops at col 5");
+        // Player can never walk through the block (it stayed solid in front).
+        let p = sim.players[0].as_ref().unwrap();
+        assert!(
+            to_px(p.x).div_euclid(16) < bx,
+            "player stays behind the block it was shoving"
+        );
+    }
+
+    #[test]
+    fn block_resets_to_home_when_room_empties() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 4).unwrap();
+        sim.add_player(0);
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.sx = 1;
+            p.sy = 0;
+            p.x = fx(2 * 16);
+            p.y = fx(2 * 16 + HUD_H);
+            p.facing = 3;
+        }
+        sim.set_input(0, BTN_RIGHT);
+        sim.step();
+        assert_ne!(block_cell(&sim), (3, 2), "block has been moved off its home");
+        // Move the player to the OTHER screen (0,0): the now-empty room (1,0)
+        // resets its block to home on the next step.
+        sim.set_input(0, 0);
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.sx = 0;
+            p.sy = 0;
+            p.x = fx(72);
+            p.y = fx(64);
+        }
+        sim.step();
+        assert_eq!(
+            block_cell(&sim),
+            (3, 2),
+            "leaving the empty room snaps the block back to its home tile"
+        );
+    }
+
+    #[test]
+    fn block_slides_across_ice_until_stopped() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 4).unwrap();
+        sim.add_player(0);
+        // Move the block onto the ice strip: row 6 has ice at cols 2,3,4 and a
+        // wall at col 5. Place the block at cell (2,6) and the player at (1,6).
+        {
+            let bi = block_idx(&sim).unwrap();
+            sim.entities[bi].sx = 1;
+            sim.entities[bi].sy = 0;
+            sim.entities[bi].x = fx(2 * 16);
+            sim.entities[bi].y = fx(6 * 16 + HUD_H);
+        }
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.sx = 1;
+            p.sy = 0;
+            p.x = fx(1 * 16);
+            p.y = fx(6 * 16 + HUD_H);
+            p.facing = 3;
+        }
+        sim.set_input(0, BTN_RIGHT);
+        sim.step();
+        // One shove: the block enters ice at col 3 and glides to the last ice
+        // cell (col 4), stopping because col 5 is the wall.
+        assert_eq!(
+            block_cell(&sim),
+            (4, 6),
+            "a block shoved onto ice slides to the far ice tile before the wall"
+        );
+    }
+
+    #[test]
+    fn momentary_plate_opens_and_recloses() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 4).unwrap();
+        sim.add_player(0);
+        // Screen (1,0): momentary plate (gate 5) at cell (1,4); plate-door
+        // (gate 7) at cell (9,4). The block is in this room too — park it out of
+        // the way on a non-plate cell so it never holds a plate.
+        let door_idx = 4 * world::SCREEN_COLS + 9;
+        {
+            let bi = block_idx(&sim).unwrap();
+            sim.entities[bi].x = fx(4 * 16); // cell (4,4): not a plate
+            sim.entities[bi].y = fx(4 * 16 + HUD_H);
+            let p = sim.players[0].as_mut().unwrap();
+            p.sx = 1;
+            p.sy = 0;
+            p.x = fx(5 * 16); // off any plate
+            p.y = fx(2 * 16 + HUD_H);
+        }
+        sim.step();
+        assert!(
+            !sim.reversible.contains_key(&(1, 0, door_idx)),
+            "door is closed with nothing on the plate"
+        );
+        // Stand the player ON the momentary plate (cell 1,4).
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.x = fx(1 * 16);
+            p.y = fx(4 * 16 + HUD_H);
+        }
+        sim.step();
+        assert_eq!(
+            sim.reversible.get(&(1, 0, door_idx)).copied(),
+            Some(0u16),
+            "standing on the momentary plate opens the gate-7 door (reversible -> floor)"
+        );
+        let screen = sim.world.screen_at(1, 0).unwrap();
+        let (dx, dy) = (9 * 16 + 8, HUD_H + 4 * 16 + 8);
+        assert!(
+            !sim.effective_solid(screen, dx, dy, false, false),
+            "the held-open plate-door is walkable"
+        );
+        // Step off the plate: the momentary door recloses next tick.
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.x = fx(5 * 16);
+            p.y = fx(2 * 16 + HUD_H);
+        }
+        sim.step();
+        assert!(
+            !sim.reversible.contains_key(&(1, 0, door_idx)),
+            "stepping off the momentary plate recloses the door"
+        );
+    }
+
+    #[test]
+    fn block_on_plate_holds_the_door() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 4).unwrap();
+        sim.add_player(0);
+        let door_idx = 4 * world::SCREEN_COLS + 9;
+        // Park the block ON the momentary plate (cell 1,4) and keep the player
+        // off every plate.
+        {
+            let bi = block_idx(&sim).unwrap();
+            sim.entities[bi].x = fx(1 * 16);
+            sim.entities[bi].y = fx(4 * 16 + HUD_H);
+            let p = sim.players[0].as_mut().unwrap();
+            p.sx = 1;
+            p.sy = 0;
+            p.x = fx(5 * 16);
+            p.y = fx(2 * 16 + HUD_H);
+        }
+        sim.step();
+        assert_eq!(
+            sim.reversible.get(&(1, 0, door_idx)).copied(),
+            Some(0u16),
+            "a block resting on the plate holds the door open"
+        );
+    }
+
+    #[test]
+    fn latch_plate_stays_open_then_resets_on_empty_room() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 4).unwrap();
+        sim.add_player(0);
+        let door_idx = 4 * world::SCREEN_COLS + 9;
+        // Keep the block off all plates.
+        {
+            let bi = block_idx(&sim).unwrap();
+            sim.entities[bi].x = fx(4 * 16);
+            sim.entities[bi].y = fx(4 * 16 + HUD_H);
+            let p = sim.players[0].as_mut().unwrap();
+            p.sx = 1;
+            p.sy = 0;
+            // Stand ON the latch plate (gate 6) at cell (8,4).
+            p.x = fx(8 * 16);
+            p.y = fx(4 * 16 + HUD_H);
+        }
+        sim.step();
+        assert!(
+            sim.latched_plates.contains(&(1, 0)),
+            "pressing the latch plate latches the screen"
+        );
+        assert_eq!(
+            sim.reversible.get(&(1, 0, door_idx)).copied(),
+            Some(0u16),
+            "latch plate opens the door"
+        );
+        // Step OFF the latch plate (but stay in the room): door stays open.
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.x = fx(5 * 16);
+            p.y = fx(2 * 16 + HUD_H);
+        }
+        sim.step();
+        assert!(
+            sim.latched_plates.contains(&(1, 0)),
+            "latch is sticky while the room is occupied"
+        );
+        assert_eq!(
+            sim.reversible.get(&(1, 0, door_idx)).copied(),
+            Some(0u16),
+            "latch keeps the door open after stepping off"
+        );
+        // Leave the room entirely -> the latch resets and the door recloses.
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.sx = 0;
+            p.sy = 0;
+            p.x = fx(72);
+            p.y = fx(64);
+        }
+        sim.step();
+        assert!(
+            !sim.latched_plates.contains(&(1, 0)),
+            "emptying the room clears the latch"
+        );
+        assert!(
+            !sim.reversible.contains_key(&(1, 0, door_idx)),
+            "the latch-held door recloses once the room is empty"
         );
     }
 

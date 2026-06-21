@@ -380,6 +380,52 @@ export const TILES = [
     }),
   },
   {
+    // Momentary pressure plate (gate:5): a weight (player/block/enemy) on it
+    // opens the screen's gate-7 plate-doors; stepping off recloses them.
+    name: 'plate',
+    palette: 'stone',
+    solid: false,
+    gate: 5,
+    grid: grid((x, y) => {
+      // A recessed square button set into the dungeon floor.
+      if (x < 2 || x > 13 || y < 2 || y > 13) return hash(x, y, 20) < 80 ? 0 : 1;
+      if (x === 2 || x === 13 || y === 2 || y === 13) return 0; // dark recess rim
+      if (x === 3 || x === 12 || y === 3 || y === 12) return 3; // bright bevel
+      return 2; // button face
+    }),
+  },
+  {
+    // Latching pressure plate (gate:6): the first weight presses it and it
+    // stays pressed (sticky) until the room empties of players. Reads with a
+    // sunken cross so it's distinct from the momentary plate.
+    name: 'plate_latch',
+    palette: 'stone',
+    solid: false,
+    gate: 6,
+    grid: grid((x, y) => {
+      if (x < 2 || x > 13 || y < 2 || y > 13) return hash(x, y, 20) < 80 ? 0 : 1;
+      if (x === 2 || x === 13 || y === 2 || y === 13) return 0; // recess rim
+      if (Math.abs(x - 7.5) < 1.2 || Math.abs(y - 7.5) < 1.2) return 0; // sunken cross
+      return 3; // pressed-bright face
+    }),
+  },
+  {
+    // Plate-door (gate:7): the portcullis a pressure plate raises. Solid until
+    // a plate on the same screen is held (reversible -> dungeon_floor).
+    name: 'plate_door',
+    palette: 'stone',
+    solid: true,
+    gate: 7,
+    cleared: 'dungeon_floor',
+    grid: grid((x, y) => {
+      // Heavy stone portcullis: vertical bars with cross beams (distinct from
+      // the wooden switch_door — this one is carved stone).
+      if (x < 1 || x > 14 || y < 1 || y > 14) return 0; // frame
+      if (y === 1 || y === 7 || y === 14) return 3; // cross beams
+      return (x + 1) % 3 === 0 ? 1 : 2; // vertical bars
+    }),
+  },
+  {
     name: 'campfire',
     palette: 'sand',
     solid: true,

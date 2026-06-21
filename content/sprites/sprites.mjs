@@ -1042,6 +1042,22 @@ export const SPRITES = [
     }),
   },
   {
+    // Pushable block: a chunky stone crate that reads as shoveable (beveled
+    // edges, a carved arrow-cross hint so players know it slides).
+    name: 'block',
+    palette: 'stone',
+    grid: grid((x, y) => {
+      if (x < 1 || x > 14 || y < 1 || y > 14) return '.'; // transparent surround
+      if (x === 1 || x === 14 || y === 1 || y === 14) return 0; // dark outer edge
+      if (x === 2 || y === 2) return 3; // top/left highlight bevel
+      if (x === 13 || y === 13) return 0; // bottom/right shadow bevel
+      // carved push-cross in the middle
+      if (Math.abs(x - 7.5) < 1 && y >= 5 && y <= 10) return 0;
+      if (Math.abs(y - 7.5) < 1 && x >= 5 && x <= 10) return 0;
+      return (x + y) % 2 === 0 ? 2 : 1; // stone face
+    }),
+  },
+  {
     name: 'wave_0',
     palette: 'water',
     grid: grid((x, y) => {

@@ -72,6 +72,8 @@ pub struct QuestSnap {
 pub const ET_ENEMY: u8 = 0;
 pub const ET_PROJECTILE: u8 = 1;
 pub const ET_PICKUP: u8 = 2;
+/// Pushable block: a grid-snapped crate the player can shove one tile.
+pub const ET_BLOCK: u8 = 6;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct EntitySnap {
@@ -99,6 +101,12 @@ pub struct SnapshotData {
     /// Mutated tiles: (sx, sy, tile index, new tile id). Full list — the
     /// world has only a handful of doors/brambles.
     pub overrides: Vec<(i32, i32, i32, u16)>,
+    /// Reversible tile state: (sx, sy, tile index, new tile id). Recomputed
+    /// every tick from live occupancy (held pressure plates open their doors;
+    /// later: raised water). Layered OVER `overrides`, which is layered over the
+    /// static tile. Interest-filtered to the viewpoint's screens, like entities.
+    #[serde(default)]
+    pub reversible: Vec<(i32, i32, i32, u16)>,
 }
 
 /// Discrete things that happened in the sim, sent reliably to clients.

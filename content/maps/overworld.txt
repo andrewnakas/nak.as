@@ -36,6 +36,9 @@ v lever
 = switch_door
 i ice
 @ eye_target
+p plate
+q plate_latch
+m plate_door
 < stairs_up
 > stairs_down
 
