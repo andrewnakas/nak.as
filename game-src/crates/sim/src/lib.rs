@@ -78,6 +78,11 @@ const UNARMED_WINDOW: std::ops::RangeInclusive<u8> = 3..=8;
 const UNARMED_DAMAGE: i16 = 1;
 const PLAYER_IFRAMES: u8 = 60;
 const ENEMY_IFRAMES: u8 = 10;
+/// Perfect-block window: a blockable hit landing within this many ticks of
+/// raising the shield is a PARRY (staggers the attacker, no durability lost).
+/// A late block (after this) negates the hit but wears the shield as before.
+/// The stagger duration itself is `entity::STUN_TICKS`.
+const PARRY_WINDOW: u32 = 8;
 const RESPAWN_TICKS: u32 = 120;
 // A cleared screen only repopulates after this long AND once every player is
 // far away (see RESPAWN_MIN_SCREENS) — so you can't clear a room, step next
@@ -212,6 +217,11 @@ pub struct Player {
     /// sliding. Sim-local (hashed for determinism, never sent in PlayerSnap —
     /// the client renders from interpolated x/y).
     pub slide_dir: i8,
+    /// Ticks the shield has been raised this hold (0 when not shielding).
+    /// A blockable hit landing while this is small (<= PARRY_WINDOW) is a
+    /// perfect-block PARRY: it staggers the attacker and costs no durability.
+    /// Sim-local (hashed for determinism, never sent in PlayerSnap).
+    pub shield_t: u32,
 }
 
 /// Total combat XP required to reach a level (level 1 = 0). Gentle quadratic.
@@ -722,6 +732,7 @@ impl Sim {
             wave_boost: 0,
             climbing: false,
             slide_dir: -1,
+            shield_t: 0,
         };
         // No starting kit: you begin empty-handed. The first weapon is a
         // stick picked up off the ground in the intro; real gear is bought
@@ -1687,6 +1698,14 @@ impl Sim {
                 _ => {}
             }
         }
+        // Perfect-block timer: counts ticks the shield has been raised this
+        // hold. A hit landing while shield_t <= PARRY_WINDOW parries (see
+        // resolve_combat). Reset to 0 the moment the shield drops.
+        if pl.shielding {
+            pl.shield_t = pl.shield_t.saturating_add(1);
+        } else {
+            pl.shield_t = 0;
+        }
         // Surfing: with the board equipped you can ride over water. Paddling is
         // a touch slower than walking on still water, but catching an ocean wave
         // gives a big speed burst. The water check goes through effective_tile so
@@ -2424,6 +2443,15 @@ impl Sim {
                 }
                 let (ex0, ey0, ex1, ey1) = e.feet_box();
                 if hx0 < ex1 && ex0 < hx1 && hy0 < ey1 && ey0 < hy1 {
+                    // A WARD blocks frontal hits with its shield: no damage, the
+                    // player is shoved back, and a block cue plays. Flank it.
+                    if ward_blocks(&self.defs, e, p.x, p.y) {
+                        e.iframes = ENEMY_IFRAMES;
+                        p.kvx = fx(2) * (p.x - e.x).signum();
+                        p.kvy = fx(2) * (p.y - e.y).signum();
+                        cues_out.push(cues::BLOCK);
+                        continue;
+                    }
                     e.hp -= damage;
                     e.iframes = ENEMY_IFRAMES;
                     if poisons {
@@ -2511,6 +2539,15 @@ impl Sim {
                     cx >= ex0 && cx <= ex1 && cy >= ey0 && cy <= ey1
                 };
                 if hit {
+                    // A WARD shrugs off frontal arrows the same as sword hits
+                    // (blasts are area damage and ignore the shield). The arrow
+                    // is consumed below regardless.
+                    if !is_blast && ward_blocks(&self.defs, e, proj.x, proj.y) {
+                        e.iframes = ENEMY_IFRAMES;
+                        arrow_cues.push((e.sx, e.sy, cues::BLOCK));
+                        connected = true; // shield consumes the arrow (no damage)
+                        break; // arrow stops on the shield
+                    }
                     let dmg = if is_blast { 4 } else { proj.data as i16 };
                     e.hp -= dmg;
                     e.iframes = ENEMY_IFRAMES;
@@ -2578,10 +2615,25 @@ impl Sim {
                         && self.defs.enemies[e.def as usize].damage > 0 =>
                     {
                         if blocks(&self.defs, &p, e.x, e.y) {
-                            p.kvx = fx(2) * (p.x - e.x).signum();
-                            p.kvy = fx(2) * (p.y - e.y).signum();
+                            // Perfect block: a hit landing just as the shield
+                            // comes up PARRIES — staggers the attacker (extra
+                            // knockback + a stun) and costs no durability.
+                            let parry =
+                                p.shield_t <= PARRY_WINDOW && !self.defs.enemies[e.def as usize].big;
+                            if parry {
+                                p.kvx = fx(1) * (p.x - e.x).signum();
+                                p.kvy = fx(1) * (p.y - e.y).signum();
+                                e.vx = fx(5) * (e.x - p.x).signum();
+                                e.vy = fx(5) * (e.y - p.y).signum();
+                                e.state = entity::ST_STUN;
+                                e.state_t = 0;
+                                e.iframes = 0;
+                            } else {
+                                p.kvx = fx(2) * (p.x - e.x).signum();
+                                p.kvy = fx(2) * (p.y - e.y).signum();
+                                self.wear_weapon(&mut p, slot, WearSlot::B);
+                            }
                             self.emit_cue(p.sx, p.sy, cues::BLOCK);
-                            self.wear_weapon(&mut p, slot, WearSlot::B);
                             changed = true;
                         } else {
                             let def = &self.defs.enemies[e.def as usize];
@@ -2609,8 +2661,12 @@ impl Sim {
                     ET_PROJECTILE if p.iframes == 0 && e.owner < 0 => {
                         if blocks(&self.defs, &p, e.x, e.y) {
                             e.alive = false;
+                            // A perfectly-timed block catches the shot for free;
+                            // a late block negates it but wears the shield.
+                            if p.shield_t > PARRY_WINDOW {
+                                self.wear_weapon(&mut p, slot, WearSlot::B);
+                            }
                             self.emit_cue(p.sx, p.sy, cues::BLOCK);
-                            self.wear_weapon(&mut p, slot, WearSlot::B);
                             changed = true;
                         } else {
                             p.hp -= mitigate(e.data as i16);
@@ -3462,6 +3518,7 @@ impl Sim {
                     h.i32(p.kvx);
                     h.i32(p.kvy);
                     h.u32(p.shielding as u32);
+                    h.u32(p.shield_t);
                     h.u32(p.surfing as u32);
                     h.u32(p.wave_boost);
                     h.i32(p.slide_dir as i32);
@@ -4223,6 +4280,26 @@ fn blocks(defs: &Defs, p: &Player, ax: Fx, ay: Fx) -> bool {
     }
 }
 
+/// True if a hit on a WARD-brain enemy `e` arrives from its shielded (facing)
+/// side — i.e. the attacker at (ax,ay) is in front of the ward. Such hits are
+/// negated; you must strike the flank or back. `(ax,ay)` is the attack source
+/// (player center / projectile center) in fixed-point.
+fn ward_blocks(defs: &Defs, e: &Entity, ax: Fx, ay: Fx) -> bool {
+    if defs.enemies[e.def as usize].brain != Brain::Ward {
+        return false;
+    }
+    let dx = ax - e.x;
+    let dy = ay - e.y;
+    // Mirror the `blocks()` frontal test: the attacker must be on the side the
+    // ward faces, within a ~45° cone.
+    match e.facing {
+        1 => dy < 0 && dy.abs() >= dx.abs(), // facing up: blocks hits from above
+        0 => dy > 0 && dy.abs() >= dx.abs(), // facing down
+        2 => dx < 0 && dx.abs() >= dy.abs(), // facing left
+        _ => dx > 0 && dx.abs() >= dy.abs(), // facing right
+    }
+}
+
 pub fn dialogue_pages_for<'a>(defs: &'a Defs, d: &Dialogue) -> &'a [Vec<String>] {
     match d.source {
         DialogueSource::Idle(set) => {
@@ -4485,6 +4562,7 @@ mod tests {
  {{"name":"driftwood_sword","label":"DRIFTWOOD SWORD","sprite":"sword_down","kind":"sword","damage":1,"durability":40}},
  {{"name":"oak_bow","label":"OAK BOW","sprite":"itm_bow","kind":"bow","damage":1,"durability":30}},
  {{"name":"wooden_shield","label":"WOODEN SHIELD","sprite":"itm_shield","kind":"shield","durability":20}},
+ {{"name":"iron_shield","label":"IRON SHIELD","sprite":"itm_shield","kind":"shield","durability":40}},
  {{"name":"bomb","label":"BOMB","sprite":"itm_bomb","kind":"bomb"}},
  {{"name":"arrow","label":"ARROW","sprite":"arrow_h","kind":"arrow"}},
  {{"name":"crab_claw","label":"CRAB CLAW","sprite":"claw","kind":"material","fuse_damage":1}},
@@ -4503,6 +4581,8 @@ mod tests {
  {{"name":"brackling","brain":"brackling","hp":3,"damage":1,"speed":176,"sprite":"thornling_0","drops":"brack","combat_xp":14}},
  {{"name":"archer","brain":"brackling_archer","hp":3,"damage":1,"speed":160,"sprite":"thornling_0","drops":"brack","combat_xp":14}},
  {{"name":"hare","brain":"critter","hp":1,"damage":0,"speed":320,"sprite":"gel_0","drops":"basic","hunt_xp":20}},
+ {{"name":"charger","brain":"charger","hp":5,"damage":2,"speed":96,"sprite":"gel_0","drops":"basic","combat_xp":28}},
+ {{"name":"ward","brain":"ward","hp":6,"damage":2,"speed":110,"sprite":"gel_0","drops":"basic","combat_xp":30}},
  {{"name":"warden","brain":"boss","hp":10,"damage":2,"speed":96,"sprite":"thornling_0","drops":"basic","big":true,"combat_xp":100}}],
 "drops":{{"basic":[{{"item":"heart","p":400}},{{"item":"shells","p":600,"min":1,"max":3}},{{"item":"crab_claw","p":300}}],
  "brack":[{{"item":"shells","p":1000,"min":2,"max":4}},{{"item":"brackling_claw","p":1000}}]}},
@@ -4721,6 +4801,251 @@ mod tests {
             }
         }
         assert!(hurt, "gel should reach and hurt the player");
+    }
+
+    // ---- Phase 2 combat depth: shield parry + new brains ----
+
+    /// Equip the starter wooden shield in the B slot and return its inventory
+    /// index so a test can inspect durability.
+    fn equip_shield(sim: &mut Sim, slot: usize, item: &str) -> usize {
+        let def = sim.defs.item_index(item).unwrap();
+        let p = sim.players[slot].as_mut().unwrap();
+        let idx = p.inventory.iter().position(|s| s.def == def).unwrap();
+        p.equip_b = idx as i8;
+        idx
+    }
+
+    /// Place a brackling right in front of the (shielding) player, then run the
+    /// collision pass once. Returns the enemy entity afterward.
+    fn frontal_contact(sim: &mut Sim, enemy: &str, hp: i16) -> Entity {
+        let def = sim.defs.enemy_index(enemy).unwrap();
+        let (px, py) = {
+            let p = sim.players[0].as_ref().unwrap();
+            (to_px(p.x), to_px(p.y))
+        };
+        // Drop the enemy just to the player's right so their feet boxes overlap
+        // (player feet x ~[65,70] at px 60; enemy feet x = [px+2, px+13]). +7
+        // overlaps while keeping the enemy clearly in front (dx > 0).
+        let mut e = Entity::enemy(1234, def, hp, 0, 0, px + 7, py);
+        e.x = fx(px + 7);
+        e.y = fx(py);
+        sim.entities.push(e);
+        sim.step();
+        sim.entities.iter().find(|e| e.id == 1234).cloned().unwrap()
+    }
+
+    #[test]
+    fn parry_window_staggers_attacker_and_costs_no_durability() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 7).unwrap();
+        sim.add_player(0);
+        give_starter_kit(&mut sim, 0);
+        let shield_idx = equip_shield(&mut sim, 0, "wooden_shield");
+        let dur0 = sim.players[0].as_ref().unwrap().inventory[shield_idx].durability;
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.x = fx(60);
+            p.y = fx(64);
+            p.facing = 3; // right
+        }
+        // Raise the shield THIS tick (shield_t will be 1 <= PARRY_WINDOW) and a
+        // brackling contacts from the front -> PARRY.
+        sim.set_input(0, BTN_B);
+        let e = frontal_contact(&mut sim, "brackling", 3);
+        let p = sim.players[0].as_ref().unwrap();
+        assert_eq!(p.hp, 6, "parry takes no HP");
+        assert_eq!(
+            p.inventory[shield_idx].durability, dur0,
+            "a parry costs no shield durability"
+        );
+        assert_eq!(e.state, entity::ST_STUN, "attacker is staggered");
+        assert!(e.vx != 0 || e.vy != 0, "attacker is knocked back");
+        // And the stun actually pauses its brain for a while.
+        let still_stunned = {
+            for _ in 0..10 {
+                sim.step();
+            }
+            sim.entities.iter().find(|e| e.id == 1234).unwrap().state
+        };
+        assert_eq!(still_stunned, entity::ST_STUN, "stun persists");
+    }
+
+    #[test]
+    fn late_block_negates_hit_but_wears_the_shield() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 7).unwrap();
+        sim.add_player(0);
+        give_starter_kit(&mut sim, 0);
+        let shield_idx = equip_shield(&mut sim, 0, "wooden_shield");
+        let dur0 = sim.players[0].as_ref().unwrap().inventory[shield_idx].durability;
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.x = fx(60);
+            p.y = fx(64);
+            p.facing = 3;
+            // Pretend the shield has been up a long time already -> LATE block.
+            p.shielding = true;
+            p.shield_t = PARRY_WINDOW + 20;
+        }
+        sim.set_input(0, BTN_B);
+        let e = frontal_contact(&mut sim, "brackling", 3);
+        let p = sim.players[0].as_ref().unwrap();
+        assert_eq!(p.hp, 6, "late block still negates the hit");
+        assert_eq!(
+            p.inventory[shield_idx].durability,
+            dur0 - 1,
+            "a late block wears the shield by one"
+        );
+        assert_ne!(e.state, entity::ST_STUN, "late block does NOT stagger");
+    }
+
+    #[test]
+    fn back_hit_ignores_the_shield_and_damages() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 7).unwrap();
+        sim.add_player(0);
+        give_starter_kit(&mut sim, 0);
+        equip_shield(&mut sim, 0, "wooden_shield");
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.x = fx(60);
+            p.y = fx(64);
+            p.facing = 2; // facing LEFT while the hit comes from the right
+        }
+        sim.set_input(0, BTN_B);
+        let _ = frontal_contact(&mut sim, "brackling", 3); // contact from the right
+        let p = sim.players[0].as_ref().unwrap();
+        assert!(p.hp < 6, "a hit from behind the shield still hurts");
+    }
+
+    #[test]
+    fn charger_telegraphs_then_rushes_in_a_straight_line() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 3).unwrap();
+        sim.add_player(0);
+        // Put the player far to the right so the charger faces/charges right.
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.x = fx(140);
+            p.y = fx(64);
+        }
+        let cdef = sim.defs.enemy_index("charger").unwrap();
+        let mut e = Entity::enemy(2000, cdef, 5, 0, 0, 20, 64);
+        e.x = fx(20);
+        e.y = fx(64);
+        sim.entities.push(e);
+        // Telegraph: during the wind-up it should barely move (state IDLE) but
+        // lock its facing toward the player (right = 3).
+        let x_start = sim.entities.iter().find(|e| e.id == 2000).unwrap().x;
+        for _ in 0..20 {
+            sim.step();
+        }
+        {
+            let e = sim.entities.iter().find(|e| e.id == 2000).unwrap();
+            assert_eq!(e.facing, 3, "charger faces the player while winding up");
+            assert!(
+                (e.x - x_start).abs() < fx(8),
+                "charger holds position during the telegraph"
+            );
+        }
+        // Then it rushes: cover real ground to the right, fast, in a line.
+        let x_before_rush = sim.entities.iter().find(|e| e.id == 2000).unwrap().x;
+        for _ in 0..60 {
+            sim.step();
+        }
+        let e = sim.entities.iter().find(|e| e.id == 2000).unwrap();
+        assert!(
+            e.x > x_before_rush + fx(48),
+            "charger should dash a long way right (from {} to {})",
+            to_px(x_before_rush),
+            to_px(e.x)
+        );
+        assert!(to_px(e.y).abs_diff(64) <= 4, "rush stays on a straight line");
+    }
+
+    #[test]
+    fn charger_rush_stops_at_a_wall() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 3).unwrap();
+        sim.add_player(0);
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.x = fx(150); // off in the wall area so the charger aims right
+            p.y = fx(64);
+        }
+        let cdef = sim.defs.enemy_index("charger").unwrap();
+        // Spawn it a short hop from the east wall (interior ends ~col 8 = px144).
+        let mut e = Entity::enemy(2100, cdef, 5, 0, 0, 110, 64);
+        e.x = fx(110);
+        e.y = fx(64);
+        sim.entities.push(e);
+        // Run through a full telegraph + rush.
+        for _ in 0..90 {
+            sim.step();
+        }
+        let e = sim.entities.iter().find(|e| e.id == 2100).unwrap();
+        // It advanced toward the wall but was stopped by it (can't pass col 9).
+        assert!(to_px(e.x) > 110, "charger moved toward the wall");
+        assert!(
+            to_px(e.x) <= 132,
+            "charger is halted by the wall, not through it (x={})",
+            to_px(e.x)
+        );
+    }
+
+    #[test]
+    fn ward_blocks_frontal_sword_but_takes_a_backstab() {
+        let bundle = test_bundle();
+        // Frontal hit first.
+        let mut sim = Sim::new(&bundle, 3).unwrap();
+        sim.add_player(0);
+        give_starter_kit(&mut sim, 0);
+        let wdef = sim.defs.enemy_index("ward").unwrap();
+        // Player at (40,64) facing right; ward just to the right facing LEFT
+        // (toward the player) -> the player attacks the ward's shielded front.
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.x = fx(40);
+            p.y = fx(64);
+            p.facing = 3;
+        }
+        let spawn_ward = |sim: &mut Sim, facing: u8| {
+            let mut e = Entity::enemy(3000, wdef, 6, 0, 0, 56, 64);
+            e.x = fx(56);
+            e.y = fx(64);
+            e.facing = facing;
+            e.state = entity::ST_STUN; // freeze the brain so facing stays put
+            e.state_t = 0;
+            sim.entities.push(e);
+        };
+        spawn_ward(&mut sim, 2); // ward faces LEFT, into the incoming blow
+        let hp0 = 6;
+        sim.set_input(0, BTN_A);
+        for _ in 0..16 {
+            sim.step();
+        }
+        let hp_front = sim.entities.iter().find(|e| e.id == 3000).unwrap().hp;
+        assert_eq!(hp_front, hp0, "ward negates the frontal sword hit");
+
+        // Now a hit from behind: ward faces AWAY (right) while the player still
+        // strikes from its left -> damage lands.
+        let mut sim = Sim::new(&bundle, 3).unwrap();
+        sim.add_player(0);
+        give_starter_kit(&mut sim, 0);
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.x = fx(40);
+            p.y = fx(64);
+            p.facing = 3;
+        }
+        spawn_ward(&mut sim, 3); // ward faces RIGHT (away from the player)
+        sim.set_input(0, BTN_A);
+        for _ in 0..16 {
+            sim.step();
+        }
+        let e = sim.entities.iter().find(|e| e.id == 3000);
+        let hurt = e.map(|e| e.hp < hp0).unwrap_or(true); // gone = killed
+        assert!(hurt, "a backstab gets past the ward's shield");
     }
 
     #[test]

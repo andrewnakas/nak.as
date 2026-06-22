@@ -79,6 +79,7 @@
     { "item": "boko_club", "p": 400 },
     { "item": "driftwood_sword", "p": 280 },
     { "item": "oak_bow", "p": 200 },
+    { "item": "iron_shield", "p": 120 },
     { "item": "exploding_seed", "p": 300, "min": 1, "max": 3 },
     { "item": "brackling_fang", "p": 300 },
     { "item": "brackling_horn", "p": 250 }
@@ -96,6 +97,7 @@
     { "item": "heart", "p": 1000 },
     { "item": "shells", "p": 1000, "min": 12, "max": 24 },
     { "item": "iron_sword", "p": 500 },
+    { "item": "iron_shield", "p": 400 },
     { "item": "brackling_fang", "p": 600 },
     { "item": "brackling_horn", "p": 500 }
   ],
@@ -117,5 +119,17 @@
     { "item": "hardwood", "p": 700, "min": 1, "max": 2 },
     { "item": "ember_cap", "p": 400 },
     { "item": "iron_sword", "p": 400 }
+  ],
+  "frost_charger": [
+    { "item": "heart", "p": 300 },
+    { "item": "shells", "p": 850, "min": 2, "max": 5 },
+    { "item": "hardwood", "p": 300 },
+    { "item": "brackling_horn", "p": 250 }
+  ],
+  "rime_warden": [
+    { "item": "heart", "p": 300 },
+    { "item": "shells", "p": 850, "min": 2, "max": 5 },
+    { "item": "iron_shield", "p": 300 },
+    { "item": "brackling_fang", "p": 200 }
   ]
 }

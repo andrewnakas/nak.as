@@ -86,6 +86,14 @@ pub enum Brain {
     Brackling,
     /// Brackling archer: keeps its distance and lobs seed shots.
     BracklingArcher,
+    /// Charger: telegraphs (faces the player, winds up), then RUSHES in a
+    /// straight line at high speed until a wall or N tiles, then recovers
+    /// (vulnerable) before repeating.
+    Charger,
+    /// Ward: carries a shield on its facing side. Frontal sword/arrow hits are
+    /// BLOCKED (no damage, knocks the player back); flank or hit it from behind.
+    /// Slowly advances toward the player.
+    Ward,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -433,6 +441,8 @@ impl Defs {
                     "boss" => Brain::Boss,
                     "brackling" => Brain::Brackling,
                     "brackling_archer" => Brain::BracklingArcher,
+                    "charger" => Brain::Charger,
+                    "ward" => Brain::Ward,
                     other => return Err(format!("enemy '{}': unknown brain '{other}'", e.name)),
                 };
                 let drop_table = drop_names

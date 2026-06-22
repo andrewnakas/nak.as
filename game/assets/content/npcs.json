@@ -32,6 +32,7 @@
       { "item": "oak_bow", "price": 40 },
       { "item": "arrow", "price": 8, "qty": 10 },
       { "item": "wooden_shield", "price": 30 },
+      { "item": "iron_shield", "price": 80 },
       { "item": "bomb", "price": 12, "qty": 3 },
       { "item": "fishing_rod", "price": 35 }
     ]

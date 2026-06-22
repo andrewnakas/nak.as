@@ -206,5 +206,25 @@
     "drops": "root_warden",
     "big": true,
     "combat_xp": 80
+  },
+  {
+    "name": "frost_charger",
+    "brain": "charger",
+    "hp": 5,
+    "damage": 2,
+    "speed": 96,
+    "sprite": "frost_charger_0",
+    "drops": "frost_charger",
+    "combat_xp": 28
+  },
+  {
+    "name": "rime_warden",
+    "brain": "ward",
+    "hp": 6,
+    "damage": 2,
+    "speed": 110,
+    "sprite": "rime_warden_0",
+    "drops": "rime_warden",
+    "combat_xp": 30
   }
 ]

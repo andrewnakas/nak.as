@@ -469,6 +469,25 @@ export const SPRITES = [
     }),
   },
   {
+    // Iron shield: a sturdier kite shield in cold steel with corner rivets and
+    // a raised central boss. Sturdier than the wooden shield (durability 40).
+    name: 'itm_ironshield',
+    palette: 'stone',
+    grid: grid((x, y) => {
+      const w = y < 9 ? 5 : Math.max(1, 5 - (y - 9));
+      const dx = Math.abs(x - 7.5);
+      if (y >= 2 && y <= 13 && dx < w) {
+        if (dx > w - 1.2 || y === 2) return 0; // dark rim
+        // central round boss
+        if (Math.hypot(x - 7.5, y - 7) < 1.6) return 3;
+        // rivet studs near the corners
+        if ((y === 4 || y === 11) && dx > w - 2.4 && dx < w - 0.8) return 3;
+        return (x + y) % 2 ? 2 : 1; // brushed-metal sheen
+      }
+      return '.';
+    }),
+  },
+  {
     name: 'itm_bomb',
     palette: 'stone',
     grid: grid((x, y) => {
@@ -1108,7 +1127,80 @@ export const SPRITES = [
   ...bracklingFrames('brackling', 'grass'),
   ...bracklingFrames('brackling_blue', 'water'),
   ...bracklingFrames('brackling_archer', 'sand', { archer: true }),
+
+  // ---- frost foes (combat-depth pass; seeded near the foothills, later the
+  // Mountain). Cold "stone" palette = icy slate. ----
+  // FROST CHARGER: a hunched, broad-horned beast that lowers its head and
+  // rushes in a straight line. Two frames bob the body for the run.
+  ...frostChargerFrames('frost_charger', 'stone'),
+  // RIME WARDEN: an armoured sentinel hauling a heavy slab-shield on its left
+  // side. Frontal hits ring off the shield; flank or backstab it.
+  ...rimeWardenFrames('rime_warden', 'stone'),
 ];
+
+// Two frames for the frost charger: a low, horned quadruped-ish brute.
+function frostChargerFrames(name, palette) {
+  const body = (bob) =>
+    grid((x, y) => {
+      const yy = y - bob; // subtle vertical bob on the run frame
+      // sweeping horns up top
+      if (yy === 3 && (x === 3 || x === 12)) return 3;
+      if (yy === 4 && (x === 4 || x === 11)) return 3;
+      // low, heavy head + shoulders
+      const hd = Math.hypot((x - 7.5) / 1.25, (yy - 8) / 1.05);
+      if (hd < 4.6) {
+        if (hd > 3.7) return 0;
+        // glowing eyes
+        if (yy === 7 && (x === 6 || x === 9)) return 3;
+        // tusked snout
+        if (yy === 10 && x >= 6 && x <= 9) return 3;
+        return (x + yy) % 3 === 0 ? 1 : 2;
+      }
+      // stubby legs
+      if (yy >= 13 && (x === 4 || x === 5 || x === 10 || x === 11)) return 0;
+      return '.';
+    });
+  return [
+    { name: `${name}_0`, palette, grid: body(0) },
+    { name: `${name}_1`, palette, grid: body(1) },
+  ];
+}
+
+// Two frames for the rime warden: an upright sentinel with a big slab-shield on
+// its (screen-)left. `step` shifts the legs for the walk frame.
+function rimeWardenFrames(name, palette) {
+  const body = (step) =>
+    grid((x, y) => {
+      // slab shield down the left edge
+      if (x >= 1 && x <= 3 && y >= 4 && y <= 13) {
+        if (x === 1 || y === 4 || y === 13) return 0; // dark rim
+        if (x === 2 && y === 8) return 3; // central boss
+        return (x + y) % 2 ? 2 : 1;
+      }
+      // helmeted head
+      const hd = Math.hypot(x - 9, y - 5);
+      if (hd < 3.4) {
+        if (hd > 2.6) return 0;
+        if (y === 5 && (x === 8 || x === 10)) return 0; // visor slit eyes
+        return 2;
+      }
+      // armoured torso
+      if (y >= 8 && y <= 13 && x >= 7 && x <= 12) {
+        if (y === 13 || x === 7 || x === 12) return 0;
+        return (x + y) % 2 ? 1 : 2;
+      }
+      // legs (alternate for the walk frame)
+      if (y >= 14 && y <= 15) {
+        const l = step ? [7, 11] : [8, 10];
+        if (l.includes(x)) return 0;
+      }
+      return '.';
+    });
+  return [
+    { name: `${name}_0`, palette, grid: body(0) },
+    { name: `${name}_1`, palette, grid: body(1) },
+  ];
+}
 
 // Two animation frames for a brackling in a given palette.
 function bracklingFrames(name, palette, { archer = false } = {}) {

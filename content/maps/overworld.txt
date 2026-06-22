@@ -271,6 +271,8 @@ E brackling_red 2 1
 E brackling_red 7 3
 E brackling_archer 5 6
 E brackling_captain 4 4
+E frost_charger 6 4
+E rime_warden 2 6
 
 SCREEN 4 0 foothills_high
 cccccccccc
@@ -284,6 +286,8 @@ ccc....ccc
 E brackling_blue 4 3
 E brackling_archer 6 1
 E brackling_red 2 6
+E frost_charger 3 6
+E rime_warden 5 4
 
 SCREEN 4 2 foothills_low
 ccc....ccc

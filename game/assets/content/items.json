@@ -47,6 +47,13 @@
     "durability": 20
   },
   {
+    "name": "iron_shield",
+    "label": "IRON SHIELD",
+    "sprite": "itm_ironshield",
+    "kind": "shield",
+    "durability": 40
+  },
+  {
     "name": "bomb",
     "label": "BOMB",
     "sprite": "itm_bomb",

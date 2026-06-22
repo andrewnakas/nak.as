@@ -111,6 +111,11 @@ const ST_IDLE: u8 = 0;
 const ST_MOVE: u8 = 1;
 const ST_ATTACK: u8 = 2;
 const ST_FLEE: u8 = 3;
+/// Staggered by a shield parry: the brain pauses for STUN_TICKS, leaving the
+/// enemy wide open. Set by the sim's parry path (resolve_combat).
+pub const ST_STUN: u8 = 9;
+/// How long a parried enemy stays stunned. Matches lib::STAGGER_TICKS.
+pub const STUN_TICKS: u32 = 40;
 
 pub struct StepCtx<'a> {
     pub world: &'a World,
@@ -141,6 +146,17 @@ pub fn step_enemy(
     }
     e.vx = 0;
     e.vy = 0;
+
+    // Staggered by a shield parry: the brain is frozen until STUN_TICKS elapse.
+    // state_t was reset to 0 when the stun was applied, so it doubles as a timer.
+    if e.state == ST_STUN {
+        if e.state_t >= STUN_TICKS {
+            e.state = ST_IDLE;
+            e.state_t = 0;
+        } else {
+            return Vec::new();
+        }
+    }
 
     let def = &ctx.defs.enemies[e.def as usize];
     let target = nearest_player_on(players, e.sx, e.sy, e.x, e.y);
@@ -352,6 +368,86 @@ pub fn step_enemy(
                 }
             } else {
                 wander(e, ctx.world, def.speed, rng, 60);
+            }
+            Vec::new()
+        }
+        Brain::Charger => {
+            // Three-beat cycle: TELEGRAPH (face the player, wind up) -> RUSH
+            // (straight-line dash at high speed until a wall or CHARGE_TILES) ->
+            // RECOVER (stand vulnerable, then loop). `data` counts rush tiles.
+            const WIND_UP: u32 = 30;
+            const RECOVER: u32 = 40;
+            const CHARGE_PX: i32 = 16 * 6; // ~6 tiles
+            match e.state {
+                ST_ATTACK => {
+                    // Rush in the locked facing dir at high speed (the brain
+                    // multiplies speed so it's fast even after the global ×0.7).
+                    let sp = def.speed * 4 + fx(1);
+                    let (dx, dy) = match e.facing {
+                        1 => (0, -sp),
+                        2 => (-sp, 0),
+                        3 => (sp, 0),
+                        _ => (0, sp),
+                    };
+                    let before = (e.x, e.y);
+                    let ok = try_move(e, ctx.world, dx, dy);
+                    e.data += (to_px(e.x - before.0).abs() + to_px(e.y - before.1).abs()).max(0);
+                    if !ok || e.data >= CHARGE_PX {
+                        e.state = ST_FLEE; // recover
+                        e.state_t = 0;
+                        e.data = 0;
+                    }
+                }
+                ST_FLEE => {
+                    // Recover: stand still and vulnerable, then re-arm.
+                    if e.state_t > RECOVER {
+                        e.state = ST_IDLE;
+                        e.state_t = 0;
+                    }
+                }
+                _ => {
+                    // Telegraph: lock onto the player, wind up, then rush.
+                    if let Some((px, py, _)) = target {
+                        e.facing = if (px - e.x).abs() > (py - e.y).abs() {
+                            if px < e.x { 2 } else { 3 }
+                        } else if py < e.y {
+                            1
+                        } else {
+                            0
+                        };
+                        if e.state_t > WIND_UP {
+                            e.state = ST_ATTACK;
+                            e.state_t = 0;
+                            e.data = 0;
+                        }
+                    } else {
+                        wander(e, ctx.world, def.speed, rng, 80);
+                    }
+                }
+            }
+            Vec::new()
+        }
+        Brain::Ward => {
+            // Slowly advances on the player, keeping its shield (its facing
+            // side) pointed at them. Frontal sword/arrow hits are negated in
+            // resolve_combat (ward_blocks); you must strike its flank/back.
+            if let Some((px, py, _)) = target {
+                let (dx, dy) = step_toward(e.x, e.y, px, py, def.speed / 2);
+                try_move(e, ctx.world, dx, dy);
+                // Turn to face the player so the shield stays toward them. The
+                // turn is unhurried, leaving a window to flank.
+                if e.state_t > 16 {
+                    e.state_t = 0;
+                    e.facing = if (px - e.x).abs() > (py - e.y).abs() {
+                        if px < e.x { 2 } else { 3 }
+                    } else if py < e.y {
+                        1
+                    } else {
+                        0
+                    };
+                }
+            } else {
+                wander(e, ctx.world, def.speed / 2, rng, 90);
             }
             Vec::new()
         }
