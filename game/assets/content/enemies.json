@@ -226,5 +226,17 @@
     "sprite": "rime_warden_0",
     "drops": "rime_warden",
     "combat_xp": 30
+  },
+  {
+    "name": "glace",
+    "brain": "boss",
+    "hp": 40,
+    "damage": 3,
+    "speed": 120,
+    "sprite": "glace_0",
+    "drops": "glace",
+    "big": true,
+    "summons": "frost_charger",
+    "combat_xp": 320
   }
 ]

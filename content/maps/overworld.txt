@@ -594,11 +594,13 @@ N skral_glider 4 5
 
 # Wind terrace: a blustery shelf east of the ascent. Left edge (row 3) opens W
 # back to crag_ascent; all other borders are cliff. A vista sign and prey for
-# the Skral hunt quest.
+# the Skral hunt quest. A dark cleft (>) at (5,2) climbs into FROSTSPIRE — the
+# frozen peak that looms over the crags. Reaching it required the Climb Claws to
+# scale into the Crags at all, so the mountain chains dungeon1 -> claws -> crags.
 SCREEN 4 -1 wind_terrace
 cccccccccc
 c,......,c
-c..r..r..c
+c..r.>r..c
 .........c
 c..,.,...c
 c.r....r.c
@@ -606,3 +608,175 @@ c,..!...,c
 cccccccccc
 E hollow_stag 5 4
 E dune_wasp 3 2
+W 5 2 14 1 64 56
+
+# ===== FROSTSPIRE (dungeon 3; FROST peak, reward = the ICE AXES) =====
+# A frozen peak reached FROM the Windward Crags: a cleft (>) on wind_terrace(4,-1)
+# climbs up to fs_entry. Because the crags themselves need the CLIMB CLAWS to
+# scale, the chain is dungeon1 -> claws -> crags -> Frostspire. Theme = ice /
+# slide / melt. Teach -> test -> combine puzzle progression around the Phase-1
+# mechanics (ice-slide, pushable block, drop-hole bridge, torch set, pressure
+# plates), then the ICE AXES gate the frost-wall back half.
+# Off-grid cluster (sx 14-16, sy 0-2):
+#   fs_slide(14,0) -- fs_stopper(15,0) -- fs_torch(16,0)
+#   fs_entry(14,1)    fs_stand(15,1) ---- fs_axes(16,1)
+#   fs_frost(14,2) -- fs_flood(15,2) ---- fs_boss(16,2)
+# CRITICAL PATH:
+#   entry(14,1) >N slide(14,0)  [TEACH ice-slide: glide across to the E exit]
+#   >E stopper(15,0)  [push a BLOCK across ice so it stops in the HOLE -> a
+#     BRIDGE over the gap to the E exit]
+#   >E torch(16,0)  [light BOTH gate-9 torches (bomb/fire) -> the gate-10
+#     torch_door drops, opening the S passage]
+#   >S axes(16,1)  [FROST SUB-BOSS pair (frost_charger + rime_warden) guards the
+#     ICE AXES and the BOSS KEY; a FROST_WALL alcove tutorializes the axes]
+#   >W stand(15,1)  [TWO-PLATE STANDOFF: shove the block onto one plate, slide
+#     onto the other -> the gate-7 plate_door drops, opening the S passage]
+#   >S flood(15,2)  [BACK HALF, frost-gated: a FROST_WALL seam blocks the way E;
+#     only the ICE AXES let you scale it]
+#   >E boss(16,2)  [interior BOSS DOOR (K) -> the boss GLACE, the Rimewyrm].
+# OPTIONAL: flood(15,2) >W frost(14,2)  [a FROST_WALL-gated vault: HEARTY ROAST +
+#   shells]. NOTE: gate tiles (=,m,M,K,Z) are INTERIOR only; every screen-
+#   transition edge (the open 'ff' gaps / open side rows) stays walkable.
+
+# Entry hall: you climb in at the bottom (the < stairs warp back out to the
+# wind terrace). Two KORRIN ice-dwellers keep the threshold. Top edge (cols 4-5)
+# opens N up into the first ice cavern.
+SCREEN 14 1 fs_entry
+xxxxffxxxx
+xffffffffx
+xffffffffx
+xffffffffx
+xffffffffx
+xfff<ffffx
+xffffffffx
+xxxxxxxxxx
+N korrin_warden 2 3
+N korrin_seer 7 3
+W 4 5 4 -1 80 40
+
+# Ice cavern (TEACH the slide): the floor is a sheet of ice (i). Step onto it
+# from the S entry and you glide until a wall stops you. A safe, no-fail room:
+# slide around to reach the E exit (right edge, row 3). Bottom edge (cols 4-5)
+# opens S back to the entry.
+SCREEN 14 0 fs_slide
+xxxxxxxxxx
+xiiiiiiiix
+xiiiiiiiix
+xiiiiiiiii
+xiiiiiiiix
+xiiiiiiiix
+xiiiiiiiix
+xxxxffxxxx
+
+# Block-stopper (TEST ice + block + hole): a HOLE (O) splits the room, blocking
+# the E exit. A BLOCK (O block) sits on the ice to the W; shove it E and it
+# slides across the ice until it drops into the hole, filling it to a BRIDGE you
+# walk across. Left edge (row 3) opens W to the slide; right edge (row 3) opens E.
+SCREEN 15 0 fs_stopper
+xxxxxxxxxx
+xffffffffx
+xffffffffx
+ffiiiOffff
+xffffffffx
+xffffffffx
+xffffffffx
+xxxxxxxxxx
+O block 2 3
+
+# Frozen sconces (TEST torch set): two unlit torches (t) flank the room. Light
+# BOTH with a bomb blast or a fire-fused swing and the gate-10 torch_door (M)
+# sealing the S passage drops. Left edge (row 3) opens W from the stopper; the
+# torch_door is INTERIOR, just inside the S exit (cols 4-5 of row6).
+SCREEN 16 0 fs_torch
+xxxxxxxxxx
+xffffffffx
+xtfffffftx
+ffffffffff
+xffffffffx
+xffffffffx
+xxxxMMxxxx
+xxxxffxxxx
+E frost_charger 4 4
+
+# Axe vault (SUB-BOSS + the ICE AXES): a FROST CHARGER and a RIME WARDEN guard
+# the chamber. Beat them, take the ICE AXES (I ice_axes) and the BOSS KEY behind
+# a FROST_WALL (Z) seam in the NE alcove -- the axes you just grabbed let you
+# scale it (tutorialized right where you get them). Top edge (cols 4-5) opens N
+# from the torch room; left edge (row 3) opens W to the standoff.
+SCREEN 16 1 fs_axes
+xxxxffxxxx
+xffffxxxxx
+xffffxfffx
+fffffZfffx
+xffffxfffx
+xffffxxxxx
+xffffffffx
+xxxxxxxxxx
+I ice_axes 4 6
+I boss_key 8 3
+E frost_charger 2 6
+E rime_warden 4 4
+
+# Two-plate standoff (COMBINE plates + ice + block): the gate-7 plate_door (m)
+# walls off the S passage. It opens only while BOTH plates (p) are weighted at
+# once -- so shove the BLOCK onto the left plate, then slide across the ice onto
+# the right plate to hold them together. Right edge (row 3) opens E from the axe
+# vault; the plate_door is INTERIOR, just inside the S exit.
+SCREEN 15 1 fs_stand
+xxxxxxxxxx
+xffffffffx
+xfpffffpfx
+fffiiiifff
+xffffffffx
+xffffffffx
+xxxxmmxxxx
+xxxxffxxxx
+O block 1 2
+
+# Frostway (BACK HALF, frost-gated): a full-height wall splits the room, and the
+# only gap in it is a FROST_WALL (Z) seam at row 3 -- without the ICE AXES from
+# the sub-boss you cannot pass to the east half. With them you scale straight
+# through. You enter from the N (cols 4-5) into the WEST half. The E exit (row 3,
+# right) to the boss lies past the frost seam; the W exit (row 3, left) to the
+# optional vault is on the entry (west) side and needs no axes.
+SCREEN 15 2 fs_flood
+xxxxffxxxx
+xfffffxffx
+xfffffxffx
+fffffZZfff
+xfffffxffx
+xfffffxffx
+xfffffxffx
+xxxxxxxxxx
+E rime_warden 2 5
+
+# Riming vault (OPTIONAL reward, frost-gated): a FROST_WALL (Z) seals the cache.
+# Cross it with the ICE AXES for a HEARTY ROAST and a purse of shells. Right
+# edge (row 3) opens E back to the frostway.
+SCREEN 14 2 fs_frost
+xxxxxxxxxx
+xffffffffx
+xffZZffffx
+ffffffffff
+xffffffffx
+xffffffffx
+xffffffffx
+xxxxxxxxxx
+I hearty_roast 2 4
+I iron_shield 6 4
+
+# Boss arena (GLACE, the RIMEWYRM): cross the interior BOSS DOOR (K, needs the
+# boss key from the axe vault) into the wyrm's lair. Beating it grants a HEART
+# CONTAINER (automatic) and its hoard. The < stairs warp back out to the wind
+# terrace. Left edge (row 3) opens W from the frostway.
+SCREEN 16 2 fs_boss
+xxxxxxxxxx
+xffffffffx
+xffffffffx
+fKffff<ffx
+xffffffffx
+xffffffffx
+xffffffffx
+xxxxxxxxxx
+E glace 5 4
+W 6 3 4 -1 80 40

@@ -128,5 +128,25 @@
       ["YOU CLIMBED? WITH", "NO WINGS? THAT IS", "THE BRAVEST THING!"],
       ["THE STAGS UP HERE", "ARE FAT AND FAST.", "MATRON CRAVES ONE."]
     ]
+  },
+  {
+    "name": "korrin_warden",
+    "label": "KORRIN WARDEN",
+    "sprite": "npc_elder",
+    "lines": [
+      ["FAR ENOUGH, WARM-", "BLOOD. THIS IS", "FROSTSPIRE."],
+      ["WE KORRIN WERE CUT", "FROM THE ICE ITSELF.", "WE DO NOT THAW."],
+      ["THE PEAK SLIDES", "UNDERFOOT. WALK ITS", "ICE AND IT WALKS", "YOU."],
+      ["DEEP WITHIN SLEEPS", "THE RIMEWYRM. WAKE", "IT AND THE AXES", "ARE YOURS."]
+    ]
+  },
+  {
+    "name": "korrin_seer",
+    "label": "KORRIN SEER",
+    "sprite": "npc_a",
+    "lines": [
+      ["FROZEN WALLS BAR", "THE DEEP. ONLY", "AXES OF ICE BITE", "THEM."],
+      ["TAKE THEM FROM THE", "BEASTS THAT GUARD", "THE INNER VAULT,", "CLIMBER."]
+    ]
   }
 ]

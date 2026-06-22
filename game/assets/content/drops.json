@@ -131,5 +131,12 @@
     { "item": "shells", "p": 850, "min": 2, "max": 5 },
     { "item": "iron_shield", "p": 300 },
     { "item": "brackling_fang", "p": 200 }
+  ],
+  "glace": [
+    { "item": "heart", "p": 1000 },
+    { "item": "shells", "p": 1000, "min": 80, "max": 120 },
+    { "item": "iron_sword", "p": 1000 },
+    { "item": "iron_shield", "p": 1000 },
+    { "item": "brackling_fang", "p": 1000 }
   ]
 }

@@ -4392,6 +4392,7 @@ fn dungeon_entry_name(sx: i32, sy: i32) -> Option<&'static str> {
     match (sx, sy) {
         (10, 10) => Some("THE ROOTCELLAR"),
         (7, 12) => Some("TIDECRAG HOLLOW"),
+        (14, 1) => Some("FROSTSPIRE"),
         _ => None,
     }
 }
@@ -6079,6 +6080,7 @@ mod tests {
         // overworld and dungeon-interior screens do not.
         assert_eq!(dungeon_entry_name(10, 10), Some("THE ROOTCELLAR"));
         assert_eq!(dungeon_entry_name(7, 12), Some("TIDECRAG HOLLOW"));
+        assert_eq!(dungeon_entry_name(14, 1), Some("FROSTSPIRE"));
         assert_eq!(dungeon_entry_name(1, 1), None); // town
         assert_eq!(dungeon_entry_name(11, 10), None); // dungeon interior
         assert_eq!(dungeon_entry_name(13, 12), None); // boss room

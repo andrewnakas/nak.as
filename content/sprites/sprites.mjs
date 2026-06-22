@@ -1136,7 +1136,35 @@ export const SPRITES = [
   // RIME WARDEN: an armoured sentinel hauling a heavy slab-shield on its left
   // side. Frontal hits ring off the shield; flank or backstab it.
   ...rimeWardenFrames('rime_warden', 'stone'),
+
+  // GLACE, the RIMEWYRM: the Frostspire boss. Like moldra, only the top-left
+  // quadrant of the 32x32 body is drawn here and mirrored x/y at render time —
+  // a coiled, crystalline mass of ice radiating from the bottom-right corner.
+  ...glaceFrames('glace', 'water'),
 ];
+
+// Two frames for the Rimewyrm boss quadrant (mirrored x/y to a 32x32 body).
+function glaceFrames(name, palette) {
+  const body = (phase) =>
+    grid((x, y) => {
+      // crystalline mass radiating from the bottom-right (the body centre)
+      const d = Math.hypot(15 - x, 15 - y);
+      if (d > 14.5) return '.';
+      if (d > 13) return 0; // dark rime outline
+      // faceted ice shards: angular bright veins fanning from the core
+      const ang = Math.atan2(15 - y, 15 - x);
+      const facet = (((ang * 6) | 0) + phase) % 2 === 0;
+      if (d < 4.5) return 0; // frozen core
+      if (facet && d > 6) return 3; // bright ice glint
+      // a cold eye glint set into the upper body
+      if (x === 9 && y === 9) return 3;
+      return (x + y) % 5 === 0 ? 1 : 2;
+    });
+  return [
+    { name: `${name}_0`, palette, grid: body(0) },
+    { name: `${name}_1`, palette, grid: body(1) },
+  ];
+}
 
 // Two frames for the frost charger: a low, horned quadruped-ish brute.
 function frostChargerFrames(name, palette) {
