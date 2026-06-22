@@ -308,14 +308,15 @@ W 5 5 7 12 72 40
 # room has a job. Warp in from cliff_overlook(3,0) tile(4,1) -> d_entry top.
 # Critical path to the boss:
 #   entry(10,10) >E hall(11,10) >S gels(11,11)  [BRAMBLE wall: burn/bomb to
-#   reach the east exit] >E sentry(12,11)  [ROOT WARDEN sub-boss + a LEVER that
-#   raises the switch_door sealing the south passage] >S bosskey(12,12) >E
-#   boss(13,12)  [interior BOSS DOOR (K), Moldra].
+#   reach the east exit] >E sentry(12,11)  [ROOT WARDEN sub-boss + a BLOCK-ON-
+#   PLATE puzzle: shove the pushable block south onto the pressure plate so its
+#   weight holds the gate-7 plate_door open over the south passage] >S
+#   bosskey(12,12) >E boss(13,12)  [interior BOSS DOOR (K), Moldra].
 # Optional reward branch:
 #   entry >S brambles(10,11)  [BRAMBLE wall hides a SMALL KEY] ; spend it east
 #   of the entry: hall >E pips(12,10) >E keyroom(13,10)  [interior LOCKED DOOR
 #   (L) caging an IRON SWORD].
-# NOTE: gate tiles (B,L,K,=) are INTERIOR only; every screen-transition edge
+# NOTE: gate tiles (B,L,K,m) are INTERIOR only; every screen-transition edge
 # (the 'ff' gaps in xxxx..xxxx walls and the open side rows) stays walkable.
 
 SCREEN 10 10 d_entry
@@ -392,17 +393,25 @@ E marsh_gel 2 2
 E marsh_gel 4 5
 E marsh_gel 6 3
 
+# Sentry vault (BLOCK-ON-PLATE puzzle, no item needed): the ROOT WARDEN sub-boss
+# guards a gate-7 plate_door (m, cols4-5 of row6) sealing the S passage to the
+# boss-key vault. A pushable block (O block 4 2) and a momentary plate (p) at
+# (4,4) sit on the entry side: get above the block and shove it S two tiles onto
+# the plate; its weight holds the door open while you slip S past it (down col5).
+# W entry stays open at row3 (col0). The plate_door is INTERIOR (just inside the
+# S exit), and the S exit (cols4-5 of row7) stays open floor.
 SCREEN 12 11 d_sentry
 xxxxxxxxxx
 xffffffffx
 xffffffffx
 fffffffffx
+xfffpffffx
 xffffffffx
-xfvffffffx
-xxxx==xxxx
+xxxxmmxxxx
 xxxxffxxxx
-E root_warden 5 3
-E cave_pip 7 1
+O block 4 2
+E root_warden 6 1
+E cave_pip 7 3
 
 SCREEN 12 12 d_bosskey
 xxxxffxxxx
@@ -438,11 +447,13 @@ E moldra 5 2
 #  entry(7,12) ............... boss(9,12)
 # Critical path: entry >N hall (LEVER -> opens switch_door to keyroom + surf)
 #  >E surf (TIDE SENTINEL guards SURFBOARD behind a 2nd LEVER->gate)
-#  >N pool (water, needs board) >E bosskey (water, LEVER->gate to boss_key)
-#  back to surf >E approach >S boss (tidewarden, K boss-door).
+#  >N pool (WATER-LEVEL + BLOCK-ON-PLATE puzzle: a WATER_LEVER drains a
+#  drain_water channel so you can shove the block across it onto a plate that
+#  holds the plate_door over the E exit) >E bosskey (water, LEVER->gate to
+#  boss_key) back to pool/surf >E approach >S boss (tidewarden, K boss-door).
 # Optional: hall >N keyroom (small-key door, behind the hall lever gate) reward.
 # Warp in from foothills_low(4,2) -> tile (4,1) of tc_entry.
-# NOTE: gate tiles (=,L,K) are INTERIOR only; screen-transition edge tiles
+# NOTE: gate tiles (=,L,K,m) are INTERIOR only; screen-transition edge tiles
 # (the 'ff' gaps in xxxx..xxxx walls and open side rows) stay walkable.
 
 SCREEN 7 12 tc_entry
@@ -503,15 +514,27 @@ xxxxxxxxxx
 I surfboard 7 6
 E tide_sentinel 5 2
 
+# Drowned pool (WATER-LEVEL + BLOCK-ON-PLATE puzzle): the only way E to the
+# boss-key vault is through a gate-7 plate_door (m at (7,3)) walling off the SE
+# exit chamber (cols8-9, reached ONLY through that door). A pushable block (O
+# block 2 3) must be shoved E onto the plate (p at (5,3)) to hold the door open
+# -- but a drain_water channel (J at (3,3)(4,3)) blocks the block's path, and a
+# block cannot be pushed onto water. Pull the WATER_LEVER (V at (5,5)) to RAISE
+# the level, which DRAINS that channel to dry floor; now shove the block across
+# it onto the plate, then slip through the open door to the E exit. The surfboard
+# floats YOU over the channel but can't carry the block and can't hold the
+# momentary plate while you walk through the door -- so the drain is required.
+# S entry (cols4-5 row7) and E exit (col9 row3) stay open floor.
 SCREEN 8 10 tc_pool
 xxxxxxxxxx
-xfffwwfffx
-xwwwwwwwfx
-fwwwwwwwwf
-xwwwwwwwfx
-xfffwwfffx
-xffffffffx
+xffffffxff
+xffffffxff
+xffJJpfmff
+xffffffxff
+xffffVfxff
+xffffffxff
 xxxxffxxxx
+O block 2 3
 
 # Boss-key vault: cross the water to a LEVER (v) at (2,3) that raises the
 # switch_door (=) sealing the BOSS KEY in the eastern dry alcove.
