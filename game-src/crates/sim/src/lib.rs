@@ -262,6 +262,16 @@ fn has_climb_claws(defs: &Defs, p: &Player) -> bool {
     p.inventory.iter().any(|s| s.def == claws)
 }
 
+/// Does the player OWN the ice axes? (gates frost-wall traversal). Like the
+/// climb claws, just owning it lets you scale frost_wall tiles — no equip
+/// needed. The ice axes also double as a strong melee weapon (kind "sword").
+fn has_ice_axes(defs: &Defs, p: &Player) -> bool {
+    let Some(axes) = defs.item_index("ice_axes") else {
+        return false;
+    };
+    p.inventory.iter().any(|s| s.def == axes)
+}
+
 #[derive(Deserialize)]
 struct Bundle {
     world: WorldJson,
@@ -300,6 +310,11 @@ pub struct Sim {
     /// Screens whose latch (gate-6) plate has been pressed at least once and
     /// is sticky-held until the room empties of players.
     latched_plates: BTreeSet<(i32, i32)>,
+    /// Screens whose water level is currently RAISED (a water_lever was toggled
+    /// on). While raised, gate-11 flood-floors read as water and gate-12
+    /// drain-waters read as floor (both via `reversible`). Reversible: toggling
+    /// the lever again clears the screen; an empty room resets it.
+    water_raised: BTreeSet<(i32, i32)>,
     pub content_hash: u64,
 }
 
@@ -406,6 +421,7 @@ impl Sim {
             overrides: BTreeMap::new(),
             reversible: BTreeMap::new(),
             latched_plates: BTreeSet::new(),
+            water_raised: BTreeSet::new(),
             content_hash: h.finish(),
         };
         for i in 0..sim.world.screens.len() {
@@ -563,8 +579,18 @@ impl Sim {
         }
         tx += dtx;
         ty += dty;
+        // Drop-hole fill: if the block enters a hole cell it is consumed and the
+        // hole is committed to its `cleared` (a bridge) via one-way `overrides`
+        // (NOT reset by reset_unoccupied_puzzles — the block is gone for good).
+        if self.cell_is_hole(sx, sy, tx, ty) {
+            self.fill_hole(sx, sy, tx, ty);
+            self.entities[bi].alive = false;
+            self.emit_cue(sx, sy, cues::ITEM);
+            return;
+        }
         // Ice slide: keep going while the cell just entered is a slip tile and
-        // the next cell stays open. Capped at the screen width for safety.
+        // the next cell stays open. Capped at the screen width for safety. A
+        // hole on the slide path stops the slide AND consumes the block.
         for _ in 0..world::SCREEN_COLS.max(world::SCREEN_ROWS) {
             let idx = ty * world::SCREEN_COLS + tx;
             let here = self
@@ -578,11 +604,48 @@ impl Sim {
             }
             tx += dtx;
             ty += dty;
+            if self.cell_is_hole(sx, sy, tx, ty) {
+                self.fill_hole(sx, sy, tx, ty);
+                self.entities[bi].alive = false;
+                self.emit_cue(sx, sy, cues::ITEM);
+                return;
+            }
         }
         let e = &mut self.entities[bi];
         e.x = fx(tx * 16);
         e.y = fx(HUD_H + ty * 16);
         self.emit_cue(sx, sy, cues::SWING);
+    }
+
+    /// True if the EFFECTIVE tile at cell (tx, ty) on this screen is a drop-hole
+    /// that hasn't been filled yet (no override at this cell).
+    fn cell_is_hole(&self, sx: i32, sy: i32, tx: i32, ty: i32) -> bool {
+        if !(0..world::SCREEN_COLS).contains(&tx) || !(0..world::SCREEN_ROWS).contains(&ty) {
+            return false;
+        }
+        let Some(screen) = self.world.screen_at(sx, sy) else {
+            return false;
+        };
+        let idx = ty * world::SCREEN_COLS + tx;
+        if self.overrides.contains_key(&(sx, sy, idx)) {
+            return false; // already filled
+        }
+        let t = screen.tiles[idx as usize];
+        self.world.tile_hole.get(t as usize).copied().unwrap_or(false)
+    }
+
+    /// Commit a hole at cell (tx, ty) to its `cleared` (bridge) via one-way
+    /// `overrides` — a permanent, walkable crossing.
+    fn fill_hole(&mut self, sx: i32, sy: i32, tx: i32, ty: i32) {
+        let idx = ty * world::SCREEN_COLS + tx;
+        let Some(screen) = self.world.screen_at(sx, sy) else {
+            return;
+        };
+        let t = screen.tiles[idx as usize] as usize;
+        let cleared = self.world.tile_cleared.get(t).copied().unwrap_or(-1);
+        if cleared >= 0 {
+            self.overrides.insert((sx, sy, idx), cleared as u16);
+        }
     }
 
     fn effective_solid(
@@ -592,6 +655,7 @@ impl Sim {
         py: i32,
         water_ok: bool,
         climb_ok: bool,
+        axes_ok: bool,
     ) -> bool {
         let tx = px.div_euclid(16);
         let ty = (py - HUD_H).div_euclid(16);
@@ -599,10 +663,19 @@ impl Sim {
             let idx = ty * world::SCREEN_COLS + tx;
             let static_tile = screen.tiles[idx as usize];
             let t = self.effective_tile(screen.x, screen.y, idx, static_tile);
-            let solid = self.world.tile_solid.get(t as usize).copied().unwrap_or(true);
+            let base_solid = self.world.tile_solid.get(t as usize).copied().unwrap_or(true);
             let water = self.world.tile_water.get(t as usize).copied().unwrap_or(false);
             let cliff = self.world.tile_cliff.get(t as usize).copied().unwrap_or(false);
-            return solid && !(water_ok && water) && !(climb_ok && cliff);
+            let frost = self.world.tile_frost.get(t as usize).copied().unwrap_or(false);
+            // A hole is non-solid (so a pushed block can be driven into it and
+            // consumed), but it blocks the PLAYER: a plain pit is impassable on
+            // foot — no fall-death softlocks (v1). Filling it makes a `bridge`.
+            let hole = self.world.tile_hole.get(t as usize).copied().unwrap_or(false);
+            let solid = base_solid || hole;
+            return solid
+                && !(water_ok && water)
+                && !(climb_ok && cliff)
+                && !(axes_ok && frost);
         }
         self.world.is_solid(screen, px, py)
     }
@@ -954,7 +1027,9 @@ impl Sim {
                 let tile = screen.tiles[idx as usize] as usize;
                 match self.world.tile_gate.get(tile).copied().unwrap_or(0) {
                     // Bramble: each tile in the swing/blast arc burns away on its own.
-                    3 => {
+                    // Torch (gate 9): each tile in the arc lights individually to
+                    // its `torch_lit` (one-way), same per-tile mechanic as bramble.
+                    3 | 9 => {
                         if let Some(&target) = self.world.tile_cleared.get(tile) {
                             if target >= 0 {
                                 cleared.push((idx, target as u16));
@@ -969,13 +1044,44 @@ impl Sim {
             }
         }
         let mut any = !cleared.is_empty();
+        let lit_a_torch = cleared
+            .iter()
+            .any(|&(idx, _)| {
+                let t = screen.tiles[idx as usize] as usize;
+                self.world.tile_gate.get(t).copied().unwrap_or(0) == 9
+            });
         for (idx, target) in cleared {
             self.overrides.insert((sx, sy, idx), target);
         }
         if hit_eye {
             any |= self.open_gate_group(sx, sy, 8) > 0;
         }
+        // Torch set-completion: after lighting any torch, if EVERY gate-9 torch
+        // on this screen is now lit (overridden), open the gate-10 torch-doors.
+        if lit_a_torch && self.all_torches_lit(sx, sy) {
+            any |= self.open_gate_group(sx, sy, 10) > 0;
+        }
         any
+    }
+
+    /// True if every gate-9 torch on the screen is currently lit (has an
+    /// override). Counts over screen.tiles + overrides; no new state. A screen
+    /// with no torches returns false (nothing to complete).
+    fn all_torches_lit(&self, sx: i32, sy: i32) -> bool {
+        let Some(screen) = self.world.screen_at(sx, sy) else {
+            return false;
+        };
+        let mut found = false;
+        for (idx, &tile) in screen.tiles.iter().enumerate() {
+            if self.world.tile_gate.get(tile as usize).copied().unwrap_or(0) != 9 {
+                continue;
+            }
+            found = true;
+            if !self.overrides.contains_key(&(sx, sy, idx as i32)) {
+                return false; // an unlit torch remains
+            }
+        }
+        found
     }
 
     /// Open every unopened tile of one gate value on a screen to its cleared
@@ -1060,6 +1166,23 @@ impl Sim {
                 }
             }
         }
+        // Water level: for each RAISED screen, flip its gate-11 flood-floors to
+        // water and its gate-12 drain-waters to floor (both via `reversible`, so
+        // toggling the lever off — or leaving the empty room — reverts them).
+        for &(sx, sy) in &self.water_raised {
+            if let Some(screen) = self.world.screen_at(sx, sy) {
+                for (idx, &tile) in screen.tiles.iter().enumerate() {
+                    let gate = self.world.tile_gate.get(tile as usize).copied().unwrap_or(0);
+                    if gate != 11 && gate != 12 {
+                        continue;
+                    }
+                    let cleared = self.world.tile_cleared.get(tile as usize).copied().unwrap_or(-1);
+                    if cleared >= 0 {
+                        self.reversible.insert((sx, sy, idx as i32), cleared as u16);
+                    }
+                }
+            }
+        }
     }
 
     /// True if any WEIGHT (a player's feet box, a pushable block, or an enemy)
@@ -1120,6 +1243,8 @@ impl Sim {
             }
         }
         self.latched_plates.retain(|s| occupied.contains(s));
+        // A botched water-level toggle resets when its room empties of players.
+        self.water_raised.retain(|s| occupied.contains(s));
     }
 
     /// Durability loss on a connect; breaks the item at 0 (removed from
@@ -1361,13 +1486,14 @@ impl Sim {
             let screen = self.world.screen_at(pl.sx, pl.sy);
             let water_ok = has_surfboard(&self.defs, &pl);
             let climb_ok = has_climb_claws(&self.defs, &pl);
+            let axes_ok = has_ice_axes(&self.defs, &pl);
             if let Some(screen) = screen {
                 let nx = pl.x + pl.kvx;
-                if self.feet_clear(screen, nx, pl.y, water_ok, climb_ok) {
+                if self.feet_clear(screen, nx, pl.y, water_ok, climb_ok, axes_ok) {
                     pl.x = nx.clamp(MIN_X, MAX_X);
                 }
                 let ny = pl.y + pl.kvy;
-                if self.feet_clear(screen, pl.x, ny, water_ok, climb_ok) {
+                if self.feet_clear(screen, pl.x, ny, water_ok, climb_ok, axes_ok) {
                     pl.y = ny.clamp(MIN_Y, MAX_Y);
                 }
             }
@@ -1414,6 +1540,24 @@ impl Sim {
                 let opened = self.pull_lever(pl.sx, pl.sy);
                 self.emit_cue(pl.sx, pl.sy, cues::SWING);
                 self.emit_toast(slot, if opened > 0 { "THE GATE GRINDS OPEN" } else { "CLUNK. NOTHING HAPPENS." });
+                pl.prev_buttons = pl.buttons;
+                self.players[slot] = Some(pl);
+                return;
+            }
+            // Pulling a WATER lever (faced, A pressed) TOGGLES this screen's
+            // water level in/out of `water_raised` (reversible, unlike the
+            // one-way gate-4 lever). recompute_reversible() reflects it next.
+            if self.facing_water_lever(&pl) {
+                let (sx, sy) = (pl.sx, pl.sy);
+                let raised = if self.water_raised.contains(&(sx, sy)) {
+                    self.water_raised.remove(&(sx, sy));
+                    false
+                } else {
+                    self.water_raised.insert((sx, sy));
+                    true
+                };
+                self.emit_cue(sx, sy, cues::SWING);
+                self.emit_toast(slot, if raised { "THE WATER RISES" } else { "THE WATER DRAINS" });
                 pl.prev_buttons = pl.buttons;
                 self.players[slot] = Some(pl);
                 return;
@@ -1545,12 +1689,13 @@ impl Sim {
         }
         // Surfing: with the board equipped you can ride over water. Paddling is
         // a touch slower than walking on still water, but catching an ocean wave
-        // gives a big speed burst.
+        // gives a big speed burst. The water check goes through effective_tile so
+        // a RAISED water-level (flood_floor -> water via `reversible`) is surfable.
         let board = has_surfboard(&self.defs, &pl);
         let on_water = self
             .world
             .screen_at(pl.sx, pl.sy)
-            .is_some_and(|s| self.world.is_water(s, to_px(pl.x) + 8, to_px(pl.y) + 12));
+            .is_some_and(|s| self.is_water_at(s, to_px(pl.x) + 8, to_px(pl.y) + 12));
         pl.surfing = board && on_water;
         if pl.wave_boost > 0 {
             pl.wave_boost -= 1;
@@ -1558,6 +1703,8 @@ impl Sim {
         // Climbing: with the claws owned you can scale cliff tiles. Flavor flag
         // (anim) only; the traversal itself is gated below in feet_clear.
         let claws = has_climb_claws(&self.defs, &pl);
+        // Ice axes own = frost_wall tiles passable (gated in feet_clear below).
+        let axes = has_ice_axes(&self.defs, &pl);
         let on_cliff = self
             .world
             .screen_at(pl.sx, pl.sy)
@@ -1672,7 +1819,7 @@ impl Sim {
         let (px0, py0) = (pl.x, pl.y);
         if dx != 0 {
             let nx = pl.x + dx;
-            if self.feet_clear(screen, nx, pl.y, board, claws)
+            if self.feet_clear(screen, nx, pl.y, board, claws, axes)
                 && !self.feet_hit_block(pl.sx, pl.sy, nx, pl.y)
             {
                 pl.x = nx;
@@ -1680,7 +1827,7 @@ impl Sim {
         }
         if dy != 0 {
             let ny = pl.y + dy;
-            if self.feet_clear(screen, pl.x, ny, board, claws)
+            if self.feet_clear(screen, pl.x, ny, board, claws, axes)
                 && !self.feet_hit_block(pl.sx, pl.sy, pl.x, ny)
             {
                 pl.y = ny;
@@ -1723,7 +1870,7 @@ impl Sim {
             };
             // Only cross if the landing spot is walkable — walking off an
             // open edge into a rock on the neighbor screen would trap you.
-            let clear = dest.is_some_and(|s| self.feet_clear_on(s, dx_, dy_, board, claws));
+            let clear = dest.is_some_and(|s| self.feet_clear_on(s, dx_, dy_, board, claws, axes));
             if clear {
                 pl.sx = nsx;
                 pl.sy = nsy;
@@ -1739,8 +1886,8 @@ impl Sim {
         // Belt and braces: if anything still left us inside a wall (bad
         // warp target, old save), slide to the nearest clear spot.
         if let Some(screen) = self.world.screen_at(pl.sx, pl.sy) {
-            if !self.feet_clear_on(screen, pl.x, pl.y, board, claws) {
-                if let Some((ux, uy)) = self.find_clear_near(screen, pl.x, pl.y, board, claws) {
+            if !self.feet_clear_on(screen, pl.x, pl.y, board, claws, axes) {
+                if let Some((ux, uy)) = self.find_clear_near(screen, pl.x, pl.y, board, claws, axes) {
                     pl.x = ux;
                     pl.y = uy;
                 }
@@ -2617,8 +2764,8 @@ impl Sim {
         let x = x.clamp(MIN_X, MAX_X);
         let y = y.clamp(MIN_Y, MAX_Y);
         if let Some(screen) = self.world.screen_at(sx, sy) {
-            if !self.feet_clear_on(screen, x, y, false, false) {
-                if let Some((cx, cy)) = self.find_clear_near(screen, x, y, false, false) {
+            if !self.feet_clear_on(screen, x, y, false, false, false) {
+                if let Some((cx, cy)) = self.find_clear_near(screen, x, y, false, false, false) {
                     return (cx, cy);
                 }
             }
@@ -2662,8 +2809,16 @@ impl Sim {
         }
     }
 
-    fn feet_clear(&self, screen: &world::Screen, x: Fx, y: Fx, water_ok: bool, climb_ok: bool) -> bool {
-        self.feet_clear_on(screen, x, y, water_ok, climb_ok)
+    fn feet_clear(
+        &self,
+        screen: &world::Screen,
+        x: Fx,
+        y: Fx,
+        water_ok: bool,
+        climb_ok: bool,
+        axes_ok: bool,
+    ) -> bool {
+        self.feet_clear_on(screen, x, y, water_ok, climb_ok, axes_ok)
     }
 
     /// True if the tile under this pixel (respecting one-way overrides) is a
@@ -2679,6 +2834,20 @@ impl Sim {
         self.world.tile_slip.get(t as usize).copied().unwrap_or(false)
     }
 
+    /// True if the EFFECTIVE tile under this pixel is water — consults the
+    /// reversible/override layer so a raised water-level (flood_floor -> water)
+    /// reads as water for surf-state and wave logic. Out-of-playfield = false.
+    fn is_water_at(&self, screen: &world::Screen, px: i32, py: i32) -> bool {
+        let tx = px.div_euclid(16);
+        let ty = (py - HUD_H).div_euclid(16);
+        if !(0..world::SCREEN_COLS).contains(&tx) || !(0..world::SCREEN_ROWS).contains(&ty) {
+            return false;
+        }
+        let idx = ty * world::SCREEN_COLS + tx;
+        let t = self.effective_tile(screen.x, screen.y, idx, screen.tiles[idx as usize]);
+        self.world.tile_water.get(t as usize).copied().unwrap_or(false)
+    }
+
     fn feet_clear_on(
         &self,
         screen: &world::Screen,
@@ -2686,13 +2855,14 @@ impl Sim {
         y: Fx,
         water_ok: bool,
         climb_ok: bool,
+        axes_ok: bool,
     ) -> bool {
         let px = to_px(x);
         let py = to_px(y);
-        !(self.effective_solid(screen, px + FEET_X0, py + FEET_Y0, water_ok, climb_ok)
-            || self.effective_solid(screen, px + FEET_X1, py + FEET_Y0, water_ok, climb_ok)
-            || self.effective_solid(screen, px + FEET_X0, py + FEET_Y1, water_ok, climb_ok)
-            || self.effective_solid(screen, px + FEET_X1, py + FEET_Y1, water_ok, climb_ok))
+        !(self.effective_solid(screen, px + FEET_X0, py + FEET_Y0, water_ok, climb_ok, axes_ok)
+            || self.effective_solid(screen, px + FEET_X1, py + FEET_Y0, water_ok, climb_ok, axes_ok)
+            || self.effective_solid(screen, px + FEET_X0, py + FEET_Y1, water_ok, climb_ok, axes_ok)
+            || self.effective_solid(screen, px + FEET_X1, py + FEET_Y1, water_ok, climb_ok, axes_ok))
     }
 
     /// Nearest walkable position to (x, y), searched in growing rings.
@@ -2703,6 +2873,7 @@ impl Sim {
         y: Fx,
         water_ok: bool,
         climb_ok: bool,
+        axes_ok: bool,
     ) -> Option<(Fx, Fx)> {
         for r in 1..=10 {
             let step = fx(4) * r;
@@ -2712,7 +2883,7 @@ impl Sim {
             ] {
                 let nx = (x + ddx * step).clamp(MIN_X, MAX_X);
                 let ny = (y + ddy * step).clamp(MIN_Y, MAX_Y);
-                if self.feet_clear_on(screen, nx, ny, water_ok, climb_ok) {
+                if self.feet_clear_on(screen, nx, ny, water_ok, climb_ok, axes_ok) {
                     return Some((nx, ny));
                 }
             }
@@ -2995,9 +3166,10 @@ impl Sim {
                 // Nudge off a wall/water if we landed somewhere we can't stand.
                 let board = has_surfboard(&self.defs, &p);
                 let claws = has_climb_claws(&self.defs, &p);
+                let axes = has_ice_axes(&self.defs, &p);
                 if let Some(screen) = self.world.screen_at(p.sx, p.sy) {
-                    if !self.feet_clear_on(screen, p.x, p.y, board, claws) {
-                        if let Some((ux, uy)) = self.find_clear_near(screen, p.x, p.y, board, claws) {
+                    if !self.feet_clear_on(screen, p.x, p.y, board, claws, axes) {
+                        if let Some((ux, uy)) = self.find_clear_near(screen, p.x, p.y, board, claws, axes) {
                             p.x = ux;
                             p.y = uy;
                         }
@@ -3379,6 +3551,10 @@ impl Sim {
             h.u32(t as u32);
         }
         for &(sx, sy) in &self.latched_plates {
+            h.i32(sx);
+            h.i32(sy);
+        }
+        for &(sx, sy) in &self.water_raised {
             h.i32(sx);
             h.i32(sy);
         }
@@ -4095,6 +4271,15 @@ impl Sim {
         self.world.is_lever(screen, fx_, fy_)
     }
 
+    /// True when the tile the player faces is a water-level lever.
+    fn facing_water_lever(&self, p: &Player) -> bool {
+        let Some(screen) = self.world.screen_at(p.sx, p.sy) else {
+            return false;
+        };
+        let (fx_, fy_) = facing_tile_center(p);
+        self.world.is_water_lever(screen, fx_, fy_)
+    }
+
     /// Permanently open every gate-4 switch door on the given screen by writing
     /// each to its `tile_cleared` target in `overrides`. Returns how many were
     /// opened (0 if they were all already open / there were none).
@@ -4212,6 +4397,21 @@ mod tests {
                 tiles[4 * 10 + 1] = 11; // plate (momentary)
                 tiles[4 * 10 + 8] = 13; // plate_latch
                 tiles[4 * 10 + 9] = 12; // plate_door
+                // Water-level puzzle on row 5: a water_lever, a flood_floor
+                // (gate 11 -> water when raised) and a drain_water (gate 12 ->
+                // floor when raised).
+                tiles[5 * 10 + 1] = 14; // water_lever
+                tiles[5 * 10 + 2] = 15; // flood_floor (gate 11)
+                tiles[5 * 10 + 3] = 16; // drain_water (gate 12)
+                // Torch set on row 6 (right of the ice strip): two unlit torches
+                // (gate 9) and a torch_door (gate 10) that opens once both lit.
+                tiles[6 * 10 + 6] = 17; // torch_unlit (gate 9)
+                tiles[6 * 10 + 7] = 17; // torch_unlit (gate 9)
+                tiles[6 * 10 + 8] = 19; // torch_door (gate 10)
+                // Drop-hole at (7,5): a pushed block fills it to a bridge.
+                tiles[5 * 10 + 7] = 20; // hole
+                // Frost wall at (1,6): passable only with the ice axes.
+                tiles[6 * 10 + 1] = 22; // frost_wall
             }
             let blocks = if sx == 1 {
                 // A pushable block sits at (3,2): a clear row-2 corridor (a tree
@@ -4264,16 +4464,20 @@ mod tests {
         ];
         let sprite_names = sprites.map(|s| format!("\"{s}\"")).join(",");
         format!(
-            r#"{{"world":{{"tile_names":["floor","wall","water","fire","tree","fountain","lever","switch_door","cliff","ice","eye_target","plate","plate_door","plate_latch"],
-"tile_solid":[false,true,true,true,true,true,true,true,true,false,true,false,true,false],"tile_water":[false,false,true,false,false,false,false,false,false,false,false,false,false,false],
-"tile_fire":[false,false,false,true,false,false,false,false,false,false,false,false,false,false],
-"tile_tree":[false,false,false,false,true,false,false,false,false,false,false,false,false,false],
-"tile_heal":[false,false,false,false,false,true,false,false,false,false,false,false,false,false],
-"tile_lever":[false,false,false,false,false,false,true,false,false,false,false,false,false,false],
-"tile_cliff":[false,false,false,false,false,false,false,false,true,false,false,false,false,false],
-"tile_slip":[false,false,false,false,false,false,false,false,false,true,false,false,false,false],
-"tile_gate":[0,0,0,0,0,0,0,4,0,0,8,5,7,6],
-"tile_cleared":[-1,-1,-1,-1,-1,-1,-1,0,-1,-1,0,-1,0,-1],
+            r#"{{"world":{{"tile_names":["floor","wall","water","fire","tree","fountain","lever","switch_door","cliff","ice","eye_target","plate","plate_door","plate_latch","water_lever","flood_floor","drain_water","torch_unlit","torch_lit","torch_door","hole","bridge","frost_wall"],
+"tile_solid":[false,true,true,true,true,true,true,true,true,false,true,false,true,false,true,false,true,true,true,true,false,false,true],
+"tile_water":[false,false,true,false,false,false,false,false,false,false,false,false,false,false,false,false,true,false,false,false,false,false,false],
+"tile_fire":[false,false,false,true,false,false,false,false,false,false,false,false,false,false,false,false,false,false,true,false,false,false,false],
+"tile_tree":[false,false,false,false,true,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false],
+"tile_heal":[false,false,false,false,false,true,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false],
+"tile_lever":[false,false,false,false,false,false,true,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false],
+"tile_water_lever":[false,false,false,false,false,false,false,false,false,false,false,false,false,false,true,false,false,false,false,false,false,false,false],
+"tile_cliff":[false,false,false,false,false,false,false,false,true,false,false,false,false,false,false,false,false,false,false,false,false,false,false],
+"tile_slip":[false,false,false,false,false,false,false,false,false,true,false,false,false,false,false,false,false,false,false,false,false,false,false],
+"tile_hole":[false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,true,false,false],
+"tile_frost":[false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,true],
+"tile_gate":[0,0,0,0,0,0,0,4,0,0,8,5,7,6,0,11,12,9,0,10,0,0,0],
+"tile_cleared":[-1,-1,-1,-1,-1,-1,-1,0,-1,-1,0,-1,0,-1,-1,2,0,18,-1,0,21,-1,-1],
 "sprite_names":[{sprite_names}],"font_chars":"0123456789#%&$",
 "screens":[{}],"spawn":{{"sx":0,"sy":0,"x":72,"y":64}}}},
 "items":[
@@ -4288,6 +4492,7 @@ mod tests {
  {{"name":"fishing_rod","label":"FISHING ROD","sprite":"itm_rod","kind":"rod","durability":25}},
  {{"name":"surfboard","label":"SURFBOARD","sprite":"itm_rod","kind":"rod","durability":9999}},
  {{"name":"climb_claws","label":"CLIMB CLAWS","sprite":"itm_rod","kind":"rod","durability":9999}},
+ {{"name":"ice_axes","label":"ICE AXES","sprite":"sword_down","kind":"sword","damage":3,"durability":80}},
  {{"name":"raw_perch","label":"RAW PERCH","sprite":"itm_fish","kind":"material"}},
  {{"name":"brackling_claw","label":"BRACKLING CLAW","sprite":"claw","kind":"bodypart","attach_effect":"damage","attach_mag":2}},
  {{"name":"flutterwing","label":"FLUTTERWING","sprite":"claw","kind":"bodypart","attach_effect":"speed","attach_mag":96}},
@@ -4851,7 +5056,7 @@ mod tests {
         let screen = sim.world.screen_at(1, 0).unwrap();
         let (ex, ey) = (8 * 16 + 8, HUD_H + 1 * 16 + 8);
         assert!(
-            !sim.effective_solid(screen, ex, ey, false, false),
+            !sim.effective_solid(screen, ex, ey, false, false, false),
             "opened eye-target is walkable"
         );
     }
@@ -5008,7 +5213,7 @@ mod tests {
         let screen = sim.world.screen_at(1, 0).unwrap();
         let (dx, dy) = (9 * 16 + 8, HUD_H + 4 * 16 + 8);
         assert!(
-            !sim.effective_solid(screen, dx, dy, false, false),
+            !sim.effective_solid(screen, dx, dy, false, false, false),
             "the held-open plate-door is walkable"
         );
         // Step off the plate: the momentary door recloses next tick.
@@ -5110,6 +5315,241 @@ mod tests {
         assert!(
             !sim.reversible.contains_key(&(1, 0, door_idx)),
             "the latch-held door recloses once the room is empty"
+        );
+    }
+
+    #[test]
+    fn water_lever_raises_and_drains_reversibly() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 11).unwrap();
+        sim.add_player(0);
+        // Screen (1,0) row 5: water_lever at col1, flood_floor (gate 11) at col2,
+        // drain_water (gate 12) at col3.
+        let flood_idx = 5 * world::SCREEN_COLS + 2; // flood_floor
+        let drain_idx = 5 * world::SCREEN_COLS + 3; // drain_water
+        // Stand the player one tile RIGHT of the lever, facing left into it.
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.sx = 1;
+            p.sy = 0;
+            p.x = fx(2 * 16);
+            p.y = fx(5 * 16 + HUD_H);
+            p.facing = 2; // facing left, into the lever at col 1
+        }
+        // Baseline: nothing raised, no reversible water tiles.
+        sim.step();
+        assert!(!sim.water_raised.contains(&(1, 0)), "starts un-raised");
+        assert!(!sim.reversible.contains_key(&(1, 0, flood_idx)));
+        assert!(!sim.reversible.contains_key(&(1, 0, drain_idx)));
+
+        // Press A facing the water lever: TOGGLE the screen's water UP.
+        sim.set_input(0, BTN_A);
+        sim.step();
+        sim.set_input(0, 0);
+        sim.step();
+        assert!(sim.water_raised.contains(&(1, 0)), "lever raised the water");
+        assert_eq!(
+            sim.reversible.get(&(1, 0, flood_idx)).copied(),
+            Some(2u16),
+            "flood_floor becomes water (tile 2) when raised"
+        );
+        assert_eq!(
+            sim.reversible.get(&(1, 0, drain_idx)).copied(),
+            Some(0u16),
+            "drain_water becomes floor (tile 0) when raised"
+        );
+        // With the surfboard owned, the raised flood tile is surfable: place the
+        // player on the flood cell and confirm surf-state sets (it now reads as
+        // water through effective_tile).
+        let board = sim.defs.item_index("surfboard").unwrap();
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            give_item(p, &sim.defs, board, 1);
+            let bi = p.inventory.iter().position(|s| s.def == board).unwrap();
+            p.equip_b = bi as i8;
+            p.x = fx(2 * 16);
+            p.y = fx(5 * 16 + HUD_H);
+        }
+        sim.set_input(0, 0);
+        sim.step();
+        assert!(
+            sim.players[0].as_ref().unwrap().surfing,
+            "raised flood water is surfable with the board"
+        );
+
+        // Press A again: TOGGLE back DOWN. The reversible water clears (revert).
+        sim.set_input(0, 0);
+        sim.step(); // release A first (edge-triggered)
+        {
+            // Re-face the lever (we moved onto the flood tile at col2; the lever
+            // is at col1, so facing left still works).
+            let p = sim.players[0].as_mut().unwrap();
+            p.facing = 2;
+        }
+        sim.set_input(0, BTN_A);
+        sim.step();
+        sim.set_input(0, 0);
+        sim.step();
+        assert!(!sim.water_raised.contains(&(1, 0)), "toggling again drained it");
+        assert!(
+            !sim.reversible.contains_key(&(1, 0, flood_idx)),
+            "flood reverts to floor when drained"
+        );
+        assert!(
+            !sim.reversible.contains_key(&(1, 0, drain_idx)),
+            "drain reverts to water when drained"
+        );
+    }
+
+    #[test]
+    fn torches_open_door_only_when_all_lit() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 12).unwrap();
+        sim.add_player(0);
+        // Screen (1,0) row 6: torch_unlit at cols 6,7; torch_door (gate 10) at col8.
+        let t1 = 6 * world::SCREEN_COLS + 6;
+        let t2 = 6 * world::SCREEN_COLS + 7;
+        let door = 6 * world::SCREEN_COLS + 8;
+        // Light only the first torch (force the override directly, as a fire swing
+        // would). The door must STAY shut while a torch remains unlit.
+        sim.overrides.insert((1, 0, t1), 18); // torch_lit
+        assert!(
+            !sim.all_torches_lit(1, 0),
+            "one lit torch is not a complete set"
+        );
+        sim.step();
+        assert!(
+            !sim.overrides.contains_key(&(1, 0, door)),
+            "torch_door stays shut until every torch is lit"
+        );
+        // Light the second torch via the same machinery clear_gates_in_box uses:
+        // a fire/blast box over the second torch cell. Drive it through the public
+        // path by directly invoking clear_gates_in_box (a fire swing's box).
+        let (bx, by) = (7 * 16 + 8, HUD_H + 6 * 16 + 8);
+        let opened = sim.clear_gates_in_box(1, 0, bx - 8, by - 8, bx + 8, by + 8);
+        assert!(opened, "lighting the last torch reports a change");
+        assert!(sim.all_torches_lit(1, 0), "both torches now lit");
+        assert_eq!(
+            sim.overrides.get(&(1, 0, t2)).copied(),
+            Some(18u16),
+            "second torch is now lit"
+        );
+        assert_eq!(
+            sim.overrides.get(&(1, 0, door)).copied(),
+            Some(0u16),
+            "completing the torch set opens the gate-10 door to floor"
+        );
+    }
+
+    #[test]
+    fn block_into_hole_fills_a_bridge() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 13).unwrap();
+        sim.add_player(0);
+        // Screen (1,0): a drop-hole at (7,5). Move the block adjacent at (6,5)
+        // and the player at (5,5), pushing right so the block enters the hole.
+        let hole_idx = 5 * world::SCREEN_COLS + 7;
+        {
+            let bi = block_idx(&sim).unwrap();
+            sim.entities[bi].sx = 1;
+            sim.entities[bi].sy = 0;
+            sim.entities[bi].x = fx(6 * 16);
+            sim.entities[bi].y = fx(5 * 16 + HUD_H);
+            let p = sim.players[0].as_mut().unwrap();
+            p.sx = 1;
+            p.sy = 0;
+            p.x = fx(5 * 16);
+            p.y = fx(5 * 16 + HUD_H);
+            p.facing = 3;
+        }
+        // A plain hole is solid to the player (no fall) before it is filled.
+        {
+            let screen = sim.world.screen_at(1, 0).unwrap();
+            let (hx, hy) = (7 * 16 + 8, HUD_H + 5 * 16 + 8);
+            assert!(
+                sim.effective_solid(screen, hx, hy, false, false, false),
+                "an unfilled hole blocks the player on foot"
+            );
+        }
+        sim.set_input(0, BTN_RIGHT);
+        sim.step();
+        // The block was driven into the hole: consumed (gone) + hole -> bridge.
+        assert!(
+            block_idx(&sim).is_none(),
+            "the block is consumed when pushed into the hole"
+        );
+        assert_eq!(
+            sim.overrides.get(&(1, 0, hole_idx)).copied(),
+            Some(21u16),
+            "the hole fills to a bridge (tile 21) via a one-way override"
+        );
+        // The bridge is now walkable (non-solid).
+        let screen = sim.world.screen_at(1, 0).unwrap();
+        let (hx, hy) = (7 * 16 + 8, HUD_H + 5 * 16 + 8);
+        assert!(
+            !sim.effective_solid(screen, hx, hy, false, false, false),
+            "the filled hole (bridge) is walkable"
+        );
+        // Committed: leaving the empty room does NOT undo the fill.
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.sx = 0;
+            p.sy = 0;
+            p.x = fx(72);
+            p.y = fx(64);
+        }
+        sim.set_input(0, 0);
+        sim.step();
+        assert_eq!(
+            sim.overrides.get(&(1, 0, hole_idx)).copied(),
+            Some(21u16),
+            "the filled bridge is permanent (not reset on empty room)"
+        );
+    }
+
+    #[test]
+    fn ice_axes_gate_frost_wall_traversal() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 14).unwrap();
+        sim.add_player(0);
+        // Screen (1,0) has a frost_wall at (1,6) -> px (16, 96+HUD). Stand the
+        // player to its RIGHT, facing left into it (col1 is the frost wall, col0
+        // is the screen border). Mirror climb_claws_gates_cliff_traversal.
+        let axes = sim.defs.item_index("ice_axes").unwrap();
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.sx = 1;
+            p.sy = 0;
+            p.x = fx(2 * 16);
+            p.y = fx(6 * 16 + HUD_H);
+            p.facing = 2;
+        }
+        // Without the ice axes: walking left into the frost wall is blocked.
+        sim.set_input(0, BTN_LEFT);
+        for _ in 0..40 {
+            sim.step();
+        }
+        let blocked_x = to_px(sim.players[0].as_ref().unwrap().x);
+        assert!(
+            blocked_x > 24,
+            "frost wall should block without the ice axes, got {blocked_x}"
+        );
+
+        // Own the ice axes and try again: now the frost wall is passable.
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            give_item(p, &sim.defs, axes, 1);
+            p.x = fx(2 * 16);
+            p.y = fx(6 * 16 + HUD_H);
+        }
+        sim.set_input(0, BTN_LEFT);
+        for _ in 0..60 {
+            sim.step();
+        }
+        let moved_x = to_px(sim.players[0].as_ref().unwrap().x);
+        assert!(
+            moved_x < 24,
+            "owning the ice axes lets the player scale onto the frost wall, got {moved_x}"
         );
     }
 
@@ -5303,7 +5743,7 @@ mod tests {
         );
         let screen = sim.world.screen_at(1, 0).unwrap();
         assert!(
-            !sim.effective_solid(screen, dpx, dpy, false, false),
+            !sim.effective_solid(screen, dpx, dpy, false, false, false),
             "switch door is walkable after the lever is pulled"
         );
     }

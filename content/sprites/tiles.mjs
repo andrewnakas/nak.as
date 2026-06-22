@@ -444,4 +444,152 @@ export const TILES = [
       return 0;
     }),
   },
+  {
+    // Water-level lever (water_lever:true): pressing A facing it TOGGLES the
+    // screen's water level in/out (reversible) — unlike the one-way gate-4
+    // lever. Drawn red-handled to distinguish it from the plain stone lever.
+    name: 'water_lever',
+    palette: 'water',
+    solid: true,
+    water_lever: true,
+    grid: grid((x, y) => {
+      if (y >= 11) return (x + y) % 3 === 0 ? 1 : 2; // base plinth
+      const hx = 6 + Math.floor((13 - y) * 0.45);
+      if (Math.abs(x - hx) <= 1 && y >= 2 && y <= 11) return 3; // bright handle
+      if (Math.hypot(x - (hx + 0.5), y - 2) < 2) return 3; // knob
+      return 0;
+    }),
+  },
+  {
+    // Flood floor (gate:11 -> water): a dungeon floor tile that BECOMES water
+    // when the screen's water level is raised (reversible). Reads as a sunken
+    // basin so the lock is telegraphed before the lever is pulled.
+    name: 'flood_floor',
+    palette: 'water',
+    solid: false,
+    gate: 11,
+    cleared: 'water',
+    grid: grid((x, y) => {
+      // a dry stone basin with a faint damp tint
+      if (x < 1 || x > 14 || y < 1 || y > 14) return 0; // rim
+      if (x === 1 || x === 14 || y === 1 || y === 14) return 1; // bevel
+      return hash(x, y, 41) < 120 ? 2 : 0; // dark damp floor with flecks
+    }),
+  },
+  {
+    // Drain water (gate:12 -> dungeon_floor): a water tile that becomes solid
+    // floor when the screen's water level is RAISED (the water drains away
+    // here as it floods elsewhere). Reversible.
+    name: 'drain_water',
+    palette: 'water',
+    solid: true,
+    water: true,
+    gate: 12,
+    cleared: 'dungeon_floor',
+    grid: waves(1, 3),
+  },
+  {
+    // Torch (gate:9, solid): an unlit sconce. Light it with a fire-fused weapon
+    // swing or a bomb blast to override it to `torch_lit` (one-way). When EVERY
+    // gate-9 torch on a screen is lit, the screen's gate-10 torch_door opens.
+    name: 'torch_unlit',
+    palette: 'stone',
+    solid: true,
+    gate: 9,
+    cleared: 'torch_lit',
+    grid: grid((x, y) => {
+      if (x === 0 || x === 15 || y === 0 || y === 15) return 0; // dark frame
+      // stone sconce bracket
+      if (y >= 9 && Math.abs(x - 7.5) <= 2) return y % 2 === 0 ? 2 : 1;
+      // cold unlit bowl
+      if (y >= 6 && y <= 9 && Math.abs(x - 7.5) <= 3) return 1;
+      return (x + y) % 4 === 0 ? 1 : 2; // stone face
+    }),
+  },
+  {
+    // Lit torch (decorative, solid): the result of lighting a torch_unlit.
+    name: 'torch_lit',
+    palette: 'sand',
+    solid: true,
+    fire: true,
+    grid: grid((x, y) => {
+      if (x === 0 || x === 15 || y === 0 || y === 15) return 0; // dark frame
+      // sconce bracket
+      if (y >= 10 && Math.abs(x - 7.5) <= 2) return y % 2 === 0 ? 2 : 1;
+      // flame
+      const fd = Math.hypot((x - 7.5) * 1.3, y - 6);
+      if (fd < 3.6 && y <= 9) {
+        const flick = hash(x, y, 42) % 3;
+        return flick === 0 ? 3 : flick === 1 ? 2 : 0;
+      }
+      return (x + y) % 4 === 0 ? 1 : 2; // stone face
+    }),
+  },
+  {
+    // Torch-door (gate:10, solid): the door a fully-lit torch set opens. Carved
+    // stone with a torch sigil (distinct from plate_door / switch_door).
+    name: 'torch_door',
+    palette: 'stone',
+    solid: true,
+    gate: 10,
+    cleared: 'dungeon_floor',
+    grid: grid((x, y) => {
+      if (x < 1 || x > 14 || y < 1 || y > 14) return 0; // frame
+      if (y === 1 || y === 9 || y === 14) return 3; // cross beams
+      // central flame sigil
+      const fd = Math.hypot((x - 7.5) * 1.2, y - 7.5);
+      if (fd < 3) return 0;
+      return (x + y + 1) % 3 === 0 ? 1 : 2; // panels
+    }),
+  },
+  {
+    // Drop-hole (hole:true, NOT solid so the block-fill destination reads as a
+    // pit): a pushed block driven into it is consumed and the hole fills to a
+    // `bridge` (one-way override, committed). The player CANNOT enter a plain
+    // hole (it is treated as solid to the player path) — only a warp-bearing
+    // hole would let you fall through; plain holes are visual block-fill pits.
+    name: 'hole',
+    palette: 'stone',
+    solid: false,
+    hole: true,
+    cleared: 'bridge',
+    grid: grid((x, y) => {
+      // a dark recessed pit with a bright rim
+      const d = Math.hypot(x - 7.5, y - 7.5);
+      if (d > 7) return hash(x, y, 20) < 80 ? 0 : 1; // floor around the pit
+      if (d > 6) return 3; // bright stone rim
+      if (d > 5) return 1; // shadow ring
+      return 0; // black pit
+    }),
+  },
+  {
+    // Bridge (NOT solid, floor-like): what a hole becomes once a block fills it.
+    name: 'bridge',
+    palette: 'wood',
+    solid: false,
+    grid: grid((x, y) => {
+      // planks laid across the gap
+      if (y % 4 === 0) return 0;
+      if (x === 0 || x === 15) return 1;
+      return hash(0, y, 43) % 5 === 0 && x % 7 === 3 ? 1 : 2;
+    }),
+  },
+  {
+    // Frost wall (frost:true, solid): a sheet of climbable frozen rock. Passable
+    // only when the player OWNS the ICE AXES (mirrors cliff/climb_claws).
+    name: 'frost_wall',
+    palette: 'water',
+    solid: true,
+    frost: true,
+    grid: grid((x, y) => {
+      // icy crags: pale rime with darker fissures and bright glints
+      if (y === 0) return 3;
+      if (y >= 14) return 0;
+      const fissure = (x + Math.floor(y / 2)) % 6 === 0;
+      if (fissure) return 0;
+      const glint = (x - y + 16) % 7 === 0;
+      if (glint) return 3;
+      return hash(x, y, 44) < 80 ? 1 : 2;
+    }),
+  },
 ];

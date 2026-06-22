@@ -39,6 +39,15 @@ i ice
 p plate
 q plate_latch
 m plate_door
+V water_lever
+~ flood_floor
+J drain_water
+t torch_unlit
+Y torch_lit
+M torch_door
+O hole
+N bridge
+Z frost_wall
 < stairs_up
 > stairs_down
 

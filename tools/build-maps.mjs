@@ -168,6 +168,22 @@ for (const s of screens) {
       fail(w.line, `screen ${s.name}: warp trigger out of bounds`);
     }
   }
+  // Drop-hole lint: a hole is filled by consuming a pushed block, so a screen
+  // needs at least as many blocks as plain (warp-less) holes or it could
+  // softlock (an unfillable pit gating progress). Warns; doesn't fail.
+  const holeTiles = TILES.map((t) => !!t.hole);
+  const warpCells = new Set(s.warps.map((w) => `${w.tx},${w.ty}`));
+  let plainHoles = 0;
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      if (holeTiles[s.tiles[y * COLS + x]] && !warpCells.has(`${x},${y}`)) plainHoles++;
+    }
+  }
+  if (s.blocks.length < plainHoles) {
+    console.warn(
+      `WARN ${s.name}: ${plainHoles} plain holes but only ${s.blocks.length} blocks (fill may softlock)`,
+    );
+  }
 }
 
 // Warp destinations must exist (checked after all screens parse).
@@ -192,8 +208,11 @@ const world = {
   tile_tree: TILES.map((t) => !!t.tree),
   tile_heal: TILES.map((t) => !!t.heal),
   tile_lever: TILES.map((t) => !!t.lever),
+  tile_water_lever: TILES.map((t) => !!t.water_lever),
   tile_cliff: TILES.map((t) => !!t.cliff),
   tile_slip: TILES.map((t) => !!t.slip),
+  tile_hole: TILES.map((t) => !!t.hole),
+  tile_frost: TILES.map((t) => !!t.frost),
   tile_gate: TILES.map((t) => t.gate ?? 0),
   tile_cleared: TILES.map((t) => {
     if (!t.cleared) return -1;

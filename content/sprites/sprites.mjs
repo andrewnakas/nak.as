@@ -1007,6 +1007,29 @@ export const SPRITES = [
       return '.';
     }),
   },
+  {
+    // Inventory icon: a crossed pair of ice axes (curved picks, wood hafts).
+    name: 'itm_iceaxes',
+    palette: 'stone',
+    grid: grid((x, y) => {
+      // two hafts crossing through the center, a hooked pick head at each top.
+      // left haft runs top-left -> bottom-right; right haft mirrors it.
+      const onHaft = (down) => {
+        // diagonal line: down=true goes \, down=false goes /
+        const on = down ? Math.abs(x - y) <= 0 : Math.abs(x + y - 15) <= 0;
+        return on && y >= 3 && y <= 13;
+      };
+      if (onHaft(true) || onHaft(false)) return 1; // wood-dark hafts (stone pal)
+      // pick heads (bright) hooking off the tops
+      if (y >= 1 && y <= 4) {
+        if (x >= 2 && x <= 5 && (x + y) % 2 === 0) return 3; // left head
+        if (x >= 10 && x <= 13 && (x + y) % 2 === 0) return 3; // right head
+      }
+      // metal cuff where they cross
+      if (Math.hypot(x - 7.5, y - 7.5) < 2) return 2;
+      return '.';
+    }),
+  },
 
   // ---- surfboard + waves ----
   {
