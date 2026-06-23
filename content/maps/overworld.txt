@@ -50,6 +50,7 @@ N bridge
 Z frost_wall
 l lava
 G chasm
+U murk
 < stairs_up
 > stairs_down
 
@@ -1151,8 +1152,189 @@ I hearty_roast 5 4
 # Boss arena (GALE WRAITH, the SKYBREAKER): cross the interior BOSS DOOR (K, needs
 # the boss key from the hook vault) into the cyclone's eye. Beating it grants a
 # HEART CONTAINER (automatic) and its hoard. The < stairs warp back out to the
-# Emberdeep boss room. Left edge (row3) opens W from the skybridge.
+# Skyhollow boss room. Left edge (row3) opens W from the skybridge. The < stairs
+# (6,3) warp back to the Emberdeep boss room. Behind the wraith a CHASM (G) seam
+# at (8,5) only the GALE HOOK (won in THIS dungeon) grapples across; stepping
+# onto it drops you down the broken gulf into THE SUNKENMIRE (sm_entry) — the
+# next chain link, unreachable without the hook.
 SCREEN 22 2 sw_boss
+xxxxxxxxxx
+xffffffffx
+xffffffffx
+fKffff<ffx
+xffffffffx
+xfffffffGx
+xffffffffx
+xxxxxxxxxx
+E gale_wraith 5 4
+W 6 3 19 2 80 56
+W 8 5 23 1 48 56
+
+# ===== THE SUNKENMIRE (dungeon 6; THE DROWNED VAULT, reward = the TIDE CHARM) =====
+# A flooded, drowned bog-ruin of black murk and dripping stone, reached FROM the
+# Skyhollow boss room: a CHASM seam behind the GALE WRAITH's lair drops into the
+# broken gulf — only the GALE HOOK grapples it. Chain: dungeon5 -> GALE HOOK ->
+# grapple the gulf -> the Sunkenmire -> TIDE CHARM. Theme = drowned/sunken depths
+# (distinct from root/water/cliff/frost/molten/sky). New RACE = the MIRRA (drowned
+# bog-folk who learned to breathe the black). Mechanic emphasis (distinct from the
+# Frostspire ice-slide, Emberdeep lava and Skyhollow chasm): WATER-LEVEL toggles
+# (drain/raise flooded halls) + MURK-crossing with the TIDE CHARM (a NEW gate tile,
+# distinct from the surfboard's water — the board floats OVER water, the charm
+# WADES the deeper murk), plus an eye-target shot, a torch set and a block-on-plate
+# door. Off-grid cluster (sx 23-25, sy 0-2):
+#   sm_silt(23,0)  -- sm_eye(24,0)  -- sm_torch(25,0)
+#   sm_entry(23,1)    sm_plate(24,1) -- sm_charm(25,1)
+#   sm_vault(23,2)    sm_flood(24,2) -- sm_boss(25,2)
+# CRITICAL PATH:
+#   entry(23,1) >N silt(23,0)  [TEACH water-level: a DRAIN_WATER (J) channel walls
+#     off the E half; pull the water_lever (V) to RAISE the level -> the channel
+#     DRAINS to floor -> cross E]
+#   >E eye(24,0)  [TEACH eye-target: an EYE_TARGET (@) wall gaps a divider; shoot
+#     it (arrow) / blast / fire-swing -> the gate-8 group opens]
+#   >E torch(25,0)  [TEACH torch set: light BOTH unlit torches (t) -> the gate-10
+#     torch_door (M) sealing the S passage drops]
+#   >S charm(25,1)  [SUB-BOSS tidethrall guards the TIDE CHARM (I) and a MURK (U)
+#     ringed pocket holding the BOSS KEY -- the charm you just took WADES the murk
+#     to reach it (tutorialized right where you get it)]
+#   >W plate(24,1)  [COMBINE block + plate: shove the BLOCK S onto the momentary
+#     plate (p) so its weight holds the gate-7 plate_door (m) open while you slip
+#     S through it]
+#   >S flood(24,2)  [BACK HALF, murk-gated: a full MURK (U) channel splits the
+#     room; only the TIDE CHARM wades across to the E exit]
+#   >E boss(25,2)  [interior BOSS DOOR (K) -> the boss TIDEMAW, the DROWNED MAW].
+# OPTIONAL: entry(23,1) >S vault(23,2)  [a MURK-ringed cache: HEARTY ROAST].
+# All gate tiles (J,V,@,t,M,p,m,K) and murk pools are INTERIOR only; every
+# screen-transition edge stays walkable.
+
+# Entry sump: you drop down the gulf and land mid-room (warp lands at tile 3,3).
+# Three MIRRA keep the drowned threshold (warden + keeper shop + diviner quest).
+# Top edge (cols 4-5) opens N into the silt hall; bottom edge (cols 4-5) opens S
+# to the optional vault. The E/W sides are sheer flooded rock.
+SCREEN 23 1 sm_entry
+xxxxffxxxx
+xffffffffx
+xffffffffx
+xffffffffx
+xffffffffx
+xffffffffx
+xffffffffx
+xxxxffxxxx
+N mirra_warden 2 2
+N mirra_keeper 7 2
+N mirra_diviner 6 5
+
+# Silt hall (TEACH water-level drain): a DRAIN_WATER (J) channel at col5 (rows1-6)
+# fully walls off the E half. Pull the water_lever (V) at (2,3) to RAISE the level
+# -> the whole drain channel becomes solid floor -> cross E. Bottom edge (cols4-5)
+# opens S to the entry (you land in the WEST half via col4); right edge (row3)
+# opens E to the eye gate. Without raising there is NO walk-around: col5 is drain
+# top-to-bottom, so the drain is genuinely required.
+SCREEN 23 0 sm_silt
+xxxxxxxxxx
+xffffJfffx
+xffffJfffx
+xfVffJffff
+xffffJfffx
+xffffJfffx
+xffffJfffx
+xxxxffxxxx
+
+# Drowned gate (TEACH eye-target): a rock divider (r) at col4 walls off the E
+# half; its only gap is an EYE_TARGET (@) at row3. Shoot it (arrow), blast it, or
+# fire-swing it to open the gate-8 group -> the gap clears. Left edge (row3) opens
+# W from the silt hall; right edge (row3) opens E to the torch hall.
+SCREEN 24 0 sm_eye
+xxxxxxxxxx
+xfffrffffx
+xfffrffffx
+ffff@fffff
+xfffrffffx
+xfffrffffx
+xfffrffffx
+xxxxxxxxxx
+
+# Sconce hall (TEACH torch set): two unlit torches (t) flank the chamber. Light
+# BOTH (bomb blast or fire-fused swing) and the gate-10 torch_door (M) sealing the
+# S passage drops. Left edge (row3) opens W from the drowned gate; the torch_door
+# is INTERIOR, just inside the S exit (cols 4-5 of row6).
+SCREEN 25 0 sm_torch
+xxxxxxxxxx
+xffffffffx
+xtfffffftx
+ffffffffff
+xffffffffx
+xffffffffx
+xxxxMMxxxx
+xxxxffxxxx
+E silt_lurcher 5 4
+
+# Charm vault (SUB-BOSS + the TIDE CHARM): the TIDETHRALL (a big drowned husk)
+# guards the cache. Beat it, take the TIDE CHARM (I), then WADE the MURK (U) ring
+# in the E pocket with the charm you just won to reach the BOSS KEY (I) --
+# tutorialized right where you get the charm. Top edge (cols 4-5) opens N from the
+# sconce hall; left edge (row3) opens W to the standoff.
+SCREEN 25 1 sm_charm
+xxxxffxxxx
+xffffffffx
+xffffUUUfx
+fffffUfUfx
+xffffUUUfx
+xffffffffx
+xffffffffx
+xxxxxxxxxx
+I tide_charm 2 6
+I boss_key 6 3
+E tidethrall 2 1
+E bog_gel 3 6
+
+# Block-on-plate (COMBINE block + plate): the gate-7 plate_door (m) walls off the
+# S passage. Shove the BLOCK (O block) S two tiles onto the momentary plate (p) so
+# its weight holds the door open while you slip S past it. W side sealed (no
+# shortcut to the entry). Right edge (row3) opens E from the charm vault.
+SCREEN 24 1 sm_plate
+xxxxxxxxxx
+xffffffffx
+xffffffffx
+xfffffffff
+xfpffffffx
+xffffffffx
+xxxxmmxxxx
+xxxxffxxxx
+O block 2 2
+
+# Drowned span (BACK HALF, murk-gated): a full-height MURK (U) channel splits the
+# room; only the TIDE CHARM wades across to the E half. Enter from the N (cols
+# 4-5) into the WEST half. The E exit (row3) to the boss lies past the murk.
+SCREEN 24 2 sm_flood
+xxxxffxxxx
+xfffffUffx
+xfffffUffx
+ffffffUfff
+xfffffUffx
+xfffffUffx
+xfffffUffx
+xxxxxxxxxx
+E bog_gel 2 5
+
+# Sunken vault (OPTIONAL reward, murk-gated): a MURK (U) ring seals the cache.
+# Wade it with the TIDE CHARM for a HEARTY ROAST. Top edge (cols 4-5) opens N back
+# to the entry. No other exit (a dead-end optional pocket).
+SCREEN 23 2 sm_vault
+xxxxffxxxx
+xffffffffx
+xffUUUUUfx
+xffUfffUfx
+xffUfffUfx
+xffUUUUUfx
+xffffffffx
+xxxxxxxxxx
+I hearty_roast 5 4
+
+# Boss arena (TIDEMAW, the DROWNED MAW): cross the interior BOSS DOOR (K, needs
+# the boss key from the charm vault) into the flooded heart. Beating it grants a
+# HEART CONTAINER (automatic) and its hoard. The < stairs warp back out to the
+# Skyhollow boss room. Left edge (row3) opens W from the drowned span.
+SCREEN 25 2 sm_boss
 xxxxxxxxxx
 xffffffffx
 xffffffffx
@@ -1161,5 +1343,5 @@ xffffffffx
 xffffffffx
 xffffffffx
 xxxxxxxxxx
-E gale_wraith 5 4
-W 6 3 19 2 80 56
+E tidemaw 5 4
+W 6 3 22 2 80 56

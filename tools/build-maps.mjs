@@ -215,6 +215,7 @@ const world = {
   tile_frost: TILES.map((t) => !!t.frost),
   tile_lava: TILES.map((t) => !!t.lava),
   tile_chasm: TILES.map((t) => !!t.chasm),
+  tile_murk: TILES.map((t) => !!t.murk),
   tile_gate: TILES.map((t) => t.gate ?? 0),
   tile_cleared: TILES.map((t) => {
     if (!t.cleared) return -1;

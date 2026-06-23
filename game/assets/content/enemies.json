@@ -314,5 +314,58 @@
     "big": true,
     "summons": "sky_lurker",
     "combat_xp": 400
+  },
+  {
+    "name": "bog_gel",
+    "brain": "gel",
+    "hp": 3,
+    "damage": 1,
+    "speed": 120,
+    "sprite": "gel_0",
+    "drops": "bog_gel",
+    "combat_xp": 24
+  },
+  {
+    "name": "silt_lurcher",
+    "brain": "charger",
+    "hp": 7,
+    "damage": 2,
+    "speed": 110,
+    "sprite": "silt_lurcher_0",
+    "drops": "silt_lurcher",
+    "combat_xp": 44
+  },
+  {
+    "name": "fen_warden",
+    "brain": "ward",
+    "hp": 8,
+    "damage": 2,
+    "speed": 108,
+    "sprite": "fen_warden_0",
+    "drops": "silt_lurcher",
+    "combat_xp": 46
+  },
+  {
+    "name": "tidethrall",
+    "brain": "charger",
+    "hp": 12,
+    "damage": 2,
+    "speed": 116,
+    "sprite": "silt_lurcher_0",
+    "drops": "silt_lurcher",
+    "big": true,
+    "combat_xp": 120
+  },
+  {
+    "name": "tidemaw",
+    "brain": "boss",
+    "hp": 56,
+    "damage": 3,
+    "speed": 120,
+    "sprite": "tidemaw_0",
+    "drops": "tidemaw",
+    "big": true,
+    "summons": "bog_gel",
+    "combat_xp": 440
   }
 ]

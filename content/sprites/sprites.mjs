@@ -1111,6 +1111,34 @@ export const SPRITES = [
     }),
   },
 
+  {
+    // Inventory icon: the TIDE CHARM — a drowned talisman that lets the bearer
+    // wade through the deep murk. A spiral conch shell strung on a cord, ringed
+    // by a sickly phosphor glow, drawn on the bog palette (peat-dark shell with
+    // pale rot-light highlights).
+    name: 'itm_tidecharm',
+    palette: 'bog',
+    grid: grid((x, y) => {
+      // the cord loop arcing over the top
+      if (y >= 1 && y <= 3 && Math.abs(Math.hypot(x - 7.5, y - 5) - 4.5) < 0.7 && y <= 4) return 1;
+      // a spiral conch shell body in the lower-centre
+      const dx = x - 7.5, dy = y - 9;
+      const d = Math.hypot(dx, dy);
+      if (d < 5.2) {
+        if (d > 4.4) return 0; // dark shell rim
+        // spiral whorl: brightness follows angle + radius for a coiled look
+        const ang = Math.atan2(dy, dx);
+        const whorl = (((ang * 2 + d * 0.9) | 0) % 2 === 0);
+        // sickly phosphor glints near the aperture
+        if (d < 1.6) return 3; // bright pearl core
+        return whorl ? 2 : 1;
+      }
+      // a couple of phosphor motes haloing the charm
+      if ((x === 2 && y === 6) || (x === 13 && y === 7) || (x === 4 && y === 14)) return 3;
+      return '.';
+    }),
+  },
+
   // ---- surfboard + waves ----
   {
     // Inventory icon: a longboard seen from above.
@@ -1221,6 +1249,17 @@ export const SPRITES = [
   // GALE WRAITH, the SKYBREAKER: the Skyhollow boss. A 32x32 quadrant (mirrored
   // x/y) — a roaring cyclone with a single staring eye at its calm core.
   ...galeWraithFrames('gale_wraith', 'sky'),
+
+  // ---- bog foes (the Sunkenmire; the Drowned Vault murk zone) ----
+  // SILT LURCHER: a bloated drowned husk that lurches forward and drags you
+  // under (charger brain). Bog palette = peat-rot flesh with phosphor glints.
+  ...siltLurcherFrames('silt_lurcher', 'bog'),
+  // FEN WARDEN: a barnacled drowned guardian carrying a shell-plate; flank or
+  // backstab it (ward brain). Seeded into the drowned vault.
+  ...rimeWardenFrames('fen_warden', 'bog'),
+  // TIDEMAW, the DROWNED MAW: the Sunkenmire boss. A 32x32 quadrant (mirrored
+  // x/y) — a vast gaping maw rimmed with teeth, a drowned eye in its dark gullet.
+  ...tidemawFrames('tidemaw', 'bog'),
 ];
 
 // Two frames for the sky lurker: a ragged airborne predator. A small hooded
@@ -1281,6 +1320,66 @@ function galeWraithFrames(name, palette) {
       if (band === 0) return 3; // bright gust streak
       if (band === 1) return 2; // mid air
       return 1; // shadowed trough
+    });
+  return [
+    { name: `${name}_0`, palette, grid: body(0) },
+    { name: `${name}_1`, palette, grid: body(1) },
+  ];
+}
+
+// Two frames for the SILT LURCHER: a bloated drowned husk that lurches and
+// charges. A hunched waterlogged body with hollow eyes and dripping arms; the
+// lurch frame raises its reaching arms and bobs the body.
+function siltLurcherFrames(name, palette) {
+  const body = (lurch) =>
+    grid((x, y) => {
+      const yy = y - lurch; // bob on the lurch frame
+      // bloated head/torso: a wide, slumped oval
+      const hd = Math.hypot((x - 7.5) / 1.25, (yy - 7) / 1.15);
+      if (hd < 4.6) {
+        if (hd > 3.8) return 0; // sodden dark outline
+        // hollow drowned eyes
+        if (yy === 6 && (x === 6 || x === 9)) return 0;
+        // a gaping waterlogged mouth
+        if (yy >= 9 && yy <= 10 && x >= 6 && x <= 9) return 0;
+        // phosphor-mottled rotted flesh
+        return (x * 3 + yy) % 5 === 0 ? 3 : (x + yy) % 2 === 0 ? 2 : 1;
+      }
+      // dripping reaching arms to either side (raised on the lurch frame)
+      const armTop = lurch ? 6 : 8;
+      if (yy >= armTop && yy <= armTop + 3 && (x <= 3 || x >= 12)) {
+        return (x + yy) % 2 === 0 ? 1 : 2;
+      }
+      // a few drips / phosphor motes falling below
+      if (yy >= 13 && (x === 5 || x === 8 || x === 11) && (x + lurch) % 2 === 0) return 3;
+      return '.';
+    });
+  return [
+    { name: `${name}_0`, palette, grid: body(0) },
+    { name: `${name}_1`, palette, grid: body(1) },
+  ];
+}
+
+// Two frames for TIDEMAW, the DROWNED MAW (a 32x32 quadrant, mirrored x/y to a
+// 64x64 body): a vast gaping maw rimmed with jagged teeth, a single drowned eye
+// glaring out of the dark gullet. The teeth gnash (shift) one notch per frame.
+function tidemawFrames(name, palette) {
+  const body = (phase) =>
+    grid((x, y) => {
+      const d = Math.hypot(15 - x, 15 - y);
+      if (d > 14.5) return '.';
+      if (d > 13) return 0; // dark sodden outer rim
+      // ring of jagged teeth just inside the rim; gnash by shifting with phase
+      if (d > 9.5 && d < 12) {
+        const ang = Math.atan2(15 - y, 15 - x);
+        const tooth = (((ang * 5) | 0) + phase) % 2 === 0;
+        return tooth ? 3 : 0; // bright bone teeth over a black gap
+      }
+      // the dark gullet
+      if (d > 4) return (x + y) % 5 === 0 ? 1 : 0;
+      // a single drowned eye glaring from the depths of the maw
+      if (d < 1.6) return 0; // pupil
+      return 3; // phosphor-bright iris
     });
   return [
     { name: `${name}_0`, palette, grid: body(0) },

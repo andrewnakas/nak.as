@@ -170,5 +170,23 @@
     { "item": "iron_sword", "p": 1000 },
     { "item": "iron_shield", "p": 1000 },
     { "item": "wraith_plume", "p": 1000 }
+  ],
+  "bog_gel": [
+    { "item": "heart", "p": 350 },
+    { "item": "shells", "p": 750, "min": 2, "max": 5 },
+    { "item": "hearty_roast", "p": 120 }
+  ],
+  "silt_lurcher": [
+    { "item": "heart", "p": 300 },
+    { "item": "shells", "p": 850, "min": 5, "max": 10 },
+    { "item": "hearty_roast", "p": 220 },
+    { "item": "iron_shield", "p": 200 }
+  ],
+  "tidemaw": [
+    { "item": "heart", "p": 1000 },
+    { "item": "shells", "p": 1000, "min": 140, "max": 200 },
+    { "item": "iron_sword", "p": 1000 },
+    { "item": "iron_shield", "p": 1000 },
+    { "item": "tidemaw_fang", "p": 1000 }
   ]
 }

@@ -52,6 +52,12 @@ pub struct WorldJson {
     /// + frost_wall/ice_axes + lava/ember_mantle gating).
     #[serde(default)]
     pub tile_chasm: Vec<bool>,
+    /// Murk tiles (drowned deep murk): solid, but passable once the player owns
+    /// the TIDE CHARM — they wade through the deep (mirrors water/surfboard +
+    /// frost_wall/ice_axes + lava/ember_mantle + chasm/gale_hook gating). Distinct
+    /// from `water`: the surfboard floats OVER water, the charm passes this murk.
+    #[serde(default)]
+    pub tile_murk: Vec<bool>,
     /// Per tile: 0 = plain, 1 = small-key door, 2 = boss-key door,
     /// 3 = bramble (cleared by fire weapons / bombs), 4 = switch door,
     /// 5 = momentary plate, 6 = latch plate, 7 = plate-door,
@@ -211,6 +217,7 @@ pub struct World {
     pub tile_frost: Vec<bool>,
     pub tile_lava: Vec<bool>,
     pub tile_chasm: Vec<bool>,
+    pub tile_murk: Vec<bool>,
     pub tile_gate: Vec<u8>,
     pub tile_cleared: Vec<i32>,
     pub screens: Vec<Screen>,
@@ -342,6 +349,7 @@ impl World {
             tile_frost: raw.tile_frost,
             tile_lava: raw.tile_lava,
             tile_chasm: raw.tile_chasm,
+            tile_murk: raw.tile_murk,
             tile_gate: raw.tile_gate,
             tile_cleared: raw.tile_cleared,
             screens,
@@ -418,6 +426,10 @@ impl World {
 
     pub fn is_chasm(&self, screen: &Screen, px: i32, py: i32) -> bool {
         self.tile_flag(&self.tile_chasm, screen, px, py)
+    }
+
+    pub fn is_murk(&self, screen: &Screen, px: i32, py: i32) -> bool {
+        self.tile_flag(&self.tile_murk, screen, px, py)
     }
 
     /// Out-of-playfield pixels report false for every flag.

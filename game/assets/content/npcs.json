@@ -216,5 +216,39 @@
       ["ONCE YOU HOLD THE", "HOOK, NO GULF CAN", "STOP YOU — NOT HERE,", "NOT BEYOND."],
       ["THERE IS A DROWNED", "PLACE PAST THE EDGE", "OF THE WINDS. THE", "HOOK WILL CARRY YOU."]
     ]
+  },
+  {
+    "name": "mirra_warden",
+    "label": "DEEP-WARDEN OLM",
+    "sprite": "npc_elder",
+    "lines": [
+      ["YOU GRAPPLED THE", "GULF AND DID NOT", "FALL. THEN THE DEEP", "WILL HAVE YOU YET."],
+      ["WE MIRRA NEVER LEFT", "WHEN THE VAULT WENT", "UNDER. WE LEARNED TO", "BREATHE THE BLACK."],
+      ["THE MURK IS NOT", "WATER. NO BOARD", "FLOATS IT. YOU MUST", "SINK, AND WALK IT."]
+    ]
+  },
+  {
+    "name": "mirra_keeper",
+    "label": "KEEPER NERIS",
+    "sprite": "npc_b",
+    "lines": [
+      ["DEEP IN THE VAULT", "HANGS THE TIDE", "CHARM — IT LETS THE", "BEARER WADE THE MURK."],
+      ["THE MAW GUARDS THE", "FLOODED HEART. IT", "SPITS THE BOG-GELS", "AND DROWNS THE BOLD."]
+    ],
+    "shop": [
+      { "item": "hearty_roast", "price": 28 },
+      { "item": "arrow", "price": 8, "qty": 5 },
+      { "item": "bomb", "price": 12, "qty": 3 },
+      { "item": "iron_shield", "price": 90 }
+    ]
+  },
+  {
+    "name": "mirra_diviner",
+    "label": "DIVINER SHOAL",
+    "sprite": "npc_a",
+    "lines": [
+      ["WHAT THE CHARM", "OPENS HERE, IT", "OPENS ELSEWHERE —", "WHEREVER THE DEEP RUNS."],
+      ["THERE IS A LIGHT", "FAR UNDER THE MIRE,", "DROWNED WALKER. THE", "CHARM IS THE WAY DOWN."]
+    ]
   }
 ]

@@ -25,4 +25,7 @@ export const PALETTES = {
   // windswept sky-ruins: a void chasm fading from near-black up through dusty
   // twilight violet to a pale, wind-bleached blue-white (the open air / cloud).
   sky: ['#0d1018', '#39324f', '#6c7aa3', '#cdd9ec'],
+  // drowned bog-ruins: black peat-water -> drowned moss-green -> silty murk-teal
+  // -> a sickly pale phosphor glow (rot-light / will-o-the-wisp on the deep).
+  bog: ['#0a120e', '#243a2c', '#46715c', '#9fc7a0'],
 };

@@ -117,5 +117,20 @@
     ],
     "objectives": [{ "type": "kill", "target": "sky_lurker", "count": 4 }],
     "rewards": { "shells": 90, "items": [{ "item": "hearty_roast", "qty": 2 }] }
+  },
+  {
+    "id": "thin_the_drowned",
+    "giver": "mirra_diviner",
+    "title": "THIN THE DROWNED",
+    "offer": [
+      ["THE BOG-GELS SWARM", "THE FLOODED HALLS", "AND CHOKE THE TIDE."],
+      ["BURST FOUR OF THEM", "AND KEEPER NERIS", "WILL OPEN THE CACHE."]
+    ],
+    "incomplete": [["THE GELS STILL", "SLITHER THE BLACK", "WATER. THIN THEM."]],
+    "complete": [
+      ["THE DEEP IS", "CLEARER NOW. TAKE", "THIS, DROWNED-WALKER."]
+    ],
+    "objectives": [{ "type": "kill", "target": "bog_gel", "count": 4 }],
+    "rewards": { "shells": 110, "items": [{ "item": "hearty_roast", "qty": 2 }] }
   }
 ]

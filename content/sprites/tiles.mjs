@@ -637,4 +637,29 @@ export const TILES = [
       return 0; // void
     }),
   },
+  {
+    // Murk (murk:true, solid): black drowned deep-water choked with rot and silt.
+    // Solid (impassable) until the player OWNS the TIDE CHARM — then they wade /
+    // sink-and-walk through it, exactly mirroring surfboard/water, axes/frost_wall,
+    // mantle/lava and hook/chasm gating. DISTINCT from `water` (the surfboard
+    // floats OVER water; the charm lets you pass this deeper, fouler murk).
+    // Drawn as near-black peat-water with drifting silt motes and a few sickly
+    // phosphor glints so it reads as a fouler, deeper pool than plain water.
+    name: 'murk',
+    palette: 'bog',
+    solid: true,
+    murk: true,
+    grid: grid((x, y) => {
+      // a faint sludge crust along the very top so the pool reads as deep
+      if (y === 0) return (x % 3 === 0) ? 1 : 0;
+      // sickly phosphor glints (will-o-the-wisp dapples) scattered on the deep
+      const wisp = (x * 7 + y * 5) % 29 === 0;
+      if (wisp) return 3;
+      // drifting silt motes
+      const silt = (x - y + 16) % 7 === 0 || (x + y) % 9 === 0;
+      if (silt) return hash(x, y, 71) < 400 ? 2 : 1;
+      // mottled dark peat body
+      return hash(x, y, 72) < 90 ? 1 : 0;
+    }),
+  },
 ];

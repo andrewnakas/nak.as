@@ -115,6 +115,13 @@
     "durability": 9999
   },
   {
+    "name": "tide_charm",
+    "label": "TIDE CHARM",
+    "sprite": "itm_tidecharm",
+    "kind": "rod",
+    "durability": 9999
+  },
+  {
     "name": "raw_perch",
     "label": "RAW PERCH",
     "sprite": "itm_fish",
@@ -298,5 +305,13 @@
     "kind": "bodypart",
     "attach_effect": "speed",
     "attach_mag": 160
+  },
+  {
+    "name": "tidemaw_fang",
+    "label": "TIDEMAW FANG",
+    "sprite": "part_fang",
+    "kind": "bodypart",
+    "attach_effect": "damage",
+    "attach_mag": 4
   }
 ]
