@@ -238,5 +238,48 @@
     "big": true,
     "summons": "frost_charger",
     "combat_xp": 320
+  },
+  {
+    "name": "cinder_hound",
+    "brain": "charger",
+    "hp": 6,
+    "damage": 2,
+    "speed": 104,
+    "sprite": "cinder_hound_0",
+    "drops": "cinder_hound",
+    "combat_xp": 34
+  },
+  {
+    "name": "magma_sentinel",
+    "brain": "ward",
+    "hp": 7,
+    "damage": 2,
+    "speed": 112,
+    "sprite": "magma_sentinel_0",
+    "drops": "magma_sentinel",
+    "combat_xp": 36
+  },
+  {
+    "name": "emberfang",
+    "brain": "charger",
+    "hp": 8,
+    "damage": 2,
+    "speed": 108,
+    "sprite": "cinder_hound_0",
+    "drops": "cinder_hound",
+    "big": true,
+    "combat_xp": 96
+  },
+  {
+    "name": "pyra",
+    "brain": "boss",
+    "hp": 46,
+    "damage": 3,
+    "speed": 124,
+    "sprite": "pyra_0",
+    "drops": "pyra",
+    "big": true,
+    "summons": "cinder_hound",
+    "combat_xp": 360
   }
 ]

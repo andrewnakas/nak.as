@@ -148,5 +148,39 @@
       ["FROZEN WALLS BAR", "THE DEEP. ONLY", "AXES OF ICE BITE", "THEM."],
       ["TAKE THEM FROM THE", "BEASTS THAT GUARD", "THE INNER VAULT,", "CLIMBER."]
     ]
+  },
+  {
+    "name": "cindari_smith",
+    "label": "FORGE-MOTHER VULL",
+    "sprite": "npc_elder",
+    "lines": [
+      ["SO. THE ICE LET YOU", "THROUGH. WELCOME TO", "EMBERDEEP, ASHWALKER."],
+      ["WE CINDARI WERE", "POURED, NOT BORN.", "THE LAVA IS OUR", "BLOOD AND OUR ROAD."],
+      ["YOU CANNOT TREAD THE", "MOLTEN FLOWS BARE-", "SKINNED. SEEK THE", "EMBER MANTLE BELOW."]
+    ],
+    "shop": [
+      { "item": "ember_cap", "price": 16 },
+      { "item": "hearty_roast", "price": 28 },
+      { "item": "bomb", "price": 12, "qty": 3 },
+      { "item": "iron_shield", "price": 90 }
+    ]
+  },
+  {
+    "name": "cindari_warden",
+    "label": "EMBER-WARDEN KOSS",
+    "sprite": "npc_b",
+    "lines": [
+      ["DEEPER STILL, THE", "MAGMAHEART BEATS.", "PYRA. SHE DOES NOT", "SLEEP — SHE SMOULDERS."],
+      ["THE HOUND GUARDS THE", "MANTLE. BURN IT DOWN,", "WEAR THE CLOAK, AND", "THE FLOWS ARE YOURS."]
+    ]
+  },
+  {
+    "name": "cindari_seer",
+    "label": "CINDARI SEER",
+    "sprite": "npc_a",
+    "lines": [
+      ["WHAT THE MANTLE", "OPENS HERE, IT WILL", "OPEN ELSEWHERE —", "WHEREVER LAVA RUNS."],
+      ["THERE ARE FLOWS", "BEYOND THE DEEP,", "ASHWALKER. THE CLOAK", "IS A KEY, NOT A COAT."]
+    ]
   }
 ]

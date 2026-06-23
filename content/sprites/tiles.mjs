@@ -592,4 +592,24 @@ export const TILES = [
       return hash(x, y, 44) < 80 ? 1 : 2;
     }),
   },
+  {
+    // Lava (lava:true, solid): a channel of molten rock. Solid (impassable) until
+    // the player OWNS the EMBER MANTLE — then it's traversable, exactly mirroring
+    // the surfboard/water and ice-axes/frost_wall gating. Glowing magma with a
+    // crust of dark basalt slabs and a few bright crest cracks.
+    name: 'lava',
+    palette: 'magma',
+    solid: true,
+    lava: true,
+    grid: grid((x, y) => {
+      // dark crusted slabs drift on the molten flow; bright cracks glow between.
+      const cell = (((x + 1) >> 2) * 7 + ((y + 1) >> 2) * 13) % 5;
+      const onCrust = cell < 2 && hash(x, y, 51) < 760;
+      if (onCrust) return (x + y) % 4 === 0 ? 1 : 0; // basalt slab
+      // glowing seams: bright crest where two slabs part
+      const seam = (x % 4 === 0 || y % 4 === 0);
+      if (seam) return hash(x, y, 52) < 400 ? 3 : 2;
+      return 2; // molten body
+    }),
+  },
 ];

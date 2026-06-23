@@ -20,4 +20,6 @@ export const PALETTES = {
   hero: ['#16181d', '#2f6f6a', '#d49b74', '#efe6d2'],
   // accent ramp for cloth/flags/banners (dusty rose)
   cloth: ['#241820', '#5e3a44', '#9c6470', '#d3a3a8'],
+  // molten depths: charred basalt -> deep ember -> glowing magma -> bright crest
+  magma: ['#1a0d0a', '#5e2415', '#b5481c', '#ecae4a'],
 };

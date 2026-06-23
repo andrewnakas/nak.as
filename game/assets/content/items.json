@@ -101,6 +101,13 @@
     "durability": 80
   },
   {
+    "name": "ember_mantle",
+    "label": "EMBER MANTLE",
+    "sprite": "itm_mantle",
+    "kind": "rod",
+    "durability": 9999
+  },
+  {
     "name": "raw_perch",
     "label": "RAW PERCH",
     "sprite": "itm_fish",

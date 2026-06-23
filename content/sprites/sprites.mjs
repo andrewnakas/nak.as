@@ -1049,6 +1049,33 @@ export const SPRITES = [
       return '.';
     }),
   },
+  {
+    // Inventory icon: the EMBER MANTLE — a hooded cloak that glows with banked
+    // embers, letting the wearer walk across lava. Drawn with the magma ramp:
+    // dark cloth folds with a few bright ember flecks along the hem and clasp.
+    name: 'itm_mantle',
+    palette: 'magma',
+    grid: grid((x, y) => {
+      // hood + shoulders: a rounded yoke up top
+      const hd = Math.hypot(x - 7.5, y - 4);
+      if (hd < 3.2) {
+        if (hd > 2.5) return 0; // hood rim
+        return 1; // shadowed hood interior
+      }
+      // cloak body: a wide trapezoid falling from the shoulders to a flared hem
+      const halfW = 2.5 + (y - 5) * 0.55;
+      if (y >= 5 && y <= 14 && Math.abs(x - 7.5) <= halfW) {
+        if (Math.abs(x - 7.5) > halfW - 1) return 0; // dark edge fold
+        // central clasp + a vertical seam
+        if (Math.abs(x - 7.5) < 0.8) return 1;
+        // banked embers: scattered bright flecks, denser toward the hem
+        const fleck = y >= 12 ? (x + y) % 3 === 0 : (x * 3 + y) % 7 === 0;
+        if (fleck) return 3;
+        return 2; // ember-glow cloth
+      }
+      return '.';
+    }),
+  },
 
   // ---- surfboard + waves ----
   {
@@ -1141,7 +1168,69 @@ export const SPRITES = [
   // quadrant of the 32x32 body is drawn here and mirrored x/y at render time —
   // a coiled, crystalline mass of ice radiating from the bottom-right corner.
   ...glaceFrames('glace', 'water'),
+
+  // ---- ember foes (Emberdeep depths; molten contrast to the frost) ----
+  // CINDER HOUND: a lean, burning beast that telegraphs then rushes (charger
+  // brain). It guards the EMBER MANTLE mid-dungeon. Magma palette = glowing coal.
+  ...cinderHoundFrames('cinder_hound', 'magma'),
+  // MAGMA SENTINEL: a slag-armoured warden carrying its shield-plate on its
+  // (screen-)left; flank or backstab it (ward brain). Seeded into the depths.
+  ...rimeWardenFrames('magma_sentinel', 'magma'),
+  // PYRA, the MAGMAHEART: the Emberdeep boss. A 32x32 quadrant (mirrored x/y) —
+  // a roiling core of molten rock with a blazing crack down its centre.
+  ...pyraFrames('pyra', 'magma'),
 ];
+
+// Two frames for the cinder hound: a low burning quadruped that rushes.
+function cinderHoundFrames(name, palette) {
+  const body = (bob) =>
+    grid((x, y) => {
+      const yy = y - bob; // bob on the run frame
+      // a low, lean head + shoulders (smaller/leaner than the frost charger)
+      const hd = Math.hypot((x - 7.5) / 1.35, (yy - 8) / 0.95);
+      if (hd < 4.4) {
+        if (hd > 3.6) return 0; // charred outline
+        // blazing eyes
+        if (yy === 7 && (x === 6 || x === 9)) return 3;
+        // open, glowing maw
+        if (yy >= 9 && yy <= 10 && x >= 6 && x <= 9) return 3;
+        // ember-mottled coat
+        return (x * 2 + yy) % 5 === 0 ? 3 : (x + yy) % 2 === 0 ? 2 : 1;
+      }
+      // a crest of flame flickers along the back
+      if (yy >= 3 && yy <= 5 && (x === 5 || x === 8 || x === 11)) return 3;
+      // stubby legs
+      if (yy >= 13 && (x === 4 || x === 5 || x === 10 || x === 11)) return 0;
+      return '.';
+    });
+  return [
+    { name: `${name}_0`, palette, grid: body(0) },
+    { name: `${name}_1`, palette, grid: body(1) },
+  ];
+}
+
+// Two frames for PYRA: a molten boss quadrant (mirrored x/y to a 32x32 body),
+// modelled on glaceFrames but with a blazing core crack instead of ice facets.
+function pyraFrames(name, palette) {
+  const body = (phase) =>
+    grid((x, y) => {
+      const d = Math.hypot(15 - x, 15 - y);
+      if (d > 14.5) return '.';
+      if (d > 13) return 0; // charred basalt outline
+      // a molten core radiating cracks; bright veins fan out from the centre
+      const ang = Math.atan2(15 - y, 15 - x);
+      const vein = (((ang * 5) | 0) + phase) % 2 === 0;
+      if (d < 4) return 3; // white-hot core
+      if (vein && d > 6) return (x + y) % 3 !== 0 ? 3 : 2; // ember veins
+      // a glaring eye set into the upper body
+      if (x === 9 && y === 9) return 3;
+      return (x + y) % 4 === 0 ? 0 : (x + y) % 3 === 0 ? 1 : 2; // crusted slag
+    });
+  return [
+    { name: `${name}_0`, palette, grid: body(0) },
+    { name: `${name}_1`, palette, grid: body(1) },
+  ];
+}
 
 // Two frames for the Rimewyrm boss quadrant (mirrored x/y to a 32x32 body).
 function glaceFrames(name, palette) {

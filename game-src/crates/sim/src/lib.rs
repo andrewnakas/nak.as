@@ -282,6 +282,16 @@ fn has_ice_axes(defs: &Defs, p: &Player) -> bool {
     p.inventory.iter().any(|s| s.def == axes)
 }
 
+/// Does the player OWN the ember mantle? (gates lava traversal). Like the
+/// surfboard/claws/axes, just owning it lets you cross lava tiles — no equip
+/// needed. The mantle is a worn "rod"-kind item (cloak), not a weapon.
+fn has_ember_mantle(defs: &Defs, p: &Player) -> bool {
+    let Some(mantle) = defs.item_index("ember_mantle") else {
+        return false;
+    };
+    p.inventory.iter().any(|s| s.def == mantle)
+}
+
 #[derive(Deserialize)]
 struct Bundle {
     world: WorldJson,
@@ -666,6 +676,7 @@ impl Sim {
         water_ok: bool,
         climb_ok: bool,
         axes_ok: bool,
+        lava_ok: bool,
     ) -> bool {
         let tx = px.div_euclid(16);
         let ty = (py - HUD_H).div_euclid(16);
@@ -677,6 +688,7 @@ impl Sim {
             let water = self.world.tile_water.get(t as usize).copied().unwrap_or(false);
             let cliff = self.world.tile_cliff.get(t as usize).copied().unwrap_or(false);
             let frost = self.world.tile_frost.get(t as usize).copied().unwrap_or(false);
+            let lava = self.world.tile_lava.get(t as usize).copied().unwrap_or(false);
             // A hole is non-solid (so a pushed block can be driven into it and
             // consumed), but it blocks the PLAYER: a plain pit is impassable on
             // foot — no fall-death softlocks (v1). Filling it makes a `bridge`.
@@ -685,7 +697,8 @@ impl Sim {
             return solid
                 && !(water_ok && water)
                 && !(climb_ok && cliff)
-                && !(axes_ok && frost);
+                && !(axes_ok && frost)
+                && !(lava_ok && lava);
         }
         self.world.is_solid(screen, px, py)
     }
@@ -1498,13 +1511,14 @@ impl Sim {
             let water_ok = has_surfboard(&self.defs, &pl);
             let climb_ok = has_climb_claws(&self.defs, &pl);
             let axes_ok = has_ice_axes(&self.defs, &pl);
+            let lava_ok = has_ember_mantle(&self.defs, &pl);
             if let Some(screen) = screen {
                 let nx = pl.x + pl.kvx;
-                if self.feet_clear(screen, nx, pl.y, water_ok, climb_ok, axes_ok) {
+                if self.feet_clear(screen, nx, pl.y, water_ok, climb_ok, axes_ok, lava_ok) {
                     pl.x = nx.clamp(MIN_X, MAX_X);
                 }
                 let ny = pl.y + pl.kvy;
-                if self.feet_clear(screen, pl.x, ny, water_ok, climb_ok, axes_ok) {
+                if self.feet_clear(screen, pl.x, ny, water_ok, climb_ok, axes_ok, lava_ok) {
                     pl.y = ny.clamp(MIN_Y, MAX_Y);
                 }
             }
@@ -1724,6 +1738,8 @@ impl Sim {
         let claws = has_climb_claws(&self.defs, &pl);
         // Ice axes own = frost_wall tiles passable (gated in feet_clear below).
         let axes = has_ice_axes(&self.defs, &pl);
+        // Ember mantle own = lava tiles passable (gated in feet_clear below).
+        let mantle = has_ember_mantle(&self.defs, &pl);
         let on_cliff = self
             .world
             .screen_at(pl.sx, pl.sy)
@@ -1838,7 +1854,7 @@ impl Sim {
         let (px0, py0) = (pl.x, pl.y);
         if dx != 0 {
             let nx = pl.x + dx;
-            if self.feet_clear(screen, nx, pl.y, board, claws, axes)
+            if self.feet_clear(screen, nx, pl.y, board, claws, axes, mantle)
                 && !self.feet_hit_block(pl.sx, pl.sy, nx, pl.y)
             {
                 pl.x = nx;
@@ -1846,7 +1862,7 @@ impl Sim {
         }
         if dy != 0 {
             let ny = pl.y + dy;
-            if self.feet_clear(screen, pl.x, ny, board, claws, axes)
+            if self.feet_clear(screen, pl.x, ny, board, claws, axes, mantle)
                 && !self.feet_hit_block(pl.sx, pl.sy, pl.x, ny)
             {
                 pl.y = ny;
@@ -1889,7 +1905,7 @@ impl Sim {
             };
             // Only cross if the landing spot is walkable — walking off an
             // open edge into a rock on the neighbor screen would trap you.
-            let clear = dest.is_some_and(|s| self.feet_clear_on(s, dx_, dy_, board, claws, axes));
+            let clear = dest.is_some_and(|s| self.feet_clear_on(s, dx_, dy_, board, claws, axes, mantle));
             if clear {
                 pl.sx = nsx;
                 pl.sy = nsy;
@@ -1905,8 +1921,8 @@ impl Sim {
         // Belt and braces: if anything still left us inside a wall (bad
         // warp target, old save), slide to the nearest clear spot.
         if let Some(screen) = self.world.screen_at(pl.sx, pl.sy) {
-            if !self.feet_clear_on(screen, pl.x, pl.y, board, claws, axes) {
-                if let Some((ux, uy)) = self.find_clear_near(screen, pl.x, pl.y, board, claws, axes) {
+            if !self.feet_clear_on(screen, pl.x, pl.y, board, claws, axes, mantle) {
+                if let Some((ux, uy)) = self.find_clear_near(screen, pl.x, pl.y, board, claws, axes, mantle) {
                     pl.x = ux;
                     pl.y = uy;
                 }
@@ -2820,8 +2836,8 @@ impl Sim {
         let x = x.clamp(MIN_X, MAX_X);
         let y = y.clamp(MIN_Y, MAX_Y);
         if let Some(screen) = self.world.screen_at(sx, sy) {
-            if !self.feet_clear_on(screen, x, y, false, false, false) {
-                if let Some((cx, cy)) = self.find_clear_near(screen, x, y, false, false, false) {
+            if !self.feet_clear_on(screen, x, y, false, false, false, false) {
+                if let Some((cx, cy)) = self.find_clear_near(screen, x, y, false, false, false, false) {
                     return (cx, cy);
                 }
             }
@@ -2873,8 +2889,9 @@ impl Sim {
         water_ok: bool,
         climb_ok: bool,
         axes_ok: bool,
+        lava_ok: bool,
     ) -> bool {
-        self.feet_clear_on(screen, x, y, water_ok, climb_ok, axes_ok)
+        self.feet_clear_on(screen, x, y, water_ok, climb_ok, axes_ok, lava_ok)
     }
 
     /// True if the tile under this pixel (respecting one-way overrides) is a
@@ -2912,13 +2929,14 @@ impl Sim {
         water_ok: bool,
         climb_ok: bool,
         axes_ok: bool,
+        lava_ok: bool,
     ) -> bool {
         let px = to_px(x);
         let py = to_px(y);
-        !(self.effective_solid(screen, px + FEET_X0, py + FEET_Y0, water_ok, climb_ok, axes_ok)
-            || self.effective_solid(screen, px + FEET_X1, py + FEET_Y0, water_ok, climb_ok, axes_ok)
-            || self.effective_solid(screen, px + FEET_X0, py + FEET_Y1, water_ok, climb_ok, axes_ok)
-            || self.effective_solid(screen, px + FEET_X1, py + FEET_Y1, water_ok, climb_ok, axes_ok))
+        !(self.effective_solid(screen, px + FEET_X0, py + FEET_Y0, water_ok, climb_ok, axes_ok, lava_ok)
+            || self.effective_solid(screen, px + FEET_X1, py + FEET_Y0, water_ok, climb_ok, axes_ok, lava_ok)
+            || self.effective_solid(screen, px + FEET_X0, py + FEET_Y1, water_ok, climb_ok, axes_ok, lava_ok)
+            || self.effective_solid(screen, px + FEET_X1, py + FEET_Y1, water_ok, climb_ok, axes_ok, lava_ok))
     }
 
     /// Nearest walkable position to (x, y), searched in growing rings.
@@ -2930,6 +2948,7 @@ impl Sim {
         water_ok: bool,
         climb_ok: bool,
         axes_ok: bool,
+        lava_ok: bool,
     ) -> Option<(Fx, Fx)> {
         for r in 1..=10 {
             let step = fx(4) * r;
@@ -2939,7 +2958,7 @@ impl Sim {
             ] {
                 let nx = (x + ddx * step).clamp(MIN_X, MAX_X);
                 let ny = (y + ddy * step).clamp(MIN_Y, MAX_Y);
-                if self.feet_clear_on(screen, nx, ny, water_ok, climb_ok, axes_ok) {
+                if self.feet_clear_on(screen, nx, ny, water_ok, climb_ok, axes_ok, lava_ok) {
                     return Some((nx, ny));
                 }
             }
@@ -3223,9 +3242,10 @@ impl Sim {
                 let board = has_surfboard(&self.defs, &p);
                 let claws = has_climb_claws(&self.defs, &p);
                 let axes = has_ice_axes(&self.defs, &p);
+                let mantle = has_ember_mantle(&self.defs, &p);
                 if let Some(screen) = self.world.screen_at(p.sx, p.sy) {
-                    if !self.feet_clear_on(screen, p.x, p.y, board, claws, axes) {
-                        if let Some((ux, uy)) = self.find_clear_near(screen, p.x, p.y, board, claws, axes) {
+                    if !self.feet_clear_on(screen, p.x, p.y, board, claws, axes, mantle) {
+                        if let Some((ux, uy)) = self.find_clear_near(screen, p.x, p.y, board, claws, axes, mantle) {
                             p.x = ux;
                             p.y = uy;
                         }
@@ -4393,6 +4413,7 @@ fn dungeon_entry_name(sx: i32, sy: i32) -> Option<&'static str> {
         (10, 10) => Some("THE ROOTCELLAR"),
         (7, 12) => Some("TIDECRAG HOLLOW"),
         (14, 1) => Some("FROSTSPIRE"),
+        (17, 1) => Some("EMBERDEEP"),
         _ => None,
     }
 }
@@ -4490,6 +4511,8 @@ mod tests {
                 tiles[5 * 10 + 7] = 20; // hole
                 // Frost wall at (1,6): passable only with the ice axes.
                 tiles[6 * 10 + 1] = 22; // frost_wall
+                // Lava at (3,3): passable only with the ember mantle.
+                tiles[3 * 10 + 3] = 23; // lava
             }
             let blocks = if sx == 1 {
                 // A pushable block sits at (3,2): a clear row-2 corridor (a tree
@@ -4542,20 +4565,21 @@ mod tests {
         ];
         let sprite_names = sprites.map(|s| format!("\"{s}\"")).join(",");
         format!(
-            r#"{{"world":{{"tile_names":["floor","wall","water","fire","tree","fountain","lever","switch_door","cliff","ice","eye_target","plate","plate_door","plate_latch","water_lever","flood_floor","drain_water","torch_unlit","torch_lit","torch_door","hole","bridge","frost_wall"],
-"tile_solid":[false,true,true,true,true,true,true,true,true,false,true,false,true,false,true,false,true,true,true,true,false,false,true],
-"tile_water":[false,false,true,false,false,false,false,false,false,false,false,false,false,false,false,false,true,false,false,false,false,false,false],
-"tile_fire":[false,false,false,true,false,false,false,false,false,false,false,false,false,false,false,false,false,false,true,false,false,false,false],
-"tile_tree":[false,false,false,false,true,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false],
-"tile_heal":[false,false,false,false,false,true,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false],
-"tile_lever":[false,false,false,false,false,false,true,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false],
-"tile_water_lever":[false,false,false,false,false,false,false,false,false,false,false,false,false,false,true,false,false,false,false,false,false,false,false],
-"tile_cliff":[false,false,false,false,false,false,false,false,true,false,false,false,false,false,false,false,false,false,false,false,false,false,false],
-"tile_slip":[false,false,false,false,false,false,false,false,false,true,false,false,false,false,false,false,false,false,false,false,false,false,false],
-"tile_hole":[false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,true,false,false],
-"tile_frost":[false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,true],
-"tile_gate":[0,0,0,0,0,0,0,4,0,0,8,5,7,6,0,11,12,9,0,10,0,0,0],
-"tile_cleared":[-1,-1,-1,-1,-1,-1,-1,0,-1,-1,0,-1,0,-1,-1,2,0,18,-1,0,21,-1,-1],
+            r#"{{"world":{{"tile_names":["floor","wall","water","fire","tree","fountain","lever","switch_door","cliff","ice","eye_target","plate","plate_door","plate_latch","water_lever","flood_floor","drain_water","torch_unlit","torch_lit","torch_door","hole","bridge","frost_wall","lava"],
+"tile_solid":[false,true,true,true,true,true,true,true,true,false,true,false,true,false,true,false,true,true,true,true,false,false,true,true],
+"tile_water":[false,false,true,false,false,false,false,false,false,false,false,false,false,false,false,false,true,false,false,false,false,false,false,false],
+"tile_fire":[false,false,false,true,false,false,false,false,false,false,false,false,false,false,false,false,false,false,true,false,false,false,false,false],
+"tile_tree":[false,false,false,false,true,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false],
+"tile_heal":[false,false,false,false,false,true,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false],
+"tile_lever":[false,false,false,false,false,false,true,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false],
+"tile_water_lever":[false,false,false,false,false,false,false,false,false,false,false,false,false,false,true,false,false,false,false,false,false,false,false,false],
+"tile_cliff":[false,false,false,false,false,false,false,false,true,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false],
+"tile_slip":[false,false,false,false,false,false,false,false,false,true,false,false,false,false,false,false,false,false,false,false,false,false,false,false],
+"tile_hole":[false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,true,false,false,false],
+"tile_frost":[false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,true,false],
+"tile_lava":[false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,true],
+"tile_gate":[0,0,0,0,0,0,0,4,0,0,8,5,7,6,0,11,12,9,0,10,0,0,0,0],
+"tile_cleared":[-1,-1,-1,-1,-1,-1,-1,0,-1,-1,0,-1,0,-1,-1,2,0,18,-1,0,21,-1,-1,-1],
 "sprite_names":[{sprite_names}],"font_chars":"0123456789#%&$",
 "screens":[{}],"spawn":{{"sx":0,"sy":0,"x":72,"y":64}}}},
 "items":[
@@ -4572,6 +4596,7 @@ mod tests {
  {{"name":"surfboard","label":"SURFBOARD","sprite":"itm_rod","kind":"rod","durability":9999}},
  {{"name":"climb_claws","label":"CLIMB CLAWS","sprite":"itm_rod","kind":"rod","durability":9999}},
  {{"name":"ice_axes","label":"ICE AXES","sprite":"sword_down","kind":"sword","damage":3,"durability":80}},
+ {{"name":"ember_mantle","label":"EMBER MANTLE","sprite":"itm_rod","kind":"rod","durability":9999}},
  {{"name":"raw_perch","label":"RAW PERCH","sprite":"itm_fish","kind":"material"}},
  {{"name":"brackling_claw","label":"BRACKLING CLAW","sprite":"claw","kind":"bodypart","attach_effect":"damage","attach_mag":2}},
  {{"name":"flutterwing","label":"FLUTTERWING","sprite":"claw","kind":"bodypart","attach_effect":"speed","attach_mag":96}},
@@ -5382,7 +5407,7 @@ mod tests {
         let screen = sim.world.screen_at(1, 0).unwrap();
         let (ex, ey) = (8 * 16 + 8, HUD_H + 1 * 16 + 8);
         assert!(
-            !sim.effective_solid(screen, ex, ey, false, false, false),
+            !sim.effective_solid(screen, ex, ey, false, false, false, false),
             "opened eye-target is walkable"
         );
     }
@@ -5539,7 +5564,7 @@ mod tests {
         let screen = sim.world.screen_at(1, 0).unwrap();
         let (dx, dy) = (9 * 16 + 8, HUD_H + 4 * 16 + 8);
         assert!(
-            !sim.effective_solid(screen, dx, dy, false, false, false),
+            !sim.effective_solid(screen, dx, dy, false, false, false, false),
             "the held-open plate-door is walkable"
         );
         // Step off the plate: the momentary door recloses next tick.
@@ -5793,7 +5818,7 @@ mod tests {
             let screen = sim.world.screen_at(1, 0).unwrap();
             let (hx, hy) = (7 * 16 + 8, HUD_H + 5 * 16 + 8);
             assert!(
-                sim.effective_solid(screen, hx, hy, false, false, false),
+                sim.effective_solid(screen, hx, hy, false, false, false, false),
                 "an unfilled hole blocks the player on foot"
             );
         }
@@ -5813,7 +5838,7 @@ mod tests {
         let screen = sim.world.screen_at(1, 0).unwrap();
         let (hx, hy) = (7 * 16 + 8, HUD_H + 5 * 16 + 8);
         assert!(
-            !sim.effective_solid(screen, hx, hy, false, false, false),
+            !sim.effective_solid(screen, hx, hy, false, false, false, false),
             "the filled hole (bridge) is walkable"
         );
         // Committed: leaving the empty room does NOT undo the fill.
@@ -5876,6 +5901,56 @@ mod tests {
         assert!(
             moved_x < 24,
             "owning the ice axes lets the player scale onto the frost wall, got {moved_x}"
+        );
+    }
+
+    #[test]
+    fn ember_mantle_gates_lava_traversal() {
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 17).unwrap();
+        sim.add_player(0);
+        // Screen (1,0) has a lava tile at (3,3) -> px (48, 48+HUD). Stand the
+        // player one tile to its RIGHT (col 4), facing left into the lava.
+        // Mirrors ice_axes_gate_frost_wall_traversal.
+        let mantle = sim.defs.item_index("ember_mantle").unwrap();
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.sx = 1;
+            p.sy = 0;
+            p.x = fx(4 * 16);
+            p.y = fx(3 * 16 + HUD_H);
+            p.facing = 2;
+        }
+        // Without the ember mantle: walking left into the lava is blocked.
+        sim.set_input(0, BTN_LEFT);
+        for _ in 0..40 {
+            sim.step();
+        }
+        let blocked_x = to_px(sim.players[0].as_ref().unwrap().x);
+        assert!(
+            blocked_x > 56,
+            "lava should block without the ember mantle, got {blocked_x}"
+        );
+
+        // Own the ember mantle and try again: now the lava is passable.
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            give_item(p, &sim.defs, mantle, 1);
+            p.x = fx(4 * 16);
+            p.y = fx(3 * 16 + HUD_H);
+        }
+        // 20 ticks: enough to glide left across the col-3 lava (px 48) but not so
+        // long the player reaches the screen edge and transitions away.
+        sim.set_input(0, BTN_LEFT);
+        for _ in 0..20 {
+            sim.step();
+        }
+        let p = sim.players[0].as_ref().unwrap();
+        assert_eq!(p.sx, 1, "should still be on screen (1,0), not transitioned");
+        let moved_x = to_px(p.x);
+        assert!(
+            moved_x < 48,
+            "owning the ember mantle lets the player cross the lava, got {moved_x}"
         );
     }
 
@@ -6069,7 +6144,7 @@ mod tests {
         );
         let screen = sim.world.screen_at(1, 0).unwrap();
         assert!(
-            !sim.effective_solid(screen, dpx, dpy, false, false, false),
+            !sim.effective_solid(screen, dpx, dpy, false, false, false, false),
             "switch door is walkable after the lever is pulled"
         );
     }
@@ -6081,6 +6156,7 @@ mod tests {
         assert_eq!(dungeon_entry_name(10, 10), Some("THE ROOTCELLAR"));
         assert_eq!(dungeon_entry_name(7, 12), Some("TIDECRAG HOLLOW"));
         assert_eq!(dungeon_entry_name(14, 1), Some("FROSTSPIRE"));
+        assert_eq!(dungeon_entry_name(17, 1), Some("EMBERDEEP"));
         assert_eq!(dungeon_entry_name(1, 1), None); // town
         assert_eq!(dungeon_entry_name(11, 10), None); // dungeon interior
         assert_eq!(dungeon_entry_name(13, 12), None); // boss room

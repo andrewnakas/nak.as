@@ -43,6 +43,10 @@ pub struct WorldJson {
     /// Frost-wall tiles: solid, but passable once the player owns the ice axes.
     #[serde(default)]
     pub tile_frost: Vec<bool>,
+    /// Lava tiles: solid, but passable once the player owns the ember mantle
+    /// (mirrors water/surfboard + frost_wall/ice_axes gating).
+    #[serde(default)]
+    pub tile_lava: Vec<bool>,
     /// Per tile: 0 = plain, 1 = small-key door, 2 = boss-key door,
     /// 3 = bramble (cleared by fire weapons / bombs), 4 = switch door,
     /// 5 = momentary plate, 6 = latch plate, 7 = plate-door,
@@ -200,6 +204,7 @@ pub struct World {
     pub tile_slip: Vec<bool>,
     pub tile_hole: Vec<bool>,
     pub tile_frost: Vec<bool>,
+    pub tile_lava: Vec<bool>,
     pub tile_gate: Vec<u8>,
     pub tile_cleared: Vec<i32>,
     pub screens: Vec<Screen>,
@@ -329,6 +334,7 @@ impl World {
             tile_slip: raw.tile_slip,
             tile_hole: raw.tile_hole,
             tile_frost: raw.tile_frost,
+            tile_lava: raw.tile_lava,
             tile_gate: raw.tile_gate,
             tile_cleared: raw.tile_cleared,
             screens,
@@ -397,6 +403,10 @@ impl World {
 
     pub fn is_frost(&self, screen: &Screen, px: i32, py: i32) -> bool {
         self.tile_flag(&self.tile_frost, screen, px, py)
+    }
+
+    pub fn is_lava(&self, screen: &Screen, px: i32, py: i32) -> bool {
+        self.tile_flag(&self.tile_lava, screen, px, py)
     }
 
     /// Out-of-playfield pixels report false for every flag.

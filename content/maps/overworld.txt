@@ -48,6 +48,7 @@ M torch_door
 O hole
 N bridge
 Z frost_wall
+l lava
 < stairs_up
 > stairs_down
 
@@ -792,7 +793,186 @@ I iron_shield 6 4
 # boss key from the axe vault) into the wyrm's lair. Beating it grants a HEART
 # CONTAINER (automatic) and its hoard. The < stairs warp back out to the wind
 # terrace. Left edge (row 3) opens W from the frostway.
+# DESCENT TO EMBERDEEP: a FROST_WALL (Z) seam in the SE corner (col8 row5) seals
+# a molten fissure behind the wyrm's lair. Only the ICE AXES (won here in
+# Frostspire) chip through it; stepping onto the cleared seam WARPS you down into
+# Emberdeep(17,1). So Emberdeep is unreachable without the ice axes -> the chain
+# is dungeon3 -> ICE AXES -> chip the seam -> Emberdeep -> EMBER MANTLE.
 SCREEN 16 2 fs_boss
+xxxxxxxxxx
+xffffffffx
+xffffffffx
+fKffff<ffx
+xffffffffx
+xfffffffZx
+xffffffffx
+xxxxxxxxxx
+E glace 5 4
+W 6 3 4 -1 80 40
+W 8 5 17 1 48 56
+
+# ===== EMBERDEEP (dungeon 4; MOLTEN depths, reward = the EMBER MANTLE) =====
+# A volcanic cavern reached FROM the Frostspire boss room: a FROST_WALL (Z) seam
+# behind GLACE's lair is chipped open with the ICE AXES, dropping you down into
+# the molten deep. Chain: dungeon3 -> ICE AXES -> chip the seam -> Emberdeep ->
+# EMBER MANTLE. Theme = lava / molten contrast to the frost.
+# Mechanics (distinct from Frostspire's ice-slide): a block->hole BRIDGE, an
+# EYE-TARGET shot, a TORCH SET, a BLOCK-ON-PLATE door, and the EMBER MANTLE that
+# crosses LAVA (mirrors surfboard/water + axes/frost_wall). New RACE = the
+# CINDARI (molten forge-folk).
+# Off-grid cluster (sx 17-19, sy 0-2):
+#   ed_slide(17,0) -- ed_bridge(18,0) -- ed_eye(19,0)
+#   ed_entry(17,1)    ed_plate(18,1) --- ed_mantle(19,1)
+#   ed_vault(17,2)    ed_flow(18,2) ---- ed_boss(19,2)
+# CRITICAL PATH:
+#   entry(17,1) >N slide(17,0)   [TEACH block->hole bridge: shove the BLOCK into
+#     the HOLE (O) gapping a rock divider -> a BRIDGE to the E exit]
+#   >E bridge(18,0)  [TEACH eye-target: an EYE_TARGET (@) wall gaps a divider;
+#     shoot it (arrow) / blast / fire-swing -> the gate-8 group opens]
+#   >E eye(19,0)  [TEACH torch set: light BOTH unlit torches (t) -> the gate-10
+#     torch_door (M) sealing the S passage drops]
+#   >S mantle(19,1)  [SUB-BOSS emberfang guards the EMBER MANTLE (I) and a
+#     LAVA-ringed pocket holding the BOSS KEY -- the mantle you just took crosses
+#     the lava to reach it (tutorialized right where you get it)]
+#   >W plate(18,1)  [COMBINE block + plate: shove the BLOCK S onto the momentary
+#     plate (p) so its weight holds the gate-7 plate_door (m) open while you slip
+#     S through it]
+#   >S flow(18,2)  [BACK HALF, lava-gated: a full LAVA channel splits the room;
+#     only the EMBER MANTLE crosses it to the E exit]
+#   >E boss(19,2)  [interior BOSS DOOR (K) -> the boss PYRA, the MAGMAHEART].
+# OPTIONAL: entry(17,1) >S vault(17,2)  [a LAVA-ringed cache: HEARTY ROAST].
+# All gate tiles (O,@,t,M,p,m,K) and lava channels are INTERIOR only; every
+# screen-transition edge stays walkable.
+
+# Entry cavern: you drop in from the Frostspire seam (the warp lands mid-room,
+# tile 3,3). Three CINDARI keep the threshold (forge-mother shop + warden +
+# seer). Top edge (cols 4-5) opens N into the depths; bottom edge (cols 4-5)
+# opens S to the optional vault. The E/W sides are sealed rock (no shortcut).
+SCREEN 17 1 ed_entry
+xxxxffxxxx
+xffffffffx
+xffffffffx
+xffffffffx
+xffffffffx
+xffffffffx
+xffffffffx
+xxxxffxxxx
+N cindari_smith 2 2
+N cindari_warden 7 2
+N cindari_seer 6 5
+W 4 5 16 2 80 56
+
+# Block-bridge (TEACH block->hole): a rock divider (r) at col5 walls off the E
+# half; its only gap is a HOLE (O) at row3. A BLOCK (O block) sits W of it; shove
+# it E across the floor into the hole -> it fills to a BRIDGE you cross. Bottom
+# edge (col4) opens S to the entry; right edge (row3) opens E to the eye gate.
+SCREEN 17 0 ed_slide
+xxxxxxxxxx
+xffffrfffx
+xffffrfffx
+fffffOffff
+xffffrfffx
+xffffrfffx
+xffffrfffx
+xxxxffxxxx
+O block 2 3
+
+# Eye gate (TEACH eye-target): a rock divider (r) at col4 walls off the E half;
+# its only gap is an EYE_TARGET (@) at row3. Shoot it (arrow), blast it, or
+# fire-swing it to open the gate-8 group -> the gap clears. Left edge (row3)
+# opens W from the slide; right edge (row3) opens E to the torch room.
+SCREEN 18 0 ed_bridge
+xxxxxxxxxx
+xfffrffffx
+xfffrffffx
+ffff@fffff
+xfffrffffx
+xfffrffffx
+xfffrffffx
+xxxxxxxxxx
+
+# Sconce hall (TEACH torch set): two unlit torches (t) flank the chamber. Light
+# BOTH (bomb blast or fire-fused swing) and the gate-10 torch_door (M) sealing
+# the S passage drops. Left edge (row3) opens W from the eye gate; the torch_door
+# is INTERIOR, just inside the S exit (cols 4-5 of row6).
+SCREEN 19 0 ed_eye
+xxxxxxxxxx
+xffffffffx
+xtfffffftx
+ffffffffff
+xffffffffx
+xffffffffx
+xxxxMMxxxx
+xxxxffxxxx
+E cinder_hound 5 4
+
+# Mantle vault (SUB-BOSS + the EMBER MANTLE): the EMBERFANG (a big cinder-hound)
+# guards the cache. Beat it, take the EMBER MANTLE (I), then cross the LAVA ring
+# in the E pocket with the mantle you just won to reach the BOSS KEY (I) --
+# tutorialized right where you get the cloak. Top edge (cols 4-5) opens N from
+# the sconce hall; left edge (row3) opens W to the standoff.
+SCREEN 19 1 ed_mantle
+xxxxffxxxx
+xffffffffx
+xfffflllfx
+ffffflflfx
+xfffflllfx
+xffffffffx
+xffffffffx
+xxxxxxxxxx
+I ember_mantle 2 6
+I boss_key 6 3
+E emberfang 2 1
+E cinder_hound 3 6
+
+# Block-on-plate (COMBINE block + plate): the gate-7 plate_door (m) walls off the
+# S passage. Shove the BLOCK (O block) S two tiles onto the momentary plate (p)
+# so its weight holds the door open while you slip S past it. W side sealed (no
+# shortcut to the entry). Right edge (row3) opens E from the mantle vault.
+SCREEN 18 1 ed_plate
+xxxxxxxxxx
+xffffffffx
+xffffffffx
+xfffffffff
+xfpffffffx
+xffffffffx
+xxxxmmxxxx
+xxxxffxxxx
+O block 2 2
+
+# Lava flow (BACK HALF, lava-gated): a full-height LAVA (l) channel splits the
+# room; only the EMBER MANTLE lets you cross to the E half. Enter from the N
+# (cols 4-5) into the WEST half. The E exit (row3) to the boss lies past the lava.
+SCREEN 18 2 ed_flow
+xxxxffxxxx
+xffffflffx
+xffffflffx
+fffffflfff
+xffffflffx
+xffffflffx
+xffffflffx
+xxxxxxxxxx
+E magma_sentinel 2 5
+
+# Ashen vault (OPTIONAL reward, lava-gated): a LAVA (l) ring seals the cache.
+# Cross it with the EMBER MANTLE for a HEARTY ROAST. Top edge (cols 4-5) opens N
+# back to the entry. No other exit (a dead-end optional pocket).
+SCREEN 17 2 ed_vault
+xxxxffxxxx
+xffffffffx
+xfflllllfx
+xfflfffflx
+xfflfffflx
+xfflllllfx
+xffffffffx
+xxxxxxxxxx
+I hearty_roast 5 4
+
+# Boss arena (PYRA, the MAGMAHEART): cross the interior BOSS DOOR (K, needs the
+# boss key from the mantle vault) into the magmaheart's lair. Beating it grants a
+# HEART CONTAINER (automatic) and its hoard. The < stairs warp back out to the
+# Frostspire boss room. Left edge (row3) opens W from the lava flow.
+SCREEN 19 2 ed_boss
 xxxxxxxxxx
 xffffffffx
 xffffffffx
@@ -801,5 +981,5 @@ xffffffffx
 xffffffffx
 xffffffffx
 xxxxxxxxxx
-E glace 5 4
-W 6 3 4 -1 80 40
+E pyra 5 4
+W 6 3 16 2 80 56
