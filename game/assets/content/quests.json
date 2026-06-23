@@ -102,5 +102,20 @@
     ],
     "objectives": [{ "type": "kill", "target": "hollow_stag", "count": 1 }],
     "rewards": { "shells": 60, "items": [{ "item": "brackling_fang", "qty": 1 }] }
+  },
+  {
+    "id": "clear_the_spans",
+    "giver": "sylveri_glider",
+    "title": "CLEAR THE SPANS",
+    "offer": [
+      ["SKY LURKERS NEST IN", "THE BROKEN SPANS AND", "PICK OFF OUR GLIDERS."],
+      ["CULL FOUR OF THEM", "AND WARDEN AELU WILL", "OPEN THE OLD CACHE."]
+    ],
+    "incomplete": [["THE LURKERS STILL", "WHEEL OVER THE", "GULFS. THIN THEM."]],
+    "complete": [
+      ["THE WINDS ARE", "QUIETER NOW. TAKE", "THIS, SKY-WALKER."]
+    ],
+    "objectives": [{ "type": "kill", "target": "sky_lurker", "count": 4 }],
+    "rewards": { "shells": 90, "items": [{ "item": "hearty_roast", "qty": 2 }] }
   }
 ]

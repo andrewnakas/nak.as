@@ -22,4 +22,7 @@ export const PALETTES = {
   cloth: ['#241820', '#5e3a44', '#9c6470', '#d3a3a8'],
   // molten depths: charred basalt -> deep ember -> glowing magma -> bright crest
   magma: ['#1a0d0a', '#5e2415', '#b5481c', '#ecae4a'],
+  // windswept sky-ruins: a void chasm fading from near-black up through dusty
+  // twilight violet to a pale, wind-bleached blue-white (the open air / cloud).
+  sky: ['#0d1018', '#39324f', '#6c7aa3', '#cdd9ec'],
 };

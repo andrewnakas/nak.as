@@ -281,5 +281,38 @@
     "big": true,
     "summons": "cinder_hound",
     "combat_xp": 360
+  },
+  {
+    "name": "sky_lurker",
+    "brain": "charger",
+    "hp": 6,
+    "damage": 2,
+    "speed": 112,
+    "sprite": "sky_lurker_0",
+    "drops": "sky_lurker",
+    "combat_xp": 38
+  },
+  {
+    "name": "riftwing",
+    "brain": "charger",
+    "hp": 10,
+    "damage": 2,
+    "speed": 116,
+    "sprite": "sky_lurker_0",
+    "drops": "sky_lurker",
+    "big": true,
+    "combat_xp": 110
+  },
+  {
+    "name": "gale_wraith",
+    "brain": "boss",
+    "hp": 50,
+    "damage": 3,
+    "speed": 128,
+    "sprite": "gale_wraith_0",
+    "drops": "gale_wraith",
+    "big": true,
+    "summons": "sky_lurker",
+    "combat_xp": 400
   }
 ]

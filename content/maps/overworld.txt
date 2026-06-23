@@ -49,6 +49,7 @@ O hole
 N bridge
 Z frost_wall
 l lava
+G chasm
 < stairs_up
 > stairs_down
 
@@ -972,7 +973,186 @@ I hearty_roast 5 4
 # boss key from the mantle vault) into the magmaheart's lair. Beating it grants a
 # HEART CONTAINER (automatic) and its hoard. The < stairs warp back out to the
 # Frostspire boss room. Left edge (row3) opens W from the lava flow.
+# ASCENT TO THE RIFTSPANS: a LAVA (l) seam in the SE corner (col8 row5) opens a
+# vent that erupts up into the sky-ruins. Only the EMBER MANTLE (won here in
+# Emberdeep) lets you stand on the molten seam; stepping onto it WARPS you up into
+# Skyhollow(20,1). So the Riftspans are unreachable without the ember mantle ->
+# the chain is dungeon4 -> EMBER MANTLE -> ride the vent -> Riftspans -> GALE HOOK.
 SCREEN 19 2 ed_boss
+xxxxxxxxxx
+xffffffffx
+xffffffffx
+fKffff<ffx
+xffffffffx
+xffffffflx
+xffffffffx
+xxxxxxxxxx
+E pyra 5 4
+W 6 3 16 2 80 56
+W 8 5 20 1 48 56
+
+# ===== SKYHOLLOW (dungeon 5; THE RIFTSPANS, reward = the GALE HOOK) =====
+# A windswept sky-ruin of broken bridges over bottomless CHASMS, reached FROM the
+# Emberdeep boss room: a LAVA seam behind PYRA's lair erupts up into the spans —
+# only the EMBER MANTLE lets you ride the molten vent. Chain: dungeon4 -> EMBER
+# MANTLE -> ride the vent -> Skyhollow -> GALE HOOK. Theme = sky/chasm contrast
+# to the molten deep. New RACE = the SYLVERI (sky-ruin wind-folk).
+# Mechanic (distinct from Frostspire ice-slide + Emberdeep lava): CHASM-crossing
+# with the GALE HOOK (mirrors surfboard/water, axes/frost_wall, mantle/lava) plus
+# a block->hole gap-bridge, an EYE-TARGET shot, a TORCH SET and a BLOCK-ON-PLATE
+# door. Off-grid cluster (sx 20-22, sy 0-2):
+#   sw_gap(20,0)  --- sw_bridge(21,0) -- sw_eye(22,0)
+#   sw_entry(20,1)    sw_plate(21,1) --- sw_hook(22,1)
+#   sw_vault(20,2)    sw_flow(21,2)  --- sw_boss(22,2)
+# CRITICAL PATH:
+#   entry(20,1) >N gap(20,0)   [TEACH block->hole gap-bridge: shove the BLOCK into
+#     the HOLE (O) gapping a broken span -> a BRIDGE to the E exit]
+#   >E bridge(21,0)  [TEACH eye-target: an EYE_TARGET (@) wall gaps a divider;
+#     shoot it (arrow) / blast / fire-swing -> the gate-8 group opens]
+#   >E eye(22,0)  [TEACH torch set: light BOTH unlit torches (t) -> the gate-10
+#     torch_door (M) sealing the S passage drops]
+#   >S hook(22,1)  [SUB-BOSS riftwing guards the GALE HOOK (I) and a CHASM-ringed
+#     pocket holding the BOSS KEY -- the hook you just took grapples the gulf to
+#     reach it (tutorialized right where you get it)]
+#   >W plate(21,1)  [COMBINE block + plate: shove the BLOCK S onto the momentary
+#     plate (p) so its weight holds the gate-7 plate_door (m) open while you slip
+#     S through it]
+#   >S flow(21,2)  [BACK HALF, chasm-gated: a full CHASM (G) gulf splits the room;
+#     only the GALE HOOK grapples across to the E exit]
+#   >E boss(22,2)  [interior BOSS DOOR (K) -> the boss GALE WRAITH, the SKYBREAKER].
+# OPTIONAL: entry(20,1) >S vault(20,2)  [a CHASM-ringed cache: HEARTY ROAST].
+# All gate tiles (O,@,t,M,p,m,K) and chasm gulfs are INTERIOR only; every
+# screen-transition edge stays walkable.
+
+# Entry terrace: you erupt up from the Emberdeep vent (the warp lands mid-room,
+# tile 3,3). Four SYLVERI keep the threshold (warden + tinker shop + glider quest
+# + a second glider). Top edge (cols 4-5) opens N into the spans; bottom edge
+# (cols 4-5) opens S to the optional vault. The E/W sides are sheer rock.
+SCREEN 20 1 sw_entry
+xxxxffxxxx
+xffffffffx
+xffffffffx
+xffffffffx
+xffffffffx
+xffffffffx
+xffffffffx
+xxxxffxxxx
+N sylveri_warden 2 2
+N sylveri_tinker 7 2
+N sylveri_glider 6 5
+
+# Broken span (TEACH block->hole gap-bridge): a rock divider (r) at col5 walls off
+# the E half; its only gap is a HOLE (O) at row3 over the void. A BLOCK (O block)
+# sits W of it; shove it E across the floor into the hole -> it fills to a BRIDGE
+# you cross. Bottom edge (col4) opens S to the entry; right edge (row3) opens E to
+# the eye gate.
+SCREEN 20 0 sw_gap
+xxxxxxxxxx
+xffffrfffx
+xffffrfffx
+fffffOffff
+xffffrfffx
+xffffrfffx
+xffffrfffx
+xxxxffxxxx
+O block 2 3
+
+# Wind gate (TEACH eye-target): a rock divider (r) at col4 walls off the E half;
+# its only gap is an EYE_TARGET (@) at row3. Shoot it (arrow), blast it, or
+# fire-swing it to open the gate-8 group -> the gap clears. Left edge (row3) opens
+# W from the span; right edge (row3) opens E to the torch hall.
+SCREEN 21 0 sw_bridge
+xxxxxxxxxx
+xfffrffffx
+xfffrffffx
+ffff@fffff
+xfffrffffx
+xfffrffffx
+xfffrffffx
+xxxxxxxxxx
+
+# Sconce hall (TEACH torch set): two unlit torches (t) flank the chamber. Light
+# BOTH (bomb blast or fire-fused swing) and the gate-10 torch_door (M) sealing the
+# S passage drops. Left edge (row3) opens W from the wind gate; the torch_door is
+# INTERIOR, just inside the S exit (cols 4-5 of row6).
+SCREEN 22 0 sw_eye
+xxxxxxxxxx
+xffffffffx
+xtfffffftx
+ffffffffff
+xffffffffx
+xffffffffx
+xxxxMMxxxx
+xxxxffxxxx
+E sky_lurker 5 4
+
+# Hook vault (SUB-BOSS + the GALE HOOK): the RIFTWING (a big sky lurker) guards
+# the cache. Beat it, take the GALE HOOK (I), then grapple the CHASM ring in the E
+# pocket with the hook you just won to reach the BOSS KEY (I) -- tutorialized
+# right where you get the grapple. Top edge (cols 4-5) opens N from the sconce
+# hall; left edge (row3) opens W to the standoff.
+SCREEN 22 1 sw_hook
+xxxxffxxxx
+xffffffffx
+xffffGGGfx
+fffffGfGfx
+xffffGGGfx
+xffffffffx
+xffffffffx
+xxxxxxxxxx
+I gale_hook 2 6
+I boss_key 6 3
+E riftwing 2 1
+E sky_lurker 3 6
+
+# Block-on-plate (COMBINE block + plate): the gate-7 plate_door (m) walls off the
+# S passage. Shove the BLOCK (O block) S two tiles onto the momentary plate (p) so
+# its weight holds the door open while you slip S past it. W side sealed (no
+# shortcut to the entry). Right edge (row3) opens E from the hook vault.
+SCREEN 21 1 sw_plate
+xxxxxxxxxx
+xffffffffx
+xffffffffx
+xfffffffff
+xfpffffffx
+xffffffffx
+xxxxmmxxxx
+xxxxffxxxx
+O block 2 2
+
+# Skybridge (BACK HALF, chasm-gated): a full-height CHASM (G) gulf splits the
+# room; only the GALE HOOK grapples across to the E half. Enter from the N (cols
+# 4-5) into the WEST half. The E exit (row3) to the boss lies past the gulf.
+SCREEN 21 2 sw_flow
+xxxxffxxxx
+xfffffGffx
+xfffffGffx
+ffffffGfff
+xfffffGffx
+xfffffGffx
+xfffffGffx
+xxxxxxxxxx
+E sky_lurker 2 5
+
+# Hollow vault (OPTIONAL reward, chasm-gated): a CHASM (G) ring seals the cache.
+# Grapple it with the GALE HOOK for a HEARTY ROAST. Top edge (cols 4-5) opens N
+# back to the entry. No other exit (a dead-end optional pocket).
+SCREEN 20 2 sw_vault
+xxxxffxxxx
+xffffffffx
+xffGGGGGfx
+xffGfffGfx
+xffGfffGfx
+xffGGGGGfx
+xffffffffx
+xxxxxxxxxx
+I hearty_roast 5 4
+
+# Boss arena (GALE WRAITH, the SKYBREAKER): cross the interior BOSS DOOR (K, needs
+# the boss key from the hook vault) into the cyclone's eye. Beating it grants a
+# HEART CONTAINER (automatic) and its hoard. The < stairs warp back out to the
+# Emberdeep boss room. Left edge (row3) opens W from the skybridge.
+SCREEN 22 2 sw_boss
 xxxxxxxxxx
 xffffffffx
 xffffffffx
@@ -981,5 +1161,5 @@ xffffffffx
 xffffffffx
 xffffffffx
 xxxxxxxxxx
-E pyra 5 4
-W 6 3 16 2 80 56
+E gale_wraith 5 4
+W 6 3 19 2 80 56

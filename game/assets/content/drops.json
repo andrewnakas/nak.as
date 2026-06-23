@@ -157,5 +157,18 @@
     { "item": "iron_sword", "p": 1000 },
     { "item": "hearty_roast", "p": 1000 },
     { "item": "ember_cap", "p": 1000 }
+  ],
+  "sky_lurker": [
+    { "item": "heart", "p": 300 },
+    { "item": "shells", "p": 850, "min": 4, "max": 8 },
+    { "item": "hearty_roast", "p": 200 },
+    { "item": "brackling_fang", "p": 250 }
+  ],
+  "gale_wraith": [
+    { "item": "heart", "p": 1000 },
+    { "item": "shells", "p": 1000, "min": 120, "max": 180 },
+    { "item": "iron_sword", "p": 1000 },
+    { "item": "iron_shield", "p": 1000 },
+    { "item": "wraith_plume", "p": 1000 }
   ]
 }

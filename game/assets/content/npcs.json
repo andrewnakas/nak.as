@@ -182,5 +182,39 @@
       ["WHAT THE MANTLE", "OPENS HERE, IT WILL", "OPEN ELSEWHERE —", "WHEREVER LAVA RUNS."],
       ["THERE ARE FLOWS", "BEYOND THE DEEP,", "ASHWALKER. THE CLOAK", "IS A KEY, NOT A COAT."]
     ]
+  },
+  {
+    "name": "sylveri_warden",
+    "label": "WARDEN AELU",
+    "sprite": "npc_elder",
+    "lines": [
+      ["YOU RODE THE EMBER", "UP THROUGH THE FLOW?", "THEN THE WINDS NAMED", "YOU. WELCOME, WALKER."],
+      ["WE SYLVERI BUILT", "THESE SPANS WHEN THE", "SKY WAS WHOLE. NOW", "ONLY THE GAPS REMAIN."],
+      ["THE GULFS HAVE NO", "BOTTOM. WITHOUT THE", "GALE HOOK, A MISSTEP", "IS A LONG, LONG FALL."]
+    ]
+  },
+  {
+    "name": "sylveri_tinker",
+    "label": "TINKER VESP",
+    "sprite": "npc_b",
+    "lines": [
+      ["DEEP IN SKYHOLLOW", "HANGS THE GALE HOOK —", "OUR OLD GRAPPLE. IT", "BITES ANY FAR LEDGE."],
+      ["THE WRAITH GUARDS", "THE HEART OF THE", "RUIN. IT SUMMONS THE", "LURKERS ON THE WIND."]
+    ],
+    "shop": [
+      { "item": "hearty_roast", "price": 28 },
+      { "item": "arrow", "price": 8, "qty": 5 },
+      { "item": "bomb", "price": 12, "qty": 3 },
+      { "item": "iron_shield", "price": 90 }
+    ]
+  },
+  {
+    "name": "sylveri_glider",
+    "label": "GLIDER NISS",
+    "sprite": "npc_a",
+    "lines": [
+      ["ONCE YOU HOLD THE", "HOOK, NO GULF CAN", "STOP YOU — NOT HERE,", "NOT BEYOND."],
+      ["THERE IS A DROWNED", "PLACE PAST THE EDGE", "OF THE WINDS. THE", "HOOK WILL CARRY YOU."]
+    ]
   }
 ]

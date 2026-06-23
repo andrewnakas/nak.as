@@ -108,6 +108,13 @@
     "durability": 9999
   },
   {
+    "name": "gale_hook",
+    "label": "GALE HOOK",
+    "sprite": "itm_galehook",
+    "kind": "rod",
+    "durability": 9999
+  },
+  {
     "name": "raw_perch",
     "label": "RAW PERCH",
     "sprite": "itm_fish",
@@ -283,5 +290,13 @@
     "kind": "bodypart",
     "attach_effect": "speed",
     "attach_mag": 96
+  },
+  {
+    "name": "wraith_plume",
+    "label": "WRAITH PLUME",
+    "sprite": "part_wing",
+    "kind": "bodypart",
+    "attach_effect": "speed",
+    "attach_mag": 160
   }
 ]

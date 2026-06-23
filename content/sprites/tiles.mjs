@@ -612,4 +612,29 @@ export const TILES = [
       return 2; // molten body
     }),
   },
+  {
+    // Chasm (chasm:true, solid): a bottomless sky gap between broken bridges.
+    // Solid (impassable) until the player OWNS the GALE HOOK — then they grapple
+    // across, exactly mirroring surfboard/water, ice-axes/frost_wall and
+    // ember-mantle/lava gating. Drawn as a dark void with faint drifting motes,
+    // a worn stone lip along the top edge so it reads as a sheer drop.
+    name: 'chasm',
+    palette: 'sky',
+    solid: true,
+    chasm: true,
+    grid: grid((x, y) => {
+      // a crumbled stone lip across the top two rows (the brink you'd fall from)
+      if (y <= 1) {
+        if ((x + y) % 3 === 0) return 1; // shadowed brink stones
+        return hash(x, y, 61) < 300 ? 2 : 1;
+      }
+      // the void below: a few faint dust motes / far cloud glints drift in the
+      // gulf, otherwise near-black.
+      const mote = (x * 5 + y * 3) % 23 === 0 && y >= 3 && y <= 12;
+      if (mote) return 2;
+      const wisp = (x - y + 16) % 11 === 0 && y >= 4;
+      if (wisp) return 1;
+      return 0; // void
+    }),
+  },
 ];

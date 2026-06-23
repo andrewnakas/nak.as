@@ -1077,6 +1077,40 @@ export const SPRITES = [
     }),
   },
 
+  {
+    // Inventory icon: the GALE HOOK — a windborne grappling hook. A three-prong
+    // claw at the top trailing a taut line down to a wooden grip, drawn on the
+    // sky palette (cool slate metal, pale wind-bleached glints).
+    name: 'itm_galehook',
+    palette: 'sky',
+    grid: grid((x, y) => {
+      // the trailing line: a vertical cord down the centre
+      if (Math.abs(x - 7.5) < 0.7 && y >= 6 && y <= 12) return 2;
+      // three curved prongs fanning up from a shank at the top
+      if (y <= 6) {
+        // central shank
+        if (Math.abs(x - 7.5) < 0.7 && y >= 4) return 3;
+        // outer prongs curl outward then hook back up
+        const onProng = (cx, sign) => {
+          // a short diagonal arm from the shank top, then a hook tip
+          const arm = Math.abs(x - (7.5 + sign * (6 - y))) <= 0 && y >= 2 && y <= 5;
+          const tip = y <= 2 && Math.abs(x - cx) <= 0 && y >= 0;
+          return arm || tip;
+        };
+        if (onProng(2, -1) || onProng(13, 1)) return 3;
+        // inner barbs
+        if (y === 3 && (x === 5 || x === 10)) return 2;
+      }
+      // wooden grip knob at the bottom
+      if (y >= 12 && y <= 14) {
+        if (Math.abs(x - 7.5) <= 1.5 && Math.hypot(x - 7.5, y - 13) < 2.2) {
+          return Math.hypot(x - 7.5, y - 13) > 1.6 ? 1 : 2;
+        }
+      }
+      return '.';
+    }),
+  },
+
   // ---- surfboard + waves ----
   {
     // Inventory icon: a longboard seen from above.
@@ -1179,7 +1213,80 @@ export const SPRITES = [
   // PYRA, the MAGMAHEART: the Emberdeep boss. A 32x32 quadrant (mirrored x/y) —
   // a roiling core of molten rock with a blazing crack down its centre.
   ...pyraFrames('pyra', 'magma'),
+
+  // ---- sky foes (Skyhollow; the Riftspans chasm zone) ----
+  // SKY LURKER: a tattered windborne wraith-kite that drifts and lunges. Two
+  // frames flap its ragged sail-wings. Sky palette = pale, ghostly air.
+  ...skyLurkerFrames('sky_lurker', 'sky'),
+  // GALE WRAITH, the SKYBREAKER: the Skyhollow boss. A 32x32 quadrant (mirrored
+  // x/y) — a roaring cyclone with a single staring eye at its calm core.
+  ...galeWraithFrames('gale_wraith', 'sky'),
 ];
+
+// Two frames for the sky lurker: a ragged airborne predator. A small hooded
+// core trailing two tattered sail-wings that flap between frames.
+function skyLurkerFrames(name, palette) {
+  const body = (flap) =>
+    grid((x, y) => {
+      // hooded core: a small dark cowl high-centre with a pale glint of an eye
+      const hd = Math.hypot(x - 7.5, y - 6);
+      if (hd < 3.0) {
+        if (hd > 2.2) return 0; // dark cowl rim
+        if (y === 6 && (x === 6 || x === 9)) return 3; // pale eyes
+        return 1;
+      }
+      // two tattered sail-wings sweeping out to the sides; flap raises/lowers
+      // their outer tips between frames.
+      const tip = flap ? 4 : 7; // wing-tip row
+      const onWing = (sign) => {
+        const wx = x - 7.5;
+        if (Math.sign(wx) !== sign) return false;
+        const span = Math.abs(wx);
+        if (span < 2 || span > 7) return false;
+        // a triangular sail trailing back/down from the core
+        const top = 5 + (span - 2) * 0.4;
+        const bot = tip + (span - 2) * 0.9;
+        return y >= top && y <= bot;
+      };
+      if (onWing(-1) || onWing(1)) {
+        // ragged trailing edge: dark fringe, pale body
+        return (x + y) % 4 === 0 ? 0 : (x + y) % 2 === 0 ? 2 : 1;
+      }
+      // a wispy tail streaming down from the core
+      if (Math.abs(x - 7.5) < 0.7 && y >= 9 && y <= 13) return ((y + flap) % 2 === 0) ? 2 : 1;
+      return '.';
+    });
+  return [
+    { name: `${name}_0`, palette, grid: body(0) },
+    { name: `${name}_1`, palette, grid: body(1) },
+  ];
+}
+
+// Two frames for GALE WRAITH (a 32x32 quadrant, mirrored x/y at render). A
+// spiralling cyclone of wind with a single calm eye at its core; the spiral
+// arms rotate one notch between frames.
+function galeWraithFrames(name, palette) {
+  const body = (phase) =>
+    grid((x, y) => {
+      const d = Math.hypot(15 - x, 15 - y);
+      if (d > 14.5) return '.';
+      if (d > 13) return 0; // dark outer churn
+      // a calm staring eye at the very core
+      if (d < 3) return 3;
+      if (d < 4) return 0; // dark iris ring
+      // spiral wind-bands: brightness follows angle + radius + phase so the
+      // arms appear to rotate between the two frames.
+      const ang = Math.atan2(15 - y, 15 - x);
+      const band = (((ang * 3 + d * 0.7) | 0) + phase) % 3;
+      if (band === 0) return 3; // bright gust streak
+      if (band === 1) return 2; // mid air
+      return 1; // shadowed trough
+    });
+  return [
+    { name: `${name}_0`, palette, grid: body(0) },
+    { name: `${name}_1`, palette, grid: body(1) },
+  ];
+}
 
 // Two frames for the cinder hound: a low burning quadruped that rushes.
 function cinderHoundFrames(name, palette) {
