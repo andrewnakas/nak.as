@@ -312,6 +312,38 @@ fn has_tide_charm(defs: &Defs, p: &Player) -> bool {
     p.inventory.iter().any(|s| s.def == charm)
 }
 
+/// The set of special-terrain gates the player has unlocked. Each field, when
+/// true, makes the corresponding tile flavor passable in `effective_solid`:
+/// `water` (surfboard), `climb` (climb claws), `axes` (ice axes -> frost),
+/// `lava` (ember mantle), `chasm` (gale hook), `murk` (tide charm). Computed
+/// once per call site from the player's inventory via `Traversal::for_player`,
+/// then threaded as a single value. `default()` (all false) means "no gates" —
+/// used where loot must land on plain solid ground (water/lava stay impassable).
+#[derive(Clone, Copy, Default)]
+struct Traversal {
+    water: bool,
+    climb: bool,
+    axes: bool,
+    lava: bool,
+    chasm: bool,
+    murk: bool,
+}
+
+impl Traversal {
+    /// Build the gate set from what the player currently owns (no equip needed —
+    /// owning the item is enough; see the `has_*` helpers).
+    fn for_player(defs: &Defs, p: &Player) -> Self {
+        Traversal {
+            water: has_surfboard(defs, p),
+            climb: has_climb_claws(defs, p),
+            axes: has_ice_axes(defs, p),
+            lava: has_ember_mantle(defs, p),
+            chasm: has_gale_hook(defs, p),
+            murk: has_tide_charm(defs, p),
+        }
+    }
+}
+
 #[derive(Deserialize)]
 struct Bundle {
     world: WorldJson,
@@ -688,44 +720,38 @@ impl Sim {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn effective_solid(
         &self,
         screen: &world::Screen,
         px: i32,
         py: i32,
-        water_ok: bool,
-        climb_ok: bool,
-        axes_ok: bool,
-        lava_ok: bool,
-        chasm_ok: bool,
-        murk_ok: bool,
+        t: Traversal,
     ) -> bool {
         let tx = px.div_euclid(16);
         let ty = (py - HUD_H).div_euclid(16);
         if (0..world::SCREEN_COLS).contains(&tx) && (0..world::SCREEN_ROWS).contains(&ty) {
             let idx = ty * world::SCREEN_COLS + tx;
             let static_tile = screen.tiles[idx as usize];
-            let t = self.effective_tile(screen.x, screen.y, idx, static_tile);
-            let base_solid = self.world.tile_solid.get(t as usize).copied().unwrap_or(true);
-            let water = self.world.tile_water.get(t as usize).copied().unwrap_or(false);
-            let cliff = self.world.tile_cliff.get(t as usize).copied().unwrap_or(false);
-            let frost = self.world.tile_frost.get(t as usize).copied().unwrap_or(false);
-            let lava = self.world.tile_lava.get(t as usize).copied().unwrap_or(false);
-            let chasm = self.world.tile_chasm.get(t as usize).copied().unwrap_or(false);
-            let murk = self.world.tile_murk.get(t as usize).copied().unwrap_or(false);
+            let tile = self.effective_tile(screen.x, screen.y, idx, static_tile);
+            let base_solid = self.world.tile_solid.get(tile as usize).copied().unwrap_or(true);
+            let water = self.world.tile_water.get(tile as usize).copied().unwrap_or(false);
+            let cliff = self.world.tile_cliff.get(tile as usize).copied().unwrap_or(false);
+            let frost = self.world.tile_frost.get(tile as usize).copied().unwrap_or(false);
+            let lava = self.world.tile_lava.get(tile as usize).copied().unwrap_or(false);
+            let chasm = self.world.tile_chasm.get(tile as usize).copied().unwrap_or(false);
+            let murk = self.world.tile_murk.get(tile as usize).copied().unwrap_or(false);
             // A hole is non-solid (so a pushed block can be driven into it and
             // consumed), but it blocks the PLAYER: a plain pit is impassable on
             // foot — no fall-death softlocks (v1). Filling it makes a `bridge`.
-            let hole = self.world.tile_hole.get(t as usize).copied().unwrap_or(false);
+            let hole = self.world.tile_hole.get(tile as usize).copied().unwrap_or(false);
             let solid = base_solid || hole;
             return solid
-                && !(water_ok && water)
-                && !(climb_ok && cliff)
-                && !(axes_ok && frost)
-                && !(lava_ok && lava)
-                && !(chasm_ok && chasm)
-                && !(murk_ok && murk);
+                && !(t.water && water)
+                && !(t.climb && cliff)
+                && !(t.axes && frost)
+                && !(t.lava && lava)
+                && !(t.chasm && chasm)
+                && !(t.murk && murk);
         }
         self.world.is_solid(screen, px, py)
     }
@@ -1535,19 +1561,14 @@ impl Sim {
         // Knockback dominates while strong.
         if pl.kvx != 0 || pl.kvy != 0 {
             let screen = self.world.screen_at(pl.sx, pl.sy);
-            let water_ok = has_surfboard(&self.defs, &pl);
-            let climb_ok = has_climb_claws(&self.defs, &pl);
-            let axes_ok = has_ice_axes(&self.defs, &pl);
-            let lava_ok = has_ember_mantle(&self.defs, &pl);
-            let chasm_ok = has_gale_hook(&self.defs, &pl);
-            let murk_ok = has_tide_charm(&self.defs, &pl);
+            let t = Traversal::for_player(&self.defs, &pl);
             if let Some(screen) = screen {
                 let nx = pl.x + pl.kvx;
-                if self.feet_clear(screen, nx, pl.y, water_ok, climb_ok, axes_ok, lava_ok, chasm_ok, murk_ok) {
+                if self.feet_clear(screen, nx, pl.y, t) {
                     pl.x = nx.clamp(MIN_X, MAX_X);
                 }
                 let ny = pl.y + pl.kvy;
-                if self.feet_clear(screen, pl.x, ny, water_ok, climb_ok, axes_ok, lava_ok, chasm_ok, murk_ok) {
+                if self.feet_clear(screen, pl.x, ny, t) {
                     pl.y = ny.clamp(MIN_Y, MAX_Y);
                 }
             }
@@ -1765,14 +1786,9 @@ impl Sim {
         // Climbing: with the claws owned you can scale cliff tiles. Flavor flag
         // (anim) only; the traversal itself is gated below in feet_clear.
         let claws = has_climb_claws(&self.defs, &pl);
-        // Ice axes own = frost_wall tiles passable (gated in feet_clear below).
-        let axes = has_ice_axes(&self.defs, &pl);
-        // Ember mantle own = lava tiles passable (gated in feet_clear below).
-        let mantle = has_ember_mantle(&self.defs, &pl);
-        // Gale hook own = chasm tiles passable (gated in feet_clear below).
-        let hook = has_gale_hook(&self.defs, &pl);
-        // Tide charm own = murk tiles passable (gated in feet_clear below).
-        let charm = has_tide_charm(&self.defs, &pl);
+        // All terrain gates (water/climb/frost/lava/chasm/murk) for this move,
+        // computed once from the inventory and threaded into feet_clear below.
+        let t = Traversal::for_player(&self.defs, &pl);
         let on_cliff = self
             .world
             .screen_at(pl.sx, pl.sy)
@@ -1887,7 +1903,7 @@ impl Sim {
         let (px0, py0) = (pl.x, pl.y);
         if dx != 0 {
             let nx = pl.x + dx;
-            if self.feet_clear(screen, nx, pl.y, board, claws, axes, mantle, hook, charm)
+            if self.feet_clear(screen, nx, pl.y, t)
                 && !self.feet_hit_block(pl.sx, pl.sy, nx, pl.y)
             {
                 pl.x = nx;
@@ -1895,7 +1911,7 @@ impl Sim {
         }
         if dy != 0 {
             let ny = pl.y + dy;
-            if self.feet_clear(screen, pl.x, ny, board, claws, axes, mantle, hook, charm)
+            if self.feet_clear(screen, pl.x, ny, t)
                 && !self.feet_hit_block(pl.sx, pl.sy, pl.x, ny)
             {
                 pl.y = ny;
@@ -1938,7 +1954,7 @@ impl Sim {
             };
             // Only cross if the landing spot is walkable — walking off an
             // open edge into a rock on the neighbor screen would trap you.
-            let clear = dest.is_some_and(|s| self.feet_clear_on(s, dx_, dy_, board, claws, axes, mantle, hook, charm));
+            let clear = dest.is_some_and(|s| self.feet_clear_on(s, dx_, dy_, t));
             if clear {
                 pl.sx = nsx;
                 pl.sy = nsy;
@@ -1954,8 +1970,8 @@ impl Sim {
         // Belt and braces: if anything still left us inside a wall (bad
         // warp target, old save), slide to the nearest clear spot.
         if let Some(screen) = self.world.screen_at(pl.sx, pl.sy) {
-            if !self.feet_clear_on(screen, pl.x, pl.y, board, claws, axes, mantle, hook, charm) {
-                if let Some((ux, uy)) = self.find_clear_near(screen, pl.x, pl.y, board, claws, axes, mantle, hook, charm) {
+            if !self.feet_clear_on(screen, pl.x, pl.y, t) {
+                if let Some((ux, uy)) = self.find_clear_near(screen, pl.x, pl.y, t) {
                     pl.x = ux;
                     pl.y = uy;
                 }
@@ -2869,8 +2885,8 @@ impl Sim {
         let x = x.clamp(MIN_X, MAX_X);
         let y = y.clamp(MIN_Y, MAX_Y);
         if let Some(screen) = self.world.screen_at(sx, sy) {
-            if !self.feet_clear_on(screen, x, y, false, false, false, false, false, false) {
-                if let Some((cx, cy)) = self.find_clear_near(screen, x, y, false, false, false, false, false, false) {
+            if !self.feet_clear_on(screen, x, y, Traversal::default()) {
+                if let Some((cx, cy)) = self.find_clear_near(screen, x, y, Traversal::default()) {
                     return (cx, cy);
                 }
             }
@@ -2914,20 +2930,14 @@ impl Sim {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn feet_clear(
         &self,
         screen: &world::Screen,
         x: Fx,
         y: Fx,
-        water_ok: bool,
-        climb_ok: bool,
-        axes_ok: bool,
-        lava_ok: bool,
-        chasm_ok: bool,
-        murk_ok: bool,
+        t: Traversal,
     ) -> bool {
-        self.feet_clear_on(screen, x, y, water_ok, climb_ok, axes_ok, lava_ok, chasm_ok, murk_ok)
+        self.feet_clear_on(screen, x, y, t)
     }
 
     /// True if the tile under this pixel (respecting one-way overrides) is a
@@ -2957,40 +2967,28 @@ impl Sim {
         self.world.tile_water.get(t as usize).copied().unwrap_or(false)
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn feet_clear_on(
         &self,
         screen: &world::Screen,
         x: Fx,
         y: Fx,
-        water_ok: bool,
-        climb_ok: bool,
-        axes_ok: bool,
-        lava_ok: bool,
-        chasm_ok: bool,
-        murk_ok: bool,
+        t: Traversal,
     ) -> bool {
         let px = to_px(x);
         let py = to_px(y);
-        !(self.effective_solid(screen, px + FEET_X0, py + FEET_Y0, water_ok, climb_ok, axes_ok, lava_ok, chasm_ok, murk_ok)
-            || self.effective_solid(screen, px + FEET_X1, py + FEET_Y0, water_ok, climb_ok, axes_ok, lava_ok, chasm_ok, murk_ok)
-            || self.effective_solid(screen, px + FEET_X0, py + FEET_Y1, water_ok, climb_ok, axes_ok, lava_ok, chasm_ok, murk_ok)
-            || self.effective_solid(screen, px + FEET_X1, py + FEET_Y1, water_ok, climb_ok, axes_ok, lava_ok, chasm_ok, murk_ok))
+        !(self.effective_solid(screen, px + FEET_X0, py + FEET_Y0, t)
+            || self.effective_solid(screen, px + FEET_X1, py + FEET_Y0, t)
+            || self.effective_solid(screen, px + FEET_X0, py + FEET_Y1, t)
+            || self.effective_solid(screen, px + FEET_X1, py + FEET_Y1, t))
     }
 
     /// Nearest walkable position to (x, y), searched in growing rings.
-    #[allow(clippy::too_many_arguments)]
     fn find_clear_near(
         &self,
         screen: &world::Screen,
         x: Fx,
         y: Fx,
-        water_ok: bool,
-        climb_ok: bool,
-        axes_ok: bool,
-        lava_ok: bool,
-        chasm_ok: bool,
-        murk_ok: bool,
+        t: Traversal,
     ) -> Option<(Fx, Fx)> {
         for r in 1..=10 {
             let step = fx(4) * r;
@@ -3000,7 +2998,7 @@ impl Sim {
             ] {
                 let nx = (x + ddx * step).clamp(MIN_X, MAX_X);
                 let ny = (y + ddy * step).clamp(MIN_Y, MAX_Y);
-                if self.feet_clear_on(screen, nx, ny, water_ok, climb_ok, axes_ok, lava_ok, chasm_ok, murk_ok) {
+                if self.feet_clear_on(screen, nx, ny, t) {
                     return Some((nx, ny));
                 }
             }
@@ -3281,15 +3279,10 @@ impl Sim {
                 p.fishing = None;
                 p.iframes = p.iframes.max(30);
                 // Nudge off a wall/water if we landed somewhere we can't stand.
-                let board = has_surfboard(&self.defs, &p);
-                let claws = has_climb_claws(&self.defs, &p);
-                let axes = has_ice_axes(&self.defs, &p);
-                let mantle = has_ember_mantle(&self.defs, &p);
-                let hook = has_gale_hook(&self.defs, &p);
-                let charm = has_tide_charm(&self.defs, &p);
+                let t = Traversal::for_player(&self.defs, &p);
                 if let Some(screen) = self.world.screen_at(p.sx, p.sy) {
-                    if !self.feet_clear_on(screen, p.x, p.y, board, claws, axes, mantle, hook, charm) {
-                        if let Some((ux, uy)) = self.find_clear_near(screen, p.x, p.y, board, claws, axes, mantle, hook, charm) {
+                    if !self.feet_clear_on(screen, p.x, p.y, t) {
+                        if let Some((ux, uy)) = self.find_clear_near(screen, p.x, p.y, t) {
                             p.x = ux;
                             p.y = uy;
                         }
@@ -5461,7 +5454,7 @@ mod tests {
         let screen = sim.world.screen_at(1, 0).unwrap();
         let (ex, ey) = (8 * 16 + 8, HUD_H + 1 * 16 + 8);
         assert!(
-            !sim.effective_solid(screen, ex, ey, false, false, false, false, false, false),
+            !sim.effective_solid(screen, ex, ey, Traversal::default()),
             "opened eye-target is walkable"
         );
     }
@@ -5618,7 +5611,7 @@ mod tests {
         let screen = sim.world.screen_at(1, 0).unwrap();
         let (dx, dy) = (9 * 16 + 8, HUD_H + 4 * 16 + 8);
         assert!(
-            !sim.effective_solid(screen, dx, dy, false, false, false, false, false, false),
+            !sim.effective_solid(screen, dx, dy, Traversal::default()),
             "the held-open plate-door is walkable"
         );
         // Step off the plate: the momentary door recloses next tick.
@@ -5872,7 +5865,7 @@ mod tests {
             let screen = sim.world.screen_at(1, 0).unwrap();
             let (hx, hy) = (7 * 16 + 8, HUD_H + 5 * 16 + 8);
             assert!(
-                sim.effective_solid(screen, hx, hy, false, false, false, false, false, false),
+                sim.effective_solid(screen, hx, hy, Traversal::default()),
                 "an unfilled hole blocks the player on foot"
             );
         }
@@ -5892,7 +5885,7 @@ mod tests {
         let screen = sim.world.screen_at(1, 0).unwrap();
         let (hx, hy) = (7 * 16 + 8, HUD_H + 5 * 16 + 8);
         assert!(
-            !sim.effective_solid(screen, hx, hy, false, false, false, false, false, false),
+            !sim.effective_solid(screen, hx, hy, Traversal::default()),
             "the filled hole (bridge) is walkable"
         );
         // Committed: leaving the empty room does NOT undo the fill.
@@ -6298,7 +6291,7 @@ mod tests {
         );
         let screen = sim.world.screen_at(1, 0).unwrap();
         assert!(
-            !sim.effective_solid(screen, dpx, dpy, false, false, false, false, false, false),
+            !sim.effective_solid(screen, dpx, dpy, Traversal::default()),
             "switch door is walkable after the lever is pulled"
         );
     }
