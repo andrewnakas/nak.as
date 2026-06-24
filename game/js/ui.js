@@ -242,11 +242,21 @@ export function installVoiceToggle(makeMesh, audio) {
 }
 
 export function toast(msg) {
+  const box = $('#toasts');
+  // Dedup: if an identical toast is already showing, refresh its timer instead
+  // of stacking duplicates (dungeon-entry banners re-fire on re-entry).
+  for (const existing of box.querySelectorAll('.toast')) {
+    if (existing.textContent === msg) {
+      clearTimeout(existing._t);
+      existing._t = setTimeout(() => existing.remove(), 2700);
+      return;
+    }
+  }
   const el = document.createElement('div');
   el.className = 'toast';
   el.textContent = msg;
-  $('#toasts').appendChild(el);
-  setTimeout(() => el.remove(), 2700);
+  box.appendChild(el);
+  el._t = setTimeout(() => el.remove(), 2700);
 }
 
 /// A toast with two buttons (e.g. a party invite). `cb(true)` on the yes

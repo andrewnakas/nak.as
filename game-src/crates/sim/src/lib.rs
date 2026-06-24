@@ -821,6 +821,9 @@ impl Sim {
             p.x = fx(sp.x);
             p.y = fx(sp.y);
         }
+        // Spawn grace: a freshly-loaded player gets brief invulnerability so
+        // they aren't hit by enemies near the load point before they can react.
+        p.iframes = p.iframes.max(PLAYER_IFRAMES);
         self.players[slot] = Some(p);
     }
 
