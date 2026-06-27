@@ -635,7 +635,11 @@ impl Sim {
     /// 2 left, 3 right). Refuses solid tiles, water, another block, and the
     /// screen edge. On ice (a slip tile) the block keeps sliding in `dir` until
     /// the NEXT cell is blocked or no longer ice. Grid-aligned, host-side.
-    fn try_push_block(&mut self, bi: usize, dir: u8) {
+    /// Shove a block one tile. Returns true if the block moved (or was consumed
+    /// by a hole) so the caller can step the player into the vacated cell —
+    /// keeping player and block flush (no gap) and limiting pushes to one per
+    /// tile the player walks.
+    fn try_push_block(&mut self, bi: usize, dir: u8) -> bool {
         let (dtx, dty): (i32, i32) = match dir {
             0 => (0, 1),
             1 => (0, -1),
@@ -647,7 +651,7 @@ impl Sim {
         let mut ty = (to_px(self.entities[bi].y) - HUD_H).div_euclid(16);
         // First step must be open or the shove fails entirely.
         if !self.block_cell_open(sx, sy, tx + dtx, ty + dty) {
-            return;
+            return false;
         }
         tx += dtx;
         ty += dty;
@@ -658,7 +662,7 @@ impl Sim {
             self.fill_hole(sx, sy, tx, ty);
             self.entities[bi].alive = false;
             self.emit_cue(sx, sy, cues::ITEM);
-            return;
+            return true;
         }
         // Ice slide: keep going while the cell just entered is a slip tile and
         // the next cell stays open. Capped at the screen width for safety. A
@@ -680,13 +684,14 @@ impl Sim {
                 self.fill_hole(sx, sy, tx, ty);
                 self.entities[bi].alive = false;
                 self.emit_cue(sx, sy, cues::ITEM);
-                return;
+                return true;
             }
         }
         let e = &mut self.entities[bi];
         e.x = fx(tx * 16);
         e.y = fx(HUD_H + ty * 16);
         self.emit_cue(sx, sy, cues::SWING);
+        true
     }
 
     /// True if the EFFECTIVE tile at cell (tx, ty) on this screen is a drop-hole
@@ -1327,6 +1332,29 @@ impl Sim {
         self.water_raised.retain(|s| occupied.contains(s));
     }
 
+    /// Reset every pushable block on one screen back to its home tile (and clear
+    /// that screen's latched plates). The anti-softlock escape hatch: a solo
+    /// player who shoves a block into a dead spot can recover without leaving the
+    /// room (the empty-room reset can't help someone standing in it). Returns the
+    /// number of blocks moved home.
+    fn reset_screen_blocks(&mut self, sx: i32, sy: i32) -> u32 {
+        let mut n = 0;
+        for e in &mut self.entities {
+            if e.etype == ET_BLOCK && e.home == (sx, sy) {
+                let moved = to_px(e.x) != e.home_px || to_px(e.y) != e.home_py;
+                e.sx = sx;
+                e.sy = sy;
+                e.x = fx(e.home_px);
+                e.y = fx(e.home_py);
+                if moved {
+                    n += 1;
+                }
+            }
+        }
+        self.latched_plates.remove(&(sx, sy));
+        n
+    }
+
     /// Durability loss on a connect; breaks the item at 0 (removed from
     /// inventory, equips fixed up, toast + cue emitted).
     fn wear_weapon(&mut self, pl: &mut Player, slot: usize, which: WearSlot) {
@@ -1640,6 +1668,20 @@ impl Sim {
                 self.players[slot] = Some(pl);
                 return;
             }
+            // Facing a pushable block + A: haul every block on this screen back to
+            // its home socket. The anti-softlock escape hatch — recover a botched
+            // block puzzle in place without having to leave (or be unable to).
+            let (bfx, bfy) = facing_tile_center(&pl);
+            if self.block_at(pl.sx, pl.sy, bfx, bfy).is_some() {
+                let n = self.reset_screen_blocks(pl.sx, pl.sy);
+                self.emit_cue(pl.sx, pl.sy, cues::SWING);
+                if n > 0 {
+                    self.emit_toast(slot, "THE BLOCKS GRIND BACK INTO PLACE");
+                }
+                pl.prev_buttons = pl.buttons;
+                self.players[slot] = Some(pl);
+                return;
+            }
         }
 
         // Attack: A edge starts a swing (sword) or a punch/kick (unarmed);
@@ -1839,11 +1881,13 @@ impl Sim {
             pl.anim = pl.anim.wrapping_add(1);
         }
 
-        // Pushable blocks: if the player is walking INTO a block in the
-        // direction they face, try to shove it one tile (it slides on ice).
-        // Resolved here in step_player (before step_entities) so multiple
-        // players pushing resolve in slot order. The block becomes solid to the
-        // player below, so the player follows into the vacated cell next.
+        // Pushable blocks: shove a faced block one tile, in LOCKSTEP with the
+        // player — only when the player is grid-aligned (centered on a tile) and
+        // flush against the block, then snap the player into the block's vacated
+        // cell. Grid-alignment naturally limits this to one push per tile walked,
+        // so the block can't outrun the player and leave a gap (and you can't
+        // accidentally rocket a block into a hole/corner). Resolved before
+        // step_entities so multiple players resolve in slot order.
         if pl.walking {
             let pushing = matches!(
                 (pl.facing, pl.buttons),
@@ -1851,10 +1895,31 @@ impl Sim {
                 || matches!((pl.facing, pl.buttons), (1, b) if b & BTN_UP != 0)
                 || matches!((pl.facing, pl.buttons), (2, b) if b & BTN_LEFT != 0)
                 || matches!((pl.facing, pl.buttons), (3, b) if b & BTN_RIGHT != 0);
-            if pushing {
+            // Player tile + alignment to it (within a couple px of the tile center
+            // on the perpendicular axis and at the tile origin on the push axis).
+            let ptx = to_px(pl.x).div_euclid(16);
+            let pty = (to_px(pl.y) - HUD_H).div_euclid(16);
+            let ax = to_px(pl.x) - ptx * 16; // 0..15 offset within the tile
+            let ay = to_px(pl.y) - HUD_H - pty * 16;
+            let aligned = match pl.facing {
+                2 | 3 => ay.abs() <= 3,          // horizontal push: row-aligned
+                _ => ax.abs() <= 3,              // vertical push: column-aligned
+            };
+            if pushing && aligned {
                 let (fx_, fy_) = facing_tile_center(&pl);
                 if let Some(bi) = self.block_at(pl.sx, pl.sy, fx_, fy_) {
-                    self.try_push_block(bi, pl.facing);
+                    if self.try_push_block(bi, pl.facing) {
+                        // Step the player one tile into the block's old cell and
+                        // snap to the grid on both axes (stay flush, no drift).
+                        let (dx, dy): (i32, i32) = match pl.facing {
+                            0 => (0, 1),
+                            1 => (0, -1),
+                            2 => (-1, 0),
+                            _ => (1, 0),
+                        };
+                        pl.x = fx((ptx + dx) * 16);
+                        pl.y = fx(HUD_H + (pty + dy) * 16);
+                    }
                 }
             }
         }
@@ -5539,6 +5604,45 @@ mod tests {
             block_cell(&sim),
             (3, 2),
             "leaving the empty room snaps the block back to its home tile"
+        );
+    }
+
+    #[test]
+    fn facing_a_block_and_pressing_a_resets_it_in_place() {
+        // Anti-softlock escape hatch: a solo player can recover a shoved block
+        // without leaving the room (the empty-room reset can't help them inside).
+        let bundle = test_bundle();
+        let mut sim = Sim::new(&bundle, 4).unwrap();
+        sim.add_player(0);
+        {
+            let p = sim.players[0].as_mut().unwrap();
+            p.sx = 1;
+            p.sy = 0;
+            p.x = fx(2 * 16);
+            p.y = fx(2 * 16 + HUD_H);
+            p.facing = 3;
+        }
+        // Shove the block off its home cell.
+        sim.set_input(0, BTN_RIGHT);
+        sim.step();
+        assert_ne!(block_cell(&sim), (3, 2), "block moved off home");
+        // Release, then face the block and press A — still in the same room.
+        sim.set_input(0, 0);
+        sim.step();
+        {
+            // Stand left of the block, facing it.
+            let bc = block_cell(&sim);
+            let p = sim.players[0].as_mut().unwrap();
+            p.x = fx((bc.0 - 1) * 16);
+            p.y = fx(bc.1 * 16 + HUD_H);
+            p.facing = 3;
+        }
+        sim.set_input(0, BTN_A);
+        sim.step();
+        assert_eq!(
+            block_cell(&sim),
+            (3, 2),
+            "pressing A at a block hauls it back to its home cell in place"
         );
     }
 
