@@ -78,6 +78,10 @@ const UNARMED_WINDOW: std::ops::RangeInclusive<u8> = 3..=8;
 const UNARMED_DAMAGE: i16 = 1;
 const PLAYER_IFRAMES: u8 = 60;
 const ENEMY_IFRAMES: u8 = 10;
+/// Ticks between successive block shoves while a direction is held, so a held
+/// push advances the block one tile at a steady, controllable pace (not one
+/// tile per tick = a whole-room teleport).
+const PUSH_COOLDOWN: u8 = 14;
 /// Perfect-block window: a blockable hit landing within this many ticks of
 /// raising the shield is a PARRY (staggers the attacker, no durability lost).
 /// A late block (after this) negates the hit but wears the shield as before.
@@ -222,6 +226,10 @@ pub struct Player {
     /// perfect-block PARRY: it staggers the attacker and costs no durability.
     /// Sim-local (hashed for determinism, never sent in PlayerSnap).
     pub shield_t: u32,
+    /// Cooldown after shoving a block: throttles pushes to one tile per
+    /// PUSH_COOLDOWN ticks so holding a direction doesn't machine-gun the block
+    /// across the room. Sim-local (hashed; never sent in PlayerSnap).
+    pub push_t: u8,
 }
 
 /// Total combat XP required to reach a level (level 1 = 0). Gentle quadratic.
@@ -804,6 +812,7 @@ impl Sim {
             climbing: false,
             slide_dir: -1,
             shield_t: 0,
+            push_t: 0,
         };
         // No starting kit: you begin empty-handed. The first weapon is a
         // stick picked up off the ground in the intro; real gear is bought
@@ -1551,6 +1560,9 @@ impl Sim {
         if pl.harvest_t > 0 {
             pl.harvest_t -= 1;
         }
+        if pl.push_t > 0 {
+            pl.push_t -= 1;
+        }
 
         if pl.dead_t > 0 {
             pl.dead_t -= 1;
@@ -1888,37 +1900,45 @@ impl Sim {
         // so the block can't outrun the player and leave a gap (and you can't
         // accidentally rocket a block into a hole/corner). Resolved before
         // step_entities so multiple players resolve in slot order.
-        if pl.walking {
-            let pushing = matches!(
-                (pl.facing, pl.buttons),
-                (0, b) if b & BTN_DOWN != 0)
-                || matches!((pl.facing, pl.buttons), (1, b) if b & BTN_UP != 0)
-                || matches!((pl.facing, pl.buttons), (2, b) if b & BTN_LEFT != 0)
-                || matches!((pl.facing, pl.buttons), (3, b) if b & BTN_RIGHT != 0);
-            // Player tile + alignment to it (within a couple px of the tile center
-            // on the perpendicular axis and at the tile origin on the push axis).
+        if pl.walking && pl.push_t == 0 {
+            let (ddx, ddy): (i32, i32) = match pl.facing {
+                0 => (0, 1),
+                1 => (0, -1),
+                2 => (-1, 0),
+                _ => (1, 0),
+            };
+            let pushing = match pl.facing {
+                0 => pl.buttons & BTN_DOWN != 0,
+                1 => pl.buttons & BTN_UP != 0,
+                2 => pl.buttons & BTN_LEFT != 0,
+                _ => pl.buttons & BTN_RIGHT != 0,
+            };
+            // Strict adjacency: the player must be (nearly) tile-aligned and the
+            // block must sit in the very next tile. We snap the player to the
+            // block's vacated cell and suppress this tick's free movement, then
+            // a cooldown throttles the next shove — so a held direction advances
+            // the block ONE tile at a steady pace instead of one tile per frame.
             let ptx = to_px(pl.x).div_euclid(16);
             let pty = (to_px(pl.y) - HUD_H).div_euclid(16);
-            let ax = to_px(pl.x) - ptx * 16; // 0..15 offset within the tile
+            let ax = to_px(pl.x) - ptx * 16;
             let ay = to_px(pl.y) - HUD_H - pty * 16;
             let aligned = match pl.facing {
-                2 | 3 => ay.abs() <= 3,          // horizontal push: row-aligned
-                _ => ax.abs() <= 3,              // vertical push: column-aligned
+                2 | 3 => ay.abs() <= 4,
+                _ => ax.abs() <= 4,
             };
+            // The block tile is exactly one cell ahead of the player's tile.
+            let (btx, bty) = (ptx + ddx, pty + ddy);
+            let (bpx, bpy) = (btx * 16 + 8, HUD_H + bty * 16 + 8);
             if pushing && aligned {
-                let (fx_, fy_) = facing_tile_center(&pl);
-                if let Some(bi) = self.block_at(pl.sx, pl.sy, fx_, fy_) {
+                if let Some(bi) = self.block_at(pl.sx, pl.sy, bpx, bpy) {
                     if self.try_push_block(bi, pl.facing) {
-                        // Step the player one tile into the block's old cell and
-                        // snap to the grid on both axes (stay flush, no drift).
-                        let (dx, dy): (i32, i32) = match pl.facing {
-                            0 => (0, 1),
-                            1 => (0, -1),
-                            2 => (-1, 0),
-                            _ => (1, 0),
-                        };
-                        pl.x = fx((ptx + dx) * 16);
-                        pl.y = fx(HUD_H + (pty + dy) * 16);
+                        // Advance into the vacated cell, snap to the grid, and
+                        // consume this tick's movement so we don't double-step.
+                        pl.x = fx((ptx + ddx) * 16);
+                        pl.y = fx(HUD_H + (pty + ddy) * 16);
+                        dx = 0;
+                        dy = 0;
+                        pl.push_t = PUSH_COOLDOWN;
                     }
                 }
             }
@@ -3644,6 +3664,7 @@ impl Sim {
                     h.i32(p.kvy);
                     h.u32(p.shielding as u32);
                     h.u32(p.shield_t);
+                    h.u32(p.push_t as u32);
                     h.u32(p.surfing as u32);
                     h.u32(p.wave_boost);
                     h.i32(p.slide_dir as i32);
@@ -5557,6 +5578,13 @@ mod tests {
         sim.set_input(0, BTN_RIGHT);
         sim.step();
         assert_eq!(block_cell(&sim), (4, 2), "pushing right shoves the block one tile");
+        // Cadence: holding right does NOT machine-gun the block across the room.
+        // Within the push cooldown it stays put for several ticks before the next
+        // shove (regression guard for the "block teleports a whole room" bug).
+        for _ in 0..(PUSH_COOLDOWN as usize - 2) {
+            sim.step();
+        }
+        assert_eq!(block_cell(&sim), (4, 2), "block waits out the push cooldown (one tile per press)");
 
         // Keep pushing right: the block slides across open floor one tile per
         // shove, but col 6 is a tree (solid) — it must STOP before it (at col 5).

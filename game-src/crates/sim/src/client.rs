@@ -278,6 +278,7 @@ fn lerp_player(pa: Option<&PlayerSnap>, pb: &PlayerSnap, num: u64, den: u64) -> 
         climbing: false, // anim/flavor only; recomputed locally each step
         slide_dir: -1, // sim-local; remote players render from interpolated x/y
         shield_t: 0, // sim-local; parry timing is host-authoritative
+        push_t: 0, // sim-local; block-push cadence is host-authoritative
     }
 }
 
