@@ -1,3 +1,10 @@
+# Private, password-gated section. The Pages Function in functions/land/ sets
+# these too; repeating them here covers any path the middleware doesn't wrap.
+/land/*
+  Cache-Control: private, no-store
+  X-Robots-Tag: noindex, nofollow, noarchive
+  Referrer-Policy: no-referrer
+
 /*.glb
   Cache-Control: public, max-age=31536000, immutable
   Content-Type: model/gltf-binary
