@@ -1,0 +1,46 @@
+# Pulls Reddit boom chatter into the map at nak.as/bozemanboom.
+#
+# This runs alongside the worker's own cron trigger, not instead of it: Reddit
+# blocks datacenter ranges unpredictably, and a GitHub runner is a second,
+# independent route to the same feeds. Duplicate posts collapse on ingest, so
+# both paths running is harmless.
+name: Bozeman boom scrape
+
+on:
+  schedule:
+    # Every 30 minutes. GitHub delays scheduled runs under load, which is fine —
+    # the worker cron covers the gaps.
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+    inputs:
+      backfill:
+        description: 'Sweep every historical query instead of the recent ones'
+        type: boolean
+        default: false
+
+# Two copies of this scraping the same feeds would just earn rate limits.
+concurrency:
+  group: boom-scrape
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Scrape and ingest
+        env:
+          BOOM_API: ${{ vars.BOOM_API || 'https://api.nak.as' }}
+          BOOM_ADMIN_TOKEN: ${{ secrets.BOOM_ADMIN_TOKEN }}
+        run: |
+          if [ -z "$BOOM_ADMIN_TOKEN" ]; then
+            echo "::error::BOOM_ADMIN_TOKEN secret is not set — add it in Settings > Secrets > Actions"
+            exit 1
+          fi
+          node tools/boom-scrape.mjs ${{ inputs.backfill && '--backfill' || '' }}

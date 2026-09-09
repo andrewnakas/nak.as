@@ -30,3 +30,7 @@ new_sqlite_classes = ["RoomDO"]
 [[migrations]]
 tag = "v2"
 new_sqlite_classes = ["LobbyDO"]
+
+# Bozeman boom map: pull one Reddit search feed every 15 minutes.
+[triggers]
+crons = ["*/15 * * * *"]

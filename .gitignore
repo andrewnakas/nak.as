@@ -15,3 +15,6 @@ nakasmotivation_soundboard/
 
 # Wrangler local state
 worker/.wrangler/
+
+# Local worker secrets for `wrangler dev` (never committed)
+worker/.dev.vars

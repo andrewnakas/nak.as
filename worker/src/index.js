@@ -12,6 +12,11 @@ import {
 } from './auth.js';
 import { createCharacter, getCharacter, listCharacters, updateCharacter } from './characters.js';
 import { listFriends, respondRequest, sendRequest } from './friends.js';
+import { createBoom, deleteBoom, listBooms, myVotes, voteBoom } from './booms.js';
+import {
+  hideMention, ingestEntries, ingestRedacted, listMentions, parseFeed, scrapeOnce, scrapeStatus,
+  submitLink,
+} from './mentions.js';
 
 export { RoomDO } from './room.js';
 export { LobbyDO } from './lobby.js';
@@ -246,6 +251,142 @@ export default {
       return env.ROOMS.get(id).fetch(request);
     }
 
+    // ---- bozeman boom map (public: no account, no login) ----
+
+    if (method === 'GET' && url.pathname === '/booms') {
+      const data = await listBooms(db, url);
+      return new Response(JSON.stringify(data), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          // Fresh enough that a new report shows up on the next poll.
+          'Cache-Control': 'public, max-age=10',
+          ...corsHeaders(request),
+        },
+      });
+    }
+
+    // Chatter: Reddit posts the scraper found, plus links people paste in.
+    // Read-only citations — they never feed the source fit.
+    if (method === 'GET' && url.pathname === '/booms/mentions') {
+      const data = await listMentions(db, url);
+      return new Response(JSON.stringify(data), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'public, max-age=60',
+          ...corsHeaders(request),
+        },
+      });
+    }
+
+    if (method === 'POST' && url.pathname === '/booms/mentions') {
+      const result = await submitLink(db, request, env, await readJson(request));
+      if (result.error) return json(request, result.status, { error: result.error });
+      return json(request, 200, result.body);
+    }
+
+    const mentionDel = url.pathname.match(/^\/booms\/mentions\/([0-9a-f-]{36})$/);
+    if (mentionDel && method === 'DELETE') {
+      const result = await hideMention(db, env, mentionDel[1], request.headers.get('X-Boom-Admin'));
+      if (result.error) return json(request, result.status, { error: result.error });
+      return json(request, 200, result.body);
+    }
+
+    const boomVote = url.pathname.match(/^\/booms\/([0-9a-f-]{36})\/vote$/);
+    if (boomVote && method === 'POST') {
+      const voter = await authenticate(db, request);
+      if (!voter) return json(request, 401, { error: 'sign in to vote' });
+      const body = await readJson(request);
+      const result = await voteBoom(db, boomVote[1], voter, Math.trunc(Number(body?.value)));
+      if (result.error) return json(request, result.status, { error: result.error });
+      return json(request, 200, result.body);
+    }
+
+    // The caller's own votes, kept out of the cacheable list endpoint.
+    if (method === 'GET' && url.pathname === '/booms/votes') {
+      const voter = await authenticate(db, request);
+      if (!voter) return json(request, 401, { error: 'not signed in' });
+      return new Response(JSON.stringify(await myVotes(db, voter)), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'private, no-store',
+          ...corsHeaders(request),
+        },
+      });
+    }
+
+    // Ingest from an outside fetcher. Reddit will talk to a GitHub runner more
+    // reliably than to the edge, so the Action fetches and posts the feed here;
+    // the classification and geocoding still happen in one place — this worker.
+    if (method === 'POST' && url.pathname === '/booms/ingest') {
+      if (!env.BOOM_ADMIN_TOKEN || request.headers.get('X-Boom-Admin') !== env.BOOM_ADMIN_TOKEN) {
+        return json(request, 403, { error: 'admin only' });
+      }
+      const body = await readJson(request);
+      const entries = Array.isArray(body?.entries)
+        ? body.entries
+        : typeof body?.xml === 'string'
+          ? parseFeed(body.xml)
+          : null;
+      if (!entries) return json(request, 400, { error: 'send { entries: [...] } or { xml }' });
+      if (entries.length > 500) return json(request, 400, { error: 'too many entries at once' });
+      const stored = await ingestEntries(db, entries, body.subreddit, {
+        maxAgeMs: body.backfill ? Infinity : undefined,
+      });
+      return json(request, 200, { ...stored, received: entries.length });
+    }
+
+    // Redacted ingest, for private-group posts collected by a member. The text
+    // is read to derive place and time and is never stored.
+    if (method === 'POST' && url.pathname === '/booms/ingest-redacted') {
+      if (!env.BOOM_ADMIN_TOKEN || request.headers.get('X-Boom-Admin') !== env.BOOM_ADMIN_TOKEN) {
+        return json(request, 403, { error: 'admin only' });
+      }
+      const body = await readJson(request);
+      if (!Array.isArray(body?.items)) return json(request, 400, { error: 'send { items: [...] }' });
+      if (body.items.length > 200) return json(request, 400, { error: 'too many items at once' });
+      return json(request, 200, await ingestRedacted(db, body.items));
+    }
+
+    // What the scraper has been doing. Public: it exposes nothing secret and
+    // makes a stalled feed obvious to anyone, not just to me.
+    if (method === 'GET' && url.pathname === '/booms/sources') {
+      return json(request, 200, await scrapeStatus(db));
+    }
+
+    // Manual kick for the scraper, so a deploy doesn't wait for the cron.
+    if (method === 'POST' && url.pathname === '/booms/scrape') {
+      if (!env.BOOM_ADMIN_TOKEN || request.headers.get('X-Boom-Admin') !== env.BOOM_ADMIN_TOKEN) {
+        return json(request, 403, { error: 'admin only' });
+      }
+      return json(request, 200, await scrapeOnce(db, env));
+    }
+
+    if (method === 'POST' && url.pathname === '/booms') {
+      // Anonymous reporting stays open — friction here costs data. Signing in
+      // only attaches your name and lets you manage the report elsewhere.
+      const who = await authenticate(db, request);
+      const result = await createBoom(db, request, env, await readJson(request), who);
+      if (result.error) return json(request, result.status, { error: result.error });
+      return json(request, 200, result.body);
+    }
+
+    const boomDel = url.pathname.match(/^\/booms\/([0-9a-f-]{36})$/);
+    if (boomDel && method === 'DELETE') {
+      const result = await deleteBoom(
+        db,
+        env,
+        boomDel[1],
+        url.searchParams.get('secret'),
+        request.headers.get('X-Boom-Admin'),
+        await authenticate(db, request),
+      );
+      if (result.error) return json(request, result.status, { error: result.error });
+      return json(request, 200, result.body);
+    }
+
     // ---- authed routes ----
 
     const account = await authenticate(db, request);
@@ -298,5 +439,11 @@ export default {
     }
 
     return json(request, 404, { error: 'not found' });
+  },
+
+  // Cron: one Reddit feed per tick. Reddit rate-limits the public feeds hard,
+  // so the rotation stays deliberately slow rather than risking a block.
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(scrapeOnce(env.DB, env));
   },
 };
