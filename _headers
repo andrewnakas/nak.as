@@ -35,3 +35,7 @@
 
 /
   Cache-Control: public, max-age=300
+
+# Boom map: the page is small and changes often; reports come from api.nak.as.
+/bozemanboom/*
+  Cache-Control: public, max-age=60

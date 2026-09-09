@@ -1,0 +1,1665 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Bozeman Boom Map — report the booms, find the source</title>
+<meta name="description" content="A public map of unexplained booms heard in Bozeman and the Gallatin Valley. Report what you heard and where, and the map triangulates a likely source.">
+<meta property="og:title" content="Bozeman Boom Map">
+<meta property="og:description" content="Heard a boom? Put it on the map. Enough reports and we can triangulate where they're coming from.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://nak.as/bozemanboom/">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<style>
+  :root{
+    --bg:#0e1116; --panel:#151a22; --panel2:#1b2129; --ink:#e8ecf2; --soft:#96a0ae;
+    --rule:#2a323d; --accent:#ff8a3d; --accent2:#ffd166; --hot:#ff4d4d; --ok:#4ade80;
+    --shadow:0 10px 34px rgba(0,0,0,.45); --chat:#6cc6ff;
+  }
+  :root[data-theme=light]{
+    --bg:#f6f7f9; --panel:#fff; --panel2:#f1f3f6; --ink:#151a20; --soft:#5b6673;
+    --rule:#dfe3ea; --accent:#d2560f; --accent2:#b8860b; --hot:#c62828; --ok:#177245;
+    --shadow:0 10px 30px rgba(20,25,35,.14); --chat:#0d6ea8;
+  }
+  *{box-sizing:border-box}
+  /* Flex and grid display rules outrank the hidden attribute; this puts it back. */
+  [hidden]{display:none!important}
+  html,body{height:100%;margin:0}
+  body{
+    background:var(--bg);color:var(--ink);overflow:hidden;
+    font:15px/1.5 ui-sans-serif,-apple-system,"Segoe UI",Roboto,Helvetica,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3{margin:0;letter-spacing:-.01em}
+  .num{font-variant-numeric:tabular-nums}
+  button,input,select,textarea{font:inherit;color:inherit}
+  a{color:var(--accent)}
+
+  /* ---------- shell ---------- */
+  #app{display:grid;grid-template-columns:392px 1fr;height:100dvh}
+  #side{
+    background:var(--panel);border-right:1px solid var(--rule);
+    display:flex;flex-direction:column;min-height:0;z-index:600;
+  }
+  #map{height:100%;width:100%;background:var(--panel2)}
+
+  #brand{padding:16px 18px 13px;border-bottom:1px solid var(--rule);display:flex;gap:12px;align-items:flex-start}
+  #brand .mark{
+    width:34px;height:34px;flex:none;border-radius:9px;display:grid;place-items:center;
+    background:radial-gradient(circle at 35% 30%,var(--accent2),var(--accent) 60%,#7a2d00);
+    box-shadow:0 0 0 1px rgba(255,255,255,.12) inset;font-size:17px;
+  }
+  #brand h1{font-size:18px;line-height:1.15}
+  #brand p{margin:3px 0 0;font-size:12.5px;color:var(--soft);line-height:1.4}
+  #themeBtn{margin-left:auto;flex:none;background:none;border:0;color:var(--soft);cursor:pointer;
+    padding:4px;border-radius:6px;font-size:15px}
+  #themeBtn:hover{color:var(--ink);background:var(--panel2)}
+
+  #acctBar{display:flex;align-items:center;gap:9px;padding:9px 18px;
+    border-bottom:1px solid var(--rule);font-size:12px;color:var(--soft)}
+  #acctBar span{flex:1;min-width:0}
+  #acctBar .btn{padding:5px 10px;font-size:12px;flex:none}
+  #acctForm{padding:13px 18px;border-bottom:1px solid var(--rule)}
+  #acctForm input{margin-bottom:2px}
+
+  /* votes */
+  .votes{display:flex;align-items:center;gap:2px;flex:none}
+  .votes button{background:none;border:0;cursor:pointer;color:var(--soft);padding:2px 4px;
+    border-radius:5px;font-size:13px;line-height:1}
+  .votes button:hover{background:var(--panel2);color:var(--ink)}
+  .votes button[aria-pressed=true]{color:var(--accent)}
+  .votes button.down[aria-pressed=true]{color:var(--hot)}
+  .votes b{font-size:12px;min-width:1.4em;text-align:center;font-variant-numeric:tabular-nums}
+  .disputed{opacity:.55}
+  .disputed .t{text-decoration:line-through}
+  .badge{font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--hot);
+    border:1px solid var(--hot);border-radius:4px;padding:0 4px;flex:none}
+
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid var(--rule)}
+  .stat{padding:11px 14px;border-right:1px solid var(--rule)}
+  .stat:last-child{border-right:0}
+  .stat b{display:block;font-size:20px;line-height:1.1}
+  .stat span{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--soft)}
+
+  #scroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+  .block{padding:14px 18px;border-bottom:1px solid var(--rule)}
+  .block h2{font-size:11px;letter-spacing:.11em;text-transform:uppercase;color:var(--soft);
+    margin-bottom:9px;display:flex;align-items:center;gap:8px}
+  .block h2 .tag{margin-left:auto;font-size:10px;letter-spacing:.04em;text-transform:none;color:var(--soft)}
+
+  /* ---------- controls ---------- */
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:7px;
+    padding:9px 13px;border:1px solid var(--rule);background:var(--panel2);
+    border-radius:8px;cursor:pointer;font-size:13.5px;line-height:1;
+  }
+  .btn:hover{border-color:var(--soft)}
+  .btn[aria-pressed=true]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  .btn.primary:hover{filter:brightness(1.08)}
+  .btn.wide{width:100%;padding:12px}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn.danger{color:var(--hot);border-color:var(--rule)}
+  .row{display:flex;gap:7px;flex-wrap:wrap}
+  .seg{display:flex;border:1px solid var(--rule);border-radius:8px;overflow:hidden}
+  .seg button{flex:1;background:var(--panel2);border:0;border-right:1px solid var(--rule);
+    padding:8px 4px;cursor:pointer;font-size:12.5px}
+  .seg button:last-child{border-right:0}
+  .seg button[aria-pressed=true]{background:var(--accent);color:#fff;font-weight:600}
+  label.f{display:block;font-size:12px;color:var(--soft);margin:11px 0 5px}
+  input[type=text],input[type=datetime-local],select,textarea{
+    width:100%;padding:9px 10px;background:var(--panel2);border:1px solid var(--rule);
+    border-radius:8px;font-size:14px;
+  }
+  textarea{resize:vertical;min-height:62px}
+  input:focus,select:focus,textarea:focus,.btn:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  .check{display:flex;align-items:center;gap:9px;font-size:13.5px;margin:9px 0;cursor:pointer}
+  .check input{width:17px;height:17px;accent-color:var(--accent)}
+  .hint{font-size:12px;color:var(--soft);line-height:1.45}
+  .err{font-size:13px;color:var(--hot);margin-top:9px}
+  .ok{font-size:13px;color:var(--ok);margin-top:9px}
+
+  /* loudness picker */
+  .loud{display:flex;gap:5px}
+  .loud button{
+    flex:1;padding:9px 0;border:1px solid var(--rule);background:var(--panel2);
+    border-radius:7px;cursor:pointer;font-weight:600;font-size:14px;
+  }
+  .loud button[aria-pressed=true]{color:#fff;border-color:transparent}
+  .loud button[data-i="1"][aria-pressed=true]{background:#f6d365}
+  .loud button[data-i="2"][aria-pressed=true]{background:#f0a92f}
+  .loud button[data-i="3"][aria-pressed=true]{background:#ec7211}
+  .loud button[data-i="4"][aria-pressed=true]{background:#df4d1f}
+  .loud button[data-i="5"][aria-pressed=true]{background:#c31f1f}
+  #loudDesc{font-size:12.5px;color:var(--soft);margin-top:7px;min-height:2.6em}
+
+  /* compass */
+  .compass{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;max-width:230px}
+  .compass button{padding:8px 0;border:1px solid var(--rule);background:var(--panel2);
+    border-radius:7px;cursor:pointer;font-size:12.5px}
+  .compass button[aria-pressed=true]{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .compass .mid{display:grid;place-items:center;font-size:10.5px;color:var(--soft);
+    letter-spacing:.06em;text-transform:uppercase}
+
+  /* lists */
+  .list{display:flex;flex-direction:column;gap:1px;background:var(--rule);
+    border:1px solid var(--rule);border-radius:9px;overflow:hidden}
+  .item{background:var(--panel2);padding:9px 11px;cursor:pointer;display:flex;gap:10px;align-items:center}
+  .item:hover{background:var(--panel)}
+  .item[aria-current=true]{background:var(--panel);box-shadow:inset 3px 0 0 var(--accent)}
+  .dot{width:11px;height:11px;border-radius:50%;flex:none}
+  .item .body{min-width:0;flex:1}
+  .item .t{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .item .s{font-size:11.5px;color:var(--soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .item .n{font-size:11px;color:var(--soft);flex:none}
+  .item.chat{align-items:flex-start}
+  .item.chat .t{white-space:normal}
+  .item.chat .q{font-size:11.5px;color:var(--soft);margin-top:3px;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .src{font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--chat);
+    border:1px solid var(--rule);border-radius:4px;padding:1px 4px;flex:none}
+  .src.talk{color:var(--soft)}
+  .item.chat a{color:inherit;text-decoration:none}
+  .empty{font-size:13px;color:var(--soft);padding:12px 0}
+
+  /* timeline */
+  #timeline{display:flex;align-items:flex-end;gap:2px;height:54px;
+    padding:6px;background:var(--panel2);border:1px solid var(--rule);border-radius:9px}
+  #timeline i{flex:1;background:var(--accent);opacity:.45;border-radius:2px 2px 0 0;min-height:2px;
+    display:block;transition:opacity .12s}
+  #timeline i.has{opacity:.9}
+  /* A tick under the bar marks an hour that has chatter but maybe no report. */
+  #timeline i{position:relative}
+  #timeline i u{position:absolute;left:0;right:0;bottom:-5px;height:3px;border-radius:2px;
+    background:var(--chat)}
+  #timeline i:hover{opacity:1}
+  .axis{display:flex;justify-content:space-between;font-size:10.5px;color:var(--soft);margin-top:4px}
+
+  /* legend */
+  .legend{display:flex;gap:10px;flex-wrap:wrap;font-size:11.5px;color:var(--soft);align-items:center}
+  .legend span{display:flex;align-items:center;gap:5px}
+
+  /* map overlays */
+  .maptop{
+    position:absolute;top:12px;right:12px;z-index:500;display:flex;flex-direction:column;
+    gap:8px;align-items:flex-end;pointer-events:none;
+  }
+  .maptop>*{pointer-events:auto}
+  .chipbar{display:flex;gap:6px;background:var(--panel);border:1px solid var(--rule);
+    border-radius:9px;padding:5px;box-shadow:var(--shadow)}
+  .chipbar button{background:none;border:0;padding:7px 10px;border-radius:6px;cursor:pointer;font-size:12.5px}
+  .chipbar button[aria-pressed=true]{background:var(--accent);color:#fff;font-weight:600}
+  #picker{
+    position:absolute;left:12px;right:12px;bottom:22px;z-index:500;margin:0 auto;
+    background:var(--panel);border:1px solid var(--accent);border-radius:11px;padding:10px 13px;
+    box-shadow:var(--shadow);display:none;gap:10px;align-items:center;flex-wrap:wrap;
+    max-width:520px;width:auto;
+  }
+  #picker.on{display:flex}
+  #picker .txt{font-size:12.5px;flex:1 1 200px;min-width:0}
+  #picker .txt b{display:block;font-size:13px;line-height:1.3}
+  #picker .txt span{color:var(--soft);font-size:11.5px;line-height:1.35;display:block;margin-top:2px}
+  #picker .btn{flex:none;white-space:nowrap}
+  #fab{
+    position:absolute;left:50%;transform:translateX(-50%);bottom:26px;z-index:499;display:none;
+    box-shadow:var(--shadow);padding:13px 20px;font-size:15px;border-radius:30px;
+  }
+
+  .leaflet-container{background:var(--panel2);font-family:inherit}
+  /* Dark basemap without a paid dark tile provider: invert the tiles only, so
+     report pins and the likelihood overlay keep their real colours. */
+  #map.darktiles .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(.92)}
+  /* Blend the likelihood cloud into the basemap instead of painting over it:
+     glow on a dark map, ink on a light one. Streets stay readable either way. */
+  .fitOverlay,.heatOverlay{mix-blend-mode:screen}
+  :root[data-theme=light] .fitOverlay,:root[data-theme=light] .heatOverlay{mix-blend-mode:multiply}
+  .leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--panel);color:var(--ink);
+    box-shadow:var(--shadow)}
+  .leaflet-popup-content{margin:11px 13px;font-size:13px;line-height:1.5}
+  .leaflet-popup-content b{font-size:14px}
+  .leaflet-popup-content .meta{color:var(--soft);font-size:12px;margin-top:3px}
+  .leaflet-popup-content .note{margin-top:7px;padding-top:7px;border-top:1px solid var(--rule);
+    white-space:pre-wrap;word-break:break-word}
+  .leaflet-popup-content .del{margin-top:8px;font-size:12px;color:var(--hot);background:none;
+    border:0;padding:0;cursor:pointer;text-decoration:underline}
+  .leaflet-bar a,.leaflet-control-layers{background:var(--panel);color:var(--ink);border-color:var(--rule)}
+  .leaflet-bar a:hover{background:var(--panel2)}
+  .leaflet-control-attribution{background:rgba(0,0,0,.55)!important;color:#cfd6df!important;font-size:10px}
+  :root[data-theme=light] .leaflet-control-attribution{background:rgba(255,255,255,.8)!important;color:#444!important}
+  .leaflet-control-attribution a{color:inherit}
+  .chatMark{display:grid;place-items:center;font-size:11px;line-height:1;
+    width:20px;height:20px;border-radius:5px;transform:rotate(45deg);
+    background:var(--panel);border:1.5px solid var(--chat);box-shadow:var(--shadow)}
+  .chatMark span{transform:rotate(-45deg)}
+  .chatMark.talk{opacity:.6;border-style:dashed}
+  .srcLabel{font-size:11px;color:var(--ink);background:var(--panel);border:1px solid var(--rule);
+    border-radius:5px;padding:2px 6px;white-space:nowrap;box-shadow:var(--shadow)}
+  .estLabel{font-size:12px;font-weight:600;color:#fff;background:var(--hot);
+    border-radius:5px;padding:3px 8px;white-space:nowrap;box-shadow:var(--shadow)}
+
+  /* mobile */
+  #grip{display:none}
+  @media (max-width:860px){
+    #app{grid-template-columns:1fr;grid-template-rows:52dvh 48dvh}
+    #side{border-right:0;border-top:1px solid var(--rule);order:2;position:relative}
+    #mapwrap{order:1;position:relative}
+    #brand{padding:12px 15px 10px}
+    .block{padding:13px 15px}
+    #grip{display:block;position:absolute;top:5px;left:50%;transform:translateX(-50%);
+      width:38px;height:4px;border-radius:2px;background:var(--rule)}
+    .stat{padding:9px 11px}
+    .stat b{font-size:16px}
+    .stat span{font-size:9px}
+  }
+  #mapwrap{position:relative;min-height:0}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="mapwrap">
+    <div id="map"></div>
+    <div class="maptop">
+      <div class="chipbar" role="group" aria-label="Map layers">
+        <button id="lyrPins" aria-pressed="true">Pins</button>
+        <button id="lyrHeat" aria-pressed="false">Heat</button>
+        <button id="lyrEst" aria-pressed="true">Source fit</button>
+        <button id="lyrChat" aria-pressed="true">Chatter</button>
+        <button id="lyrSrc" aria-pressed="false">Suspects</button>
+      </div>
+    </div>
+    <button class="btn primary" id="fab">Report a boom</button>
+    <div id="picker">
+      <div class="txt">
+        <b id="pickTitle">Tap the map where you were</b>
+        <span id="pickSub">Drag the pin to fine-tune. Stored to ~110 m, never your exact address.</span>
+      </div>
+      <button class="btn" id="pickGps" type="button">Use my location</button>
+    </div>
+  </div>
+
+  <aside id="side">
+    <div id="grip"></div>
+    <div id="brand">
+      <div class="mark">💥</div>
+      <div>
+        <h1>Bozeman Boom Map</h1>
+        <p>Unexplained booms over the Gallatin Valley. Log what you heard — enough reports and the map can point at where they came from.</p>
+      </div>
+      <button id="themeBtn" title="Toggle light/dark">◐</button>
+    </div>
+
+    <div id="acctBar">
+      <span id="acctWho">Not signed in — you can still report anonymously.</span>
+      <button class="btn" id="acctBtn">Sign in</button>
+      <button class="btn" id="acctOut" hidden>Sign out</button>
+    </div>
+
+    <form id="acctForm" hidden novalidate>
+      <div class="seg" id="acctMode" role="group" aria-label="Sign in or create an account">
+        <button type="button" data-mode="in" aria-pressed="true">Sign in</button>
+        <button type="button" data-mode="up" aria-pressed="false">Create account</button>
+      </div>
+      <label class="f" for="acctUser">Username</label>
+      <input type="text" id="acctUser" autocomplete="username" maxlength="16" placeholder="3–16 letters, digits or _">
+      <label class="f" for="acctPass">Password</label>
+      <input type="password" id="acctPass" autocomplete="current-password" placeholder="at least 8 characters">
+      <div class="err" id="acctErr" hidden></div>
+      <div class="row" style="margin-top:11px">
+        <button class="btn primary" id="acctGo" style="flex:1">Sign in</button>
+        <button type="button" class="btn" id="acctCancel">Cancel</button>
+      </div>
+      <p class="hint" style="margin:9px 0 0">An account is only needed to vote. It is the same login as the
+        rest of nak.as, and it stores nothing but your username.</p>
+    </form>
+
+    <div class="stats">
+      <div class="stat"><b class="num" id="sReports">–</b><span>Reports</span></div>
+      <div class="stat"><b class="num" id="sEvents">–</b><span>Events</span></div>
+      <div class="stat"><b class="num" id="sLast">–</b><span>Last boom</span></div>
+    </div>
+
+    <div id="scroll">
+      <!-- report CTA / form -->
+      <div class="block" id="reportBlock">
+        <div id="ctaView">
+          <button class="btn primary wide" id="startBtn">💥 &nbsp;I heard a boom</button>
+          <p class="hint" style="margin:9px 0 0">Takes 20 seconds. No account. You can report anything you heard in the last 3 days.</p>
+        </div>
+
+        <form id="form" hidden novalidate>
+          <h2>New report <span class="tag"><button type="button" class="btn" id="cancelBtn" style="padding:3px 8px;font-size:11.5px">Cancel</button></span></h2>
+
+          <label class="f" for="whereOut">1 · Where were you when you heard it?</label>
+          <input type="text" id="whereOut" readonly value="Tap the map to drop your pin">
+
+          <label class="f">2 · When did you hear it?</label>
+          <div class="row" id="quick">
+            <button type="button" class="btn" data-ago="0">Just now</button>
+            <button type="button" class="btn" data-ago="15">15 min ago</button>
+            <button type="button" class="btn" data-ago="60">1 hr ago</button>
+            <button type="button" class="btn" data-ago="180">3 hr ago</button>
+          </div>
+          <input type="datetime-local" id="when" style="margin-top:7px">
+          <label class="f" for="prec">How sure are you of that time?</label>
+          <select id="prec">
+            <option value="exact">To the second — I checked a clock</option>
+            <option value="minute" selected>To the minute</option>
+            <option value="hour">To the hour</option>
+            <option value="vague">Rough guess</option>
+          </select>
+          <p class="hint" style="margin-top:6px">Exact clock times are gold: sound moves ~1 km every 3 seconds, so precise times from a few spots pin the source.</p>
+
+          <label class="f">3 · How loud was it?</label>
+          <div class="loud" id="loud">
+            <button type="button" data-i="1" aria-pressed="false">1</button>
+            <button type="button" data-i="2" aria-pressed="false">2</button>
+            <button type="button" data-i="3" aria-pressed="false">3</button>
+            <button type="button" data-i="4" aria-pressed="false">4</button>
+            <button type="button" data-i="5" aria-pressed="false">5</button>
+          </div>
+          <div id="loudDesc">1 = faint, easy to miss · 5 = the house shook.</div>
+
+          <label class="f">4 · Which direction did it come from?</label>
+          <div class="compass" id="compass">
+            <button type="button" data-d="NW">NW</button>
+            <button type="button" data-d="N">N</button>
+            <button type="button" data-d="NE">NE</button>
+            <button type="button" data-d="W">W</button>
+            <div class="mid">from</div>
+            <button type="button" data-d="E">E</button>
+            <button type="button" data-d="SW">SW</button>
+            <button type="button" data-d="S">S</button>
+            <button type="button" data-d="SE">SE</button>
+          </div>
+          <button type="button" class="btn" id="dirUnknown" style="margin-top:6px;padding:6px 10px;font-size:12.5px" aria-pressed="true">Couldn't tell</button>
+
+          <label class="f" for="sound">5 · What did it sound like?</label>
+          <select id="sound">
+            <option value="single">One boom</option>
+            <option value="double">Two booms, close together</option>
+            <option value="multiple">Several in a row</option>
+            <option value="rumble">Rolling rumble, like thunder</option>
+            <option value="crack">Sharp crack, like a rifle</option>
+            <option value="other">Something else</option>
+          </select>
+
+          <label class="f" for="duration">How long did it last?</label>
+          <select id="duration">
+            <option value="instant">Instant — under a second</option>
+            <option value="short" selected>A second or two</option>
+            <option value="long">Several seconds</option>
+            <option value="unknown">Not sure</option>
+          </select>
+
+          <label class="check"><input type="checkbox" id="shook"> I felt it — windows, walls or the ground moved</label>
+          <label class="check"><input type="checkbox" id="indoors" checked> I was indoors</label>
+
+          <label class="f" for="notes">Anything else? (optional)</label>
+          <textarea id="notes" maxlength="400" placeholder="Aircraft overhead, weather, dogs reacting, whether it echoed off the mountains…"></textarea>
+
+          <label class="f" for="name">Your name or handle (optional, public)</label>
+          <input type="text" id="name" maxlength="32" placeholder="Anonymous">
+
+          <div class="err" id="formErr" hidden></div>
+          <button class="btn primary wide" id="submitBtn" style="margin-top:13px">Submit report</button>
+          <p class="hint" style="margin:8px 0 0">Public data: your pin (rounded to ~110 m), time, and answers. No email, no account, no exact address. You can delete your own report from its popup.</p>
+        </form>
+      </div>
+
+      <!-- window -->
+      <div class="block">
+        <h2>Time window</h2>
+        <div class="seg" id="daysSeg" role="group" aria-label="Time window">
+          <button data-days="1" aria-pressed="false">24 h</button>
+          <button data-days="3" aria-pressed="true">3 days</button>
+          <button data-days="7" aria-pressed="false">7 days</button>
+          <button data-days="30" aria-pressed="false">30 days</button>
+          <button data-days="3650" aria-pressed="false">All</button>
+        </div>
+        <div id="timeline" style="margin-top:10px" aria-hidden="true"></div>
+        <div class="axis"><span id="axL">–</span><span id="axR">now</span></div>
+        <div class="legend" style="margin-top:12px">
+          <span><i style="width:12px;height:3px;border-radius:2px;background:var(--chat);display:block"></i>hours with a Reddit or Facebook post</span>
+        </div>
+        <div class="legend" style="margin-top:7px">
+          <span><i class="dot" style="background:#f6d365;width:8px;height:8px;border-radius:50%;display:block"></i>faint</span>
+          <span><i class="dot" style="background:#ec7211;width:11px;height:11px;border-radius:50%;display:block"></i>loud</span>
+          <span><i class="dot" style="background:#c31f1f;width:14px;height:14px;border-radius:50%;display:block"></i>shook the house</span>
+        </div>
+      </div>
+
+      <!-- events -->
+      <div class="block">
+        <h2>Events <span class="tag" id="evTag"></span></h2>
+        <p class="hint" style="margin:-3px 0 9px">Reports within 10 minutes of each other are grouped as one event. Pick one to fit a source to just that event.</p>
+        <div class="list" id="events"></div>
+        <div class="empty" id="eventsEmpty" hidden>No events yet.</div>
+      </div>
+
+      <!-- source estimate -->
+      <div class="block">
+        <h2>Source fit <span class="tag" id="fitTag"></span></h2>
+        <div id="fitOut" class="hint">Waiting for reports.</div>
+      </div>
+
+      <!-- chatter -->
+      <div class="block">
+        <h2>Chatter <span class="tag" id="chatTag"></span></h2>
+        <p class="hint" style="margin:-3px 0 9px">Posts about the booms from r/Bozeman, plus links people paste in.
+          Citations, not measurements — chatter never feeds the source fit, and a pin here is only as good as the
+          place named in the post.</p>
+
+        <div id="linkCta">
+          <button class="btn wide" id="linkBtn">🔗 &nbsp;Link a post from Facebook or elsewhere</button>
+        </div>
+
+        <form id="linkForm" hidden novalidate>
+          <label class="f" for="linkUrl">Link to the post</label>
+          <input type="text" id="linkUrl" placeholder="https://www.facebook.com/groups/…">
+          <p class="hint" style="margin-top:5px">Facebook groups are private — nothing can read them automatically,
+            so pasting the link is how an Ask Bozeman or Uncensored Ask Bozeman post gets on the map.</p>
+
+          <label class="f" for="linkQuote">What did they say? (a short quote)</label>
+          <textarea id="linkQuote" maxlength="320" placeholder="&ldquo;Huge boom just now off Durston and Ferguson, whole house shook&rdquo;"></textarea>
+
+          <label class="f" for="linkWhen">When they heard it (optional)</label>
+          <input type="datetime-local" id="linkWhen">
+
+          <label class="f">Where (optional)</label>
+          <button type="button" class="btn" id="linkPin" style="width:100%">Drop a pin on the map</button>
+          <p class="hint" style="margin-top:5px" id="linkPinOut">Otherwise the place is read out of the quote — &ldquo;Four Corners&rdquo;,
+            &ldquo;Baxter and Davis&rdquo;, &ldquo;south side&rdquo; all work.</p>
+
+          <label class="f" for="linkBy">Your name (optional)</label>
+          <input type="text" id="linkBy" maxlength="32" placeholder="Anonymous">
+
+          <div class="err" id="linkErr" hidden></div>
+          <div class="row" style="margin-top:12px">
+            <button class="btn primary" id="linkSubmit" style="flex:1">Add the link</button>
+            <button type="button" class="btn" id="linkCancel">Cancel</button>
+          </div>
+        </form>
+
+        <div class="list" id="chatter" style="margin-top:11px"></div>
+        <div class="empty" id="chatterEmpty" hidden>No posts found in this window.</div>
+      </div>
+
+      <!-- recent -->
+      <div class="block">
+        <h2>Latest reports</h2>
+        <div class="list" id="recent"></div>
+        <div class="empty" id="recentEmpty" hidden>Nothing in this window yet — be the first.</div>
+      </div>
+
+      <div class="block" style="border-bottom:0">
+        <h2>How the source fit works</h2>
+        <p class="hint">Every point on a grid over the valley is scored against every report in view: does the reported <b>direction</b> line up with that point, does the reported <b>loudness</b> match how far away that point is, and — for reports with an exact clock time — do the <b>arrival times</b> agree with sound travelling at ~343&nbsp;m/s from there. The orange cloud is the resulting likelihood; the red pin is its peak.</p>
+        <p class="hint" style="margin-top:8px">It is only as good as the reports. Two reports prove nothing. A dozen with careful times and directions will genuinely narrow it down.</p>
+        <p class="hint" style="margin-top:8px"><b>Voting.</b> Anyone can report; voting needs an account, because
+          one vote per account costs something and one vote per browser costs nothing. Up means &ldquo;this matches
+          what I heard&rdquo;, down means &ldquo;this looks wrong&rdquo;. A report that reaches &minus;3 is marked
+          disputed, greyed on the map and dropped from the source fit — so bad data gets filtered by the people who
+          were actually there, not deleted by me.</p>
+        <p class="hint" style="margin-top:8px"><b>Where the data comes from.</b> First-hand reports are what people
+          file here, and they are the only thing the fit uses. <b>Chatter</b> is public posts about the booms: a
+          scraper checks r/Bozeman search feeds every 15 minutes and keeps the title, a short quote and a link back,
+          and anyone can paste a link from Facebook, Nextdoor, X or local news. Facebook groups are private and have
+          no API, so they can only arrive by someone pasting a link.</p>
+        <p class="hint" style="margin-top:8px">Locations for chatter are read out of the text — a named corner
+          (&ldquo;Baxter and Davis&rdquo;) is good to a couple of blocks, &ldquo;the south side&rdquo; is good to a
+          mile or so, and posts that name nowhere get no pin at all.</p>
+        <p class="hint" style="margin-top:8px"><b>Suspects</b> is just a list of places in the valley that make loud noises for ordinary reasons — a shortlist to rule in or out, not an accusation about any particular boom.</p>
+        <p class="hint" style="margin-top:8px">Built by <a href="/">Andrew Nakas</a>. Reports are public and unverified — treat them as anecdote, not evidence. Not affiliated with any agency.</p>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+(() => {
+'use strict';
+
+// ---------------------------------------------------------------- config
+const API = /^(localhost|127\.0\.0\.1)$/.test(location.hostname)
+  ? 'http://localhost:8787'
+  : 'https://api.nak.as';
+
+const BOZEMAN = [45.6796, -111.0386];
+const MIN = 60000, HOUR = 3600000, DAY = 86400000;
+const EVENT_GAP = 10 * MIN;          // reports closer than this are one event
+const SPEED_OF_SOUND = 0.343;        // km/s, cool dry air; good enough here
+
+// Known noisemakers worth ruling in or out. Approximate positions, and every
+// one of them is a hypothesis to check — not a claim about any actual boom.
+const SUSPECTS = [
+  { n: 'Bridger Bowl (avalanche control)', ll: [45.8175, -110.8975] },
+  { n: 'Bozeman Yellowstone Intl (BZN)',   ll: [45.7775, -111.1530] },
+  { n: 'Big Sky / Lone Peak',              ll: [45.2846, -111.4014] },
+  { n: 'Montana State University',         ll: [45.6672, -111.0492] },
+  { n: 'Downtown Bozeman',                 ll: [45.6796, -111.0386] },
+  { n: 'Belgrade',                         ll: [45.7761, -111.1769] },
+  { n: 'Four Corners',                     ll: [45.6597, -111.1830] },
+  { n: 'Livingston',                       ll: [45.6624, -110.5610] },
+  { n: 'Three Forks',                      ll: [45.8930, -111.5522] },
+  { n: 'Gallatin Gateway',                 ll: [45.5983, -111.1980] },
+];
+
+const SOUND_LABEL = {
+  single: 'one boom', double: 'two booms', multiple: 'several booms',
+  rumble: 'rolling rumble', crack: 'sharp crack', other: 'other sound',
+};
+const DUR_LABEL = { instant: 'instant', short: '1–2 s', long: 'several seconds', unknown: '' };
+const PREC_LABEL = { exact: 'to the second', minute: 'to the minute', hour: 'to the hour', vague: 'rough guess' };
+const LOUD_DESC = [
+  '',
+  '1 · Faint — you noticed it but could have missed it.',
+  '2 · Clear — definitely a boom, nothing moved.',
+  '3 · Loud — heads turned, dogs went off.',
+  '4 · Very loud — windows or dishes rattled.',
+  '5 · Violent — the house shook, you felt it in your chest.',
+];
+const BEARING = { N: 0, NE: 45, E: 90, SE: 135, S: 180, SW: 225, W: 270, NW: 315 };
+
+const intensityColor = (i) => ['#f6d365','#f6d365','#f0a92f','#ec7211','#df4d1f','#c31f1f'][Math.max(1, Math.min(5, i))];
+
+// ---------------------------------------------------------------- state
+const state = {
+  booms: [],
+  days: 3,
+  loading: true,
+  event: null,       // selected event index, or null for "all events combined"
+  pickedScope: false,// true once the visitor chooses a scope themselves
+  mode: 'idle',      // 'idle' | 'report'
+  draft: null,       // { lat, lon }
+  mentions: [],
+  layers: { pins: true, heat: false, est: true, src: false, chat: true },
+};
+
+// The session token is the same one the rest of nak.as issues, so an account
+// made here works on the game too.
+const session = {
+  token: null,
+  user: null,
+  votes: {},
+  load() {
+    try {
+      this.token = localStorage.getItem('boom.token');
+      this.user = localStorage.getItem('boom.user');
+    } catch {}
+  },
+  save(token, user) {
+    this.token = token; this.user = user;
+    try { localStorage.setItem('boom.token', token); localStorage.setItem('boom.user', user); } catch {}
+  },
+  clear() {
+    this.token = null; this.user = null; this.votes = {};
+    try { localStorage.removeItem('boom.token'); localStorage.removeItem('boom.user'); } catch {}
+  },
+  headers(extra) {
+    return this.token ? { ...extra, Authorization: `Bearer ${this.token}` } : { ...extra };
+  },
+};
+
+const mine = {
+  get() { try { return JSON.parse(localStorage.getItem('boom.mine') || '{}'); } catch { return {}; } },
+  add(id, secret) { const m = this.get(); m[id] = secret; try { localStorage.setItem('boom.mine', JSON.stringify(m)); } catch {} },
+  drop(id) { const m = this.get(); delete m[id]; try { localStorage.setItem('boom.mine', JSON.stringify(m)); } catch {} },
+};
+
+const $ = (id) => document.getElementById(id);
+
+// ---------------------------------------------------------------- theme
+const prefersDark = matchMedia('(prefers-color-scheme: dark)');
+function applyTheme(t) {
+  document.documentElement.dataset.theme = t;
+  try { localStorage.setItem('boom.theme', t); } catch {}
+  paintTiles();
+  drawOverlays();
+}
+let theme = (() => { try { return localStorage.getItem('boom.theme'); } catch { return null; } })()
+  || (prefersDark.matches ? 'dark' : 'light');
+
+// ---------------------------------------------------------------- map
+const map = L.map('map', { zoomControl: true, worldCopyJump: false })
+  .setView(BOZEMAN, 10);
+
+// Key-free tile sources only. Dark mode inverts the tile pane in CSS rather
+// than swapping to a dark provider, so no basemap here needs an account.
+const base = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+}).addTo(map);
+
+// Terrain matters here: ridges and canyons steer where a boom is heard.
+const terrain = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+  maxZoom: 17,
+  attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)',
+});
+
+// Imagery is how you spot a quarry, a gravel pit or a range from the map.
+const imagery = L.tileLayer(
+  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+  { maxZoom: 18, attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics' },
+);
+
+L.control.layers({ Street: base, Terrain: terrain, Satellite: imagery }, null, { position: 'topleft' })
+  .addTo(map);
+
+// Inverting photography looks awful, so the dark filter is street/terrain only.
+let darkenTiles = true;
+map.on('baselayerchange', (e) => { darkenTiles = e.layer !== imagery; paintTiles(); });
+function paintTiles() {
+  const dark = document.documentElement.dataset.theme === 'dark';
+  document.getElementById('map').classList.toggle('darktiles', dark && darkenTiles);
+}
+
+const pinLayer = L.layerGroup().addTo(map);
+const srcLayer = L.layerGroup();
+const estLayer = L.layerGroup().addTo(map);
+const chatLayer = L.layerGroup().addTo(map);
+let heatOverlay = null, estOverlay = null, draftMarker = null;
+
+for (const s of SUSPECTS) {
+  L.circleMarker(s.ll, { radius: 5, color: '#7aa7ff', weight: 2, fillOpacity: .25, fillColor: '#7aa7ff' })
+    .bindTooltip(s.n, { className: 'srcLabel', direction: 'top', offset: [0, -6] })
+    .addTo(srcLayer);
+}
+
+// ---------------------------------------------------------------- geo math
+const R_EARTH = 6371;
+function toRad(d) { return d * Math.PI / 180; }
+// Equirectangular approximation — the valley is small, this is within metres.
+function distKm(aLat, aLon, bLat, bLon) {
+  const x = toRad(bLon - aLon) * Math.cos(toRad((aLat + bLat) / 2));
+  const y = toRad(bLat - aLat);
+  return Math.sqrt(x * x + y * y) * R_EARTH;
+}
+function bearingDeg(aLat, aLon, bLat, bLon) {
+  const x = toRad(bLon - aLon) * Math.cos(toRad((aLat + bLat) / 2));
+  const y = toRad(bLat - aLat);
+  return (Math.atan2(x, y) * 180 / Math.PI + 360) % 360;
+}
+function angDiff(a, b) { const d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; }
+
+// ---------------------------------------------------------------- fetch
+async function load() {
+  // Chatter failing must not take the reports down with it, so they settle
+  // independently.
+  const [reports, chatter] = await Promise.allSettled([
+    fetch(`${API}/booms?days=${state.days}`, { cache: 'no-store' }).then((r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    }),
+    fetch(`${API}/booms/mentions?days=${state.days}`, { cache: 'no-store' }).then((r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    }),
+  ]);
+
+  state.loading = false;
+  if (reports.status === 'fulfilled') {
+    state.booms = (reports.value.booms || []).sort((a, b) => b.at - a.at);
+    state.error = null;
+  } else {
+    state.error = reports.reason?.message || 'offline';
+  }
+  state.mentions = chatter.status === 'fulfilled'
+    ? (chatter.value.mentions || []).sort((a, b) => b.at - a.at)
+    : [];
+
+  // Which way this visitor already voted, so the arrows come back lit.
+  if (session.token) {
+    try {
+      const r = await fetch(`${API}/booms/votes`, { cache: 'no-store', headers: session.headers() });
+      if (r.status === 401) session.clear();          // the token expired
+      else if (r.ok) session.votes = (await r.json()).votes || {};
+    } catch { /* votes are a nicety; the map works without them */ }
+  }
+  paintAccount();
+  render();
+}
+
+// ---------------------------------------------------------------- events
+// Group reports into events by time gap. Reports whose time is a rough guess
+// still join a group, they just don't contribute to the time-based fit.
+function buildEvents(booms) {
+  const sorted = [...booms].sort((a, b) => a.at - b.at);
+  const out = [];
+  let cur = null;
+  for (const b of sorted) {
+    if (cur && b.at - cur.last <= EVENT_GAP) {
+      cur.booms.push(b); cur.last = b.at;
+    } else {
+      cur = { booms: [b], first: b.at, last: b.at };
+      out.push(cur);
+    }
+  }
+  for (const e of out) {
+    e.at = e.booms.reduce((s, b) => s + b.at, 0) / e.booms.length;
+    e.max = Math.max(...e.booms.map((b) => b.intensity));
+    e.shook = e.booms.filter((b) => b.shook).length;
+  }
+  return out.reverse(); // newest first
+}
+
+// ---------------------------------------------------------------- source fit
+// Score a grid of candidate origins against a set of reports. Three
+// independent signals, each a log-likelihood term:
+//   direction  — the bearing from the reporter to the candidate should match
+//                the direction they said the sound came from (sigma 30 deg).
+//   loudness   — expected intensity falls off with log distance; compare.
+//   timing     — for exact-time reports, back out an origin time per report
+//                (t_heard - distance/speed); a real source makes those agree.
+const GRID = 96;
+function fitSource(booms, useTiming) {
+  const pts = booms.filter((b) => Number.isFinite(b.lat) && Number.isFinite(b.lon));
+  if (pts.length < 2) return null;
+
+  // Grid covers the reports plus 25 km of slack in every direction.
+  const lats = pts.map((p) => p.lat), lons = pts.map((p) => p.lon);
+  const padLat = 25 / 111;
+  const padLon = 25 / (111 * Math.cos(toRad(BOZEMAN[0])));
+  const minLat = Math.min(...lats) - padLat, maxLat = Math.max(...lats) + padLat;
+  const minLon = Math.min(...lons) - padLon, maxLon = Math.max(...lons) + padLon;
+
+  // Arrival times only mean something within a single event: two booms an hour
+  // apart share no origin time, so timing across events is noise, not evidence.
+  const timed = useTiming ? pts.filter((p) => p.prec === 'exact') : [];
+  const scores = new Float64Array(GRID * GRID);
+  let best = -Infinity, bestIdx = 0, worst = Infinity;
+
+  for (let gy = 0; gy < GRID; gy++) {
+    const lat = maxLat - (gy + 0.5) * (maxLat - minLat) / GRID;
+    for (let gx = 0; gx < GRID; gx++) {
+      const lon = minLon + (gx + 0.5) * (maxLon - minLon) / GRID;
+      let s = 0;
+
+      // direction + loudness
+      for (const p of pts) {
+        const d = Math.max(distKm(p.lat, p.lon, lat, lon), 0.3);
+        if (p.direction && p.direction !== 'unknown') {
+          const diff = angDiff(bearingDeg(p.lat, p.lon, lat, lon), BEARING[p.direction]);
+          s += -0.5 * (diff / 30) ** 2;
+        }
+        // Expected loudness from distance, 1..5. Calibrated so a 5 wants to be
+        // within a couple of km and a 1 sits 30+ km out.
+        const expect = 5 - 1.15 * Math.log2(d / 1.5);
+        const resid = (p.intensity - Math.max(0, Math.min(6, expect))) / 1.6;
+        s += -0.5 * resid * resid;
+      }
+
+      // arrival times: the spread of implied origin times
+      if (timed.length >= 2) {
+        let sum = 0;
+        const t0 = [];
+        for (const p of timed) {
+          const d = distKm(p.lat, p.lon, lat, lon);
+          const t = p.at / 1000 - d / SPEED_OF_SOUND;
+          t0.push(t); sum += t;
+        }
+        const mean = sum / t0.length;
+        let varr = 0;
+        for (const t of t0) varr += (t - mean) ** 2;
+        varr /= t0.length;
+        // sigma 4 s: covers hand-timed clock reads without going slack.
+        s += -0.5 * varr / 16 * timed.length;
+      }
+
+      scores[gy * GRID + gx] = s;
+      if (s > best) { best = s; bestIdx = gy * GRID + gx; }
+      if (s < worst) worst = s;
+    }
+  }
+
+  const by = Math.floor(bestIdx / GRID), bx = bestIdx % GRID;
+  const bestLat = maxLat - (by + 0.5) * (maxLat - minLat) / GRID;
+  const bestLon = minLon + (bx + 0.5) * (maxLon - minLon) / GRID;
+
+  // Credible area: cells within 2 log-likelihood units of the peak, expressed
+  // as an equivalent radius so we can draw one honest ring.
+  let inside = 0;
+  for (let i = 0; i < scores.length; i++) if (scores[i] > best - 2) inside++;
+  const cellAreaKm2 = distKm(minLat, minLon, minLat + (maxLat - minLat) / GRID, minLon)
+    * distKm(minLat, minLon, minLat, minLon + (maxLon - minLon) / GRID);
+  const radiusKm = Math.sqrt(Math.max(inside, 1) * cellAreaKm2 / Math.PI);
+
+  return {
+    scores, best, worst, GRID,
+    bounds: [[minLat, minLon], [maxLat, maxLon]],
+    lat: bestLat, lon: bestLon,
+    radiusKm: Math.max(radiusKm, 0.4),
+    n: pts.length,
+    timed: timed.length,
+    directed: pts.filter((p) => p.direction !== 'unknown').length,
+  };
+}
+
+// Paint a Float64 field into an RGBA canvas with a warm ramp.
+function fieldCanvas(scores, size, best, worst, ramp) {
+  const c = document.createElement('canvas');
+  c.width = size; c.height = size;
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(size, size);
+  const span = Math.max(best - worst, 1e-6);
+  for (let i = 0; i < scores.length; i++) {
+    // Emphasise the top of the range — the tail is noise, not information.
+    let v = (scores[i] - worst) / span;
+    v = Math.pow(v, 6);
+    const [r, g, b, a] = ramp(v);
+    img.data[i * 4] = r; img.data[i * 4 + 1] = g; img.data[i * 4 + 2] = b; img.data[i * 4 + 3] = a;
+  }
+  ctx.putImageData(img, 0, 0);
+  return c;
+}
+
+const hotRamp = (v) => {
+  if (v < 0.25) return [0, 0, 0, 0];
+  const t = (v - 0.25) / 0.75;
+  const r = 255;
+  const g = Math.round(210 - 170 * t);
+  const b = Math.round(90 - 85 * t);
+  return [r, g, b, Math.round(30 + 190 * t)];
+};
+
+// ---------------------------------------------------------------- heat
+function heatField(booms, bounds) {
+  const size = 128;
+  const [[minLat, minLon], [maxLat, maxLon]] = bounds;
+  const scores = new Float64Array(size * size);
+  let best = 0;
+  for (let gy = 0; gy < size; gy++) {
+    const lat = maxLat - (gy + 0.5) * (maxLat - minLat) / size;
+    for (let gx = 0; gx < size; gx++) {
+      const lon = minLon + (gx + 0.5) * (maxLon - minLon) / size;
+      let s = 0;
+      for (const b of booms) {
+        const d = distKm(b.lat, b.lon, lat, lon);
+        // 3 km kernel, weighted by how loud it was there.
+        s += b.intensity * Math.exp(-(d * d) / 18);
+      }
+      scores[gy * size + gx] = s;
+      if (s > best) best = s;
+    }
+  }
+  return { scores, size, best };
+}
+
+// ---------------------------------------------------------------- render
+function fmtTime(ms) {
+  const d = new Date(ms);
+  return d.toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+}
+function ago(ms) {
+  const s = (Date.now() - ms) / 1000;
+  if (s < 90) return 'just now';
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  if (s < 86400) return `${Math.round(s / 3600)} hr ago`;
+  return `${Math.round(s / 86400)} d ago`;
+}
+function esc(t) {
+  return String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function visibleBooms() {
+  const events = state.eventsCache || [];
+  if (state.event !== null && events[state.event]) return events[state.event].booms;
+  return state.booms;
+}
+
+function render() {
+  const booms = state.booms;
+  const events = buildEvents(booms);
+  state.eventsCache = events;
+  if (state.event !== null && !events[state.event]) state.event = null;
+  // Fitting one event is the meaningful default; combining them is opt-in.
+  // Open on the newest event that has enough reports to say anything — a lone
+  // report is a fine thing to log and a useless thing to land on.
+  if (!state.pickedScope && events.length) {
+    const i = events.findIndex((e) => e.booms.length >= 2);
+    state.event = i === -1 ? 0 : i;
+  }
+
+  // stats
+  $('sReports').textContent = booms.length;
+  $('sEvents').textContent = events.length;
+  $('sLast').textContent = booms.length ? ago(booms[0].at) : '–';
+  $('evTag').textContent = state.event !== null ? 'fitting one event' : 'combined';
+
+  renderTimeline(booms);
+  renderEvents(events);
+  renderChatter();
+  renderRecent(booms);
+  drawOverlays();
+  renderFit();
+}
+
+function renderTimeline(booms) {
+  const el = $('timeline');
+  const buckets = 48;
+  const span = state.days * DAY;
+  const end = Date.now();
+  const start = end - span;
+  const counts = new Array(buckets).fill(0);
+  const chat = new Array(buckets).fill(0);
+  const bucketOf = (at) => Math.floor((at - start) / span * buckets);
+  for (const b of booms) {
+    const i = bucketOf(b.at);
+    if (i >= 0 && i < buckets) counts[i] += b.intensity;
+  }
+  for (const m of state.mentions) {
+    const i = bucketOf(m.at);
+    if (i >= 0 && i < buckets) chat[i]++;
+  }
+  const max = Math.max(1, ...counts);
+  el.innerHTML = counts.map((c, i) => {
+    const t = new Date(start + (i + 0.5) * span / buckets);
+    const when = esc(t.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric' }));
+    const label = `${when} — ${Math.round(c)} report weight, ${chat[i]} post${chat[i] === 1 ? '' : 's'}`;
+    return `<i class="${c ? 'has' : ''}" style="height:${Math.max(2, c / max * 100)}%" title="${label}">` +
+      `${chat[i] ? '<u></u>' : ''}</i>`;
+  }).join('');
+  $('axL').textContent = new Date(start).toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+function renderEvents(events) {
+  const el = $('events');
+  $('eventsEmpty').hidden = events.length > 0;
+  el.hidden = events.length === 0;
+  el.innerHTML = `
+    <div class="item" data-ev="all" aria-current="${state.event === null}">
+      <i class="dot" style="background:var(--soft)"></i>
+      <div class="body">
+        <div class="t">All events combined</div>
+        <div class="s">every report in the window — no timing fit</div>
+      </div>
+      <span class="n">${state.booms.length}</span>
+    </div>` + events.slice(0, 40).map((e, i) => `
+    <div class="item" data-ev="${i}" aria-current="${state.event === i}">
+      <i class="dot" style="background:${intensityColor(e.max)}"></i>
+      <div class="body">
+        <div class="t">${esc(fmtTime(e.at))} · ${e.booms.length} report${e.booms.length > 1 ? 's' : ''}</div>
+        <div class="s">peak ${e.max}/5${e.shook ? ` · ${e.shook} felt it` : ''} · ${esc(ago(e.at))}</div>
+      </div>
+      <span class="n">${e.booms.length}</span>
+    </div>`).join('');
+  el.querySelectorAll('[data-ev]').forEach((n) => n.addEventListener('click', () => {
+    state.pickedScope = true;
+    state.event = n.dataset.ev === 'all' ? null : Number(n.dataset.ev);
+    render();
+    const ev = state.eventsCache[state.event ?? -1];
+    if (ev && ev.booms.length) {
+      map.fitBounds(L.latLngBounds(ev.booms.map((b) => [b.lat, b.lon])).pad(0.4), { maxZoom: 13 });
+    }
+  }));
+}
+
+function renderRecent(booms) {
+  const el = $('recent');
+  $('recentEmpty').hidden = booms.length > 0;
+  el.hidden = booms.length === 0;
+  el.innerHTML = booms.slice(0, 40).map((b) => `
+    <div class="item ${b.disputed ? 'disputed' : ''}" data-id="${esc(b.id)}">
+      <i class="dot" style="background:${intensityColor(b.intensity)}"></i>
+      <div class="body">
+        <div class="t">${esc(fmtTime(b.at))} · ${esc(SOUND_LABEL[b.sound] || b.sound)}</div>
+        <div class="s">${b.intensity}/5${b.shook ? ' · felt it' : ''}${b.direction !== 'unknown' ? ` · from the ${esc(b.direction)}` : ''}${b.account ? ` · ${esc(b.account)}` : b.name ? ` · ${esc(b.name)}` : ''}${b.disputed ? ' · disputed, left out of the fit' : ''}</div>
+      </div>
+      ${voteControl(b)}
+    </div>`).join('');
+  el.querySelectorAll('[data-id]').forEach((n) => n.addEventListener('click', () => {
+    const b = state.booms.find((x) => x.id === n.dataset.id);
+    if (!b) return;
+    map.setView([b.lat, b.lon], Math.max(map.getZoom(), 12));
+    const m = markerById.get(b.id);
+    if (m) m.openPopup();
+  }));
+}
+
+const markerById = new Map();
+const chatById = new Map();
+
+const SOURCE_LABEL = {
+  reddit: 'reddit', facebook: 'facebook', nextdoor: 'nextdoor', x: 'x',
+  instagram: 'instagram', youtube: 'youtube', tiktok: 'tiktok', news: 'news', link: 'link',
+};
+
+function renderChatter() {
+  const ms = state.mentions;
+  const placed = ms.filter((m) => m.lat !== null && m.lat !== undefined).length;
+  $('chatTag').textContent = ms.length ? `${ms.length} posts · ${placed} placed` : '';
+  $('chatterEmpty').hidden = ms.length > 0;
+  const el = $('chatter');
+  el.hidden = ms.length === 0;
+  el.innerHTML = ms.slice(0, 60).map((m) => `
+    <div class="item chat" data-mid="${esc(m.id)}">
+      <span class="src ${m.kind === 'discussion' ? 'talk' : ''}">${esc(SOURCE_LABEL[m.source] || m.source)}</span>
+      <div class="body">
+        <div class="t">${esc(m.title || m.excerpt || m.url)}</div>
+        ${m.excerpt && m.title ? `<div class="q">${esc(m.excerpt)}</div>` : ''}
+        <div class="s">${esc(ago(m.at))}${m.timed ? ' · stated time' : ''}${m.place ? ` · ${esc(m.place)}` : ' · no location given'}${m.author ? ` · ${esc(m.author)}` : ''}${m.by ? ` · added by ${esc(m.by)}` : ''}</div>
+      </div>
+      <a class="n" href="${esc(m.url)}" target="_blank" rel="noopener noreferrer nofollow" title="open the original">↗</a>
+    </div>`).join('');
+
+  el.querySelectorAll('[data-mid]').forEach((n) => n.addEventListener('click', (ev) => {
+    if (ev.target.closest('a')) return;         // the ↗ opens the source
+    const m = state.mentions.find((x) => x.id === n.dataset.mid);
+    if (!m || m.lat === null || m.lat === undefined) return;
+    map.setView([m.lat, m.lon], Math.max(map.getZoom(), 13));
+    chatById.get(m.id)?.openPopup();
+  }));
+}
+
+function chatPopup(m) {
+  return `
+    <b>${esc(m.title || 'Post')}</b>
+    <div class="meta">${esc(SOURCE_LABEL[m.source] || m.source)}${m.subreddit ? ` · r/${esc(m.subreddit)}` : ''}${m.author ? ` · ${esc(m.author)}` : ''} · ${esc(ago(m.at))}</div>
+    ${m.excerpt ? `<div class="note">${esc(m.excerpt)}</div>` : ''}
+    <div class="meta" style="margin-top:7px">
+      ${m.place ? `Placed at ${esc(m.place)} — ${m.conf === 'stated' ? 'named in the post' : 'a rough area from the wording'}.` : 'No location given.'}
+      ${m.timed ? ' Time is the one stated in the post.' : ' Time is when it was posted.'}
+    </div>
+    <div style="margin-top:7px"><a href="${esc(m.url)}" target="_blank" rel="noopener noreferrer nofollow">Read the original ↗</a></div>`;
+}
+
+function popupHtml(b) {
+  const owned = !!mine.get()[b.id];
+  const bits = [
+    `${b.intensity}/5 loudness`,
+    SOUND_LABEL[b.sound] || b.sound,
+    DUR_LABEL[b.duration],
+    b.shook ? 'felt the shake' : '',
+    b.indoors === true ? 'indoors' : b.indoors === false ? 'outdoors' : '',
+    b.direction !== 'unknown' ? `came from the ${b.direction}` : '',
+  ].filter(Boolean);
+  return `
+    <b>${esc(new Date(b.at).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}</b>
+    <div class="meta">${esc(ago(b.at))} · time ${esc(PREC_LABEL[b.prec] || b.prec)}${b.account ? ` · reported by ${esc(b.account)}` : b.name ? ` · reported by ${esc(b.name)}` : ''}</div>
+    <div style="margin-top:6px">${esc(bits.join(' · '))}</div>
+    ${b.notes ? `<div class="note">${esc(b.notes)}</div>` : ''}
+    <div style="margin-top:8px;display:flex;align-items:center;gap:9px">
+      ${voteControl(b)}
+      <span class="meta" style="margin:0">${b.up} agree · ${b.down} dispute</span>
+    </div>
+    ${b.disputed ? '<div class="meta" style="color:var(--hot);margin-top:5px">Voted down — excluded from the source fit.</div>' : ''}
+    ${owned ? `<button class="del" data-del="${esc(b.id)}">Delete my report</button>` : ''}`;
+}
+
+function drawOverlays() {
+  // pins
+  pinLayer.clearLayers();
+  markerById.clear();
+  if (state.layers.pins) {
+    const shown = visibleBooms();
+    const dim = state.event !== null;
+    for (const b of state.booms) {
+      const inView = !dim || shown.includes(b);
+      const m = L.circleMarker([b.lat, b.lon], {
+        radius: 5 + b.intensity * 2.2,
+        color: b.disputed ? '#8a8f98' : intensityColor(b.intensity),
+        weight: b.shook ? 2.5 : 1.5,
+        opacity: (inView ? 0.95 : 0.2) * (b.disputed ? 0.5 : 1),
+        fillColor: b.disputed ? '#8a8f98' : intensityColor(b.intensity),
+        dashArray: b.disputed ? '3 3' : null,
+        fillOpacity: (inView ? 0.42 : 0.08) * (b.disputed ? 0.4 : 1),
+      }).bindPopup(() => popupHtml(b));
+      m.addTo(pinLayer);
+      markerById.set(b.id, m);
+    }
+  }
+
+  // heat
+  if (heatOverlay) { map.removeLayer(heatOverlay); heatOverlay = null; }
+  if (state.layers.heat && state.booms.length) {
+    const lats = state.booms.map((b) => b.lat), lons = state.booms.map((b) => b.lon);
+    const pad = 0.25;
+    const bounds = [
+      [Math.min(...lats) - pad, Math.min(...lons) - pad],
+      [Math.max(...lats) + pad, Math.max(...lons) + pad],
+    ];
+    const f = heatField(visibleBooms(), bounds);
+    const canvas = fieldCanvas(f.scores, f.size, f.best, 0, (v) => {
+      if (v < 0.06) return [0, 0, 0, 0];
+      const t = Math.min(1, (v - 0.06) / 0.94);
+      return [255, Math.round(230 - 200 * t), Math.round(120 - 110 * t), Math.round(20 + 150 * t)];
+    });
+    heatOverlay = L.imageOverlay(canvas.toDataURL(), bounds,
+      { opacity: 0.8, interactive: false, className: 'heatOverlay' }).addTo(map);
+  }
+
+  // source fit
+  estLayer.clearLayers();
+  if (estOverlay) { map.removeLayer(estOverlay); estOverlay = null; }
+  // A report the crowd has voted down stops steering the answer.
+  state.fit = fitSource(visibleBooms().filter((b) => !b.disputed), state.event !== null);
+  if (state.layers.est && state.fit) {
+    const f = state.fit;
+    const canvas = fieldCanvas(f.scores, f.GRID, f.best, f.worst, hotRamp);
+    estOverlay = L.imageOverlay(canvas.toDataURL(), f.bounds,
+      { opacity: 0.72, interactive: false, className: 'fitOverlay' }).addTo(map);
+    L.circle([f.lat, f.lon], {
+      radius: f.radiusKm * 1000, color: '#ff4d4d', weight: 1.5,
+      dashArray: '5 5', fill: false,
+    }).addTo(estLayer);
+    L.marker([f.lat, f.lon], {
+      icon: L.divIcon({ className: '', html: '<div class="estLabel">likely source</div>', iconSize: null }),
+    }).addTo(estLayer);
+  }
+
+  // chatter: a diamond, deliberately unlike a report pin
+  chatLayer.clearLayers();
+  chatById.clear();
+  if (state.layers.chat) {
+    for (const m of state.mentions) {
+      if (m.lat === null || m.lat === undefined) continue;
+      const marker = L.marker([m.lat, m.lon], {
+        icon: L.divIcon({
+          className: '',
+          html: `<div class="chatMark ${m.kind === 'discussion' ? 'talk' : ''}"><span>${m.source === 'reddit' ? '👽' : '💬'}</span></div>`,
+          iconSize: [20, 20],
+          iconAnchor: [10, 10],
+        }),
+      }).bindPopup(() => chatPopup(m));
+      marker.addTo(chatLayer);
+      chatById.set(m.id, marker);
+    }
+  }
+
+  // suspects
+  if (state.layers.src) { if (!map.hasLayer(srcLayer)) srcLayer.addTo(map); }
+  else if (map.hasLayer(srcLayer)) map.removeLayer(srcLayer);
+}
+
+function renderFit() {
+  const f = state.fit;
+  const out = $('fitOut');
+  const ev = state.eventsCache?.[state.event ?? -1];
+  const scope = ev ? `the ${fmtTime(ev.at)} event` : 'all events combined';
+  if (state.loading) { out.textContent = 'Loading reports…'; return; }
+  if (state.error) {
+    out.innerHTML = `<span style="color:var(--hot)">Couldn't reach the report server (${esc(state.error)}).</span> The map still works; try reloading.`;
+    return;
+  }
+  if (!f) {
+    out.innerHTML = `Needs at least two reports before a fit means anything. ${state.booms.length ? '' : 'Nothing logged in this window yet.'}`;
+    $('fitTag').textContent = '';
+    return;
+  }
+  const near = SUSPECTS
+    .map((s) => ({ ...s, d: distKm(f.lat, f.lon, s.ll[0], s.ll[1]) }))
+    .sort((a, b) => a.d - b.d)[0];
+  const conf = state.event === null ? 'indicative only'
+    : f.timed >= 3 ? 'good' : f.timed >= 2 ? 'fair' : f.directed >= 3 ? 'rough' : 'weak';
+  $('fitTag').textContent = state.event === null ? conf : `${conf} confidence`;
+  out.innerHTML = `
+    <div style="color:var(--ink);font-size:13.5px;margin-bottom:6px">
+      Best fit for ${esc(scope)}: <b class="num">${f.lat.toFixed(3)}, ${f.lon.toFixed(3)}</b>
+      — about <b class="num">${near.d.toFixed(1)} km</b> from ${esc(near.n)}.
+    </div>
+    Built from ${f.n} report${f.n > 1 ? 's' : ''}: ${f.directed} gave a direction, ${f.timed} gave an exact time.
+    Plausible area has a radius of roughly ${f.radiusKm.toFixed(1)} km.
+    ${state.event === null
+      ? '<br><br>This blends every event in the window, which only makes sense if they all came from one place. Pick a single event above for a fit that uses arrival times.'
+      : f.timed < 2
+        ? '<br><br>Add reports with <b>exact clock times</b> to shrink that circle — timing is what turns a guess into a fix.'
+        : ''}`;
+}
+
+// ---------------------------------------------------------------- report flow
+let draft = null;
+
+function setMode(mode) {
+  state.mode = mode;
+  const reporting = mode === 'report';
+  const picking = reporting || mode === 'link';
+  $('ctaView').hidden = reporting;
+  $('form').hidden = !reporting;
+  $('picker').classList.toggle('on', picking);
+  paintFab();
+  if (!picking && draftMarker) { map.removeLayer(draftMarker); draftMarker = null; draft = null; }
+  if (reporting) $('form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function paintFab() {
+  $('fab').style.display =
+    state.mode !== 'report' && window.matchMedia('(max-width:860px)').matches ? 'flex' : 'none';
+}
+
+function setDraft(lat, lon) {
+  draft = { lat, lon };
+  if (!draftMarker) {
+    draftMarker = L.marker([lat, lon], { draggable: true, autoPan: true }).addTo(map);
+    draftMarker.on('dragend', () => {
+      const p = draftMarker.getLatLng();
+      draft = { lat: p.lat, lon: p.lng };
+      updateWhere();
+    });
+  } else {
+    draftMarker.setLatLng([lat, lon]);
+  }
+  updateWhere();
+}
+function updateWhere() {
+  $('whereOut').value = draft
+    ? `${draft.lat.toFixed(3)}, ${draft.lon.toFixed(3)} — drag the pin to adjust`
+    : 'Tap the map to drop your pin';
+  $('pickTitle').textContent = draft ? 'Pin dropped — adjust it or fill in the form' : 'Tap the map where you were';
+}
+
+map.on('click', (e) => {
+  if (state.mode !== 'report' && state.mode !== 'link') return;
+  setDraft(e.latlng.lat, e.latlng.lng);
+  if (state.mode === 'link') {
+    $('linkPinOut').textContent =
+      `Pinned at ${e.latlng.lat.toFixed(3)}, ${e.latlng.lng.toFixed(3)} — drag to adjust.`;
+  }
+});
+
+function localInputValue(d) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function resetForm() {
+  const now = new Date();
+  $('when').value = localInputValue(now);
+  $('when').min = localInputValue(new Date(Date.now() - 3 * DAY + MIN));
+  $('when').max = localInputValue(now);
+  $('prec').value = 'minute';
+  $('sound').value = 'single';
+  $('duration').value = 'short';
+  $('shook').checked = false;
+  $('indoors').checked = true;
+  $('notes').value = '';
+  try { $('name').value = localStorage.getItem('boom.name') || ''; } catch {}
+  form.intensity = 0;
+  form.direction = 'unknown';
+  paintLoud(); paintCompass();
+  $('formErr').hidden = true;
+}
+const form = { intensity: 0, direction: 'unknown' };
+
+function paintLoud() {
+  document.querySelectorAll('#loud button').forEach((b) => {
+    b.setAttribute('aria-pressed', String(Number(b.dataset.i) === form.intensity));
+  });
+  $('loudDesc').textContent = form.intensity
+    ? LOUD_DESC[form.intensity]
+    : '1 = faint, easy to miss · 5 = the house shook.';
+}
+function paintCompass() {
+  document.querySelectorAll('#compass button').forEach((b) => {
+    b.setAttribute('aria-pressed', String(b.dataset.d === form.direction));
+  });
+  $('dirUnknown').setAttribute('aria-pressed', String(form.direction === 'unknown'));
+}
+
+document.querySelectorAll('#loud button').forEach((b) => b.addEventListener('click', () => {
+  form.intensity = Number(b.dataset.i); paintLoud();
+}));
+document.querySelectorAll('#compass button').forEach((b) => b.addEventListener('click', () => {
+  form.direction = b.dataset.d; paintCompass();
+}));
+$('dirUnknown').addEventListener('click', () => { form.direction = 'unknown'; paintCompass(); });
+
+document.querySelectorAll('#quick button').forEach((b) => b.addEventListener('click', () => {
+  const mins = Number(b.dataset.ago);
+  $('when').value = localInputValue(new Date(Date.now() - mins * MIN));
+  $('prec').value = mins === 0 ? 'minute' : 'hour';
+}));
+
+$('startBtn').addEventListener('click', () => { resetForm(); setLinkMode(false); setMode('report'); });
+$('fab').addEventListener('click', () => { resetForm(); setMode('report'); });
+addEventListener('resize', paintFab);
+$('cancelBtn').addEventListener('click', () => setMode('idle'));
+
+function gps(onFix) {
+  if (!navigator.geolocation) { alert('This browser has no location support — tap the map instead.'); return; }
+  $('pickGps').disabled = true;
+  $('pickGps').textContent = 'Locating…';
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      $('pickGps').disabled = false; $('pickGps').textContent = 'Use my location';
+      onFix(pos.coords.latitude, pos.coords.longitude);
+    },
+    () => {
+      $('pickGps').disabled = false; $('pickGps').textContent = 'Use my location';
+      alert("Couldn't get your location — tap the map where you were instead.");
+    },
+    { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 },
+  );
+}
+$('pickGps').addEventListener('click', () => gps((lat, lon) => {
+  setDraft(lat, lon);
+  map.setView([lat, lon], Math.max(map.getZoom(), 12));
+}));
+
+$('form').addEventListener('submit', (e) => e.preventDefault());
+$('submitBtn').addEventListener('click', async () => {
+  const err = (m) => { const el = $('formErr'); el.textContent = m; el.hidden = false; };
+  $('formErr').hidden = true;
+
+  if (!draft) return err('Tap the map to mark where you were when you heard it.');
+  if (!form.intensity) return err('Pick how loud it was, 1 to 5.');
+  const whenVal = $('when').value;
+  if (!whenVal) return err('Fill in roughly when you heard it.');
+  const at = new Date(whenVal).getTime();
+  if (!Number.isFinite(at)) return err('That time did not parse.');
+  if (at > Date.now() + 5 * MIN) return err('That time is in the future.');
+  if (at < Date.now() - 3 * DAY) return err('Reports are limited to the last 3 days.');
+
+  const secret = [...crypto.getRandomValues(new Uint8Array(16))]
+    .map((b) => b.toString(16).padStart(2, '0')).join('');
+
+  const payload = {
+    lat: draft.lat, lon: draft.lon, at,
+    prec: $('prec').value,
+    intensity: form.intensity,
+    sound: $('sound').value,
+    duration: $('duration').value,
+    direction: form.direction,
+    shook: $('shook').checked,
+    indoors: $('indoors').checked,
+    notes: $('notes').value.trim() || null,
+    name: $('name').value.trim() || null,
+    secret,
+  };
+
+  $('submitBtn').disabled = true;
+  $('submitBtn').textContent = 'Sending…';
+  try {
+    const r = await fetch(`${API}/booms`, {
+      method: 'POST',
+      headers: session.headers({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(payload),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    mine.add(data.boom.id, secret);
+    try { if (payload.name) localStorage.setItem('boom.name', payload.name); } catch {}
+    setMode('idle');
+    await load();
+    const m = markerById.get(data.boom.id);
+    if (m) { map.setView([data.boom.lat, data.boom.lon], Math.max(map.getZoom(), 12)); m.openPopup(); }
+  } catch (e) {
+    err(e.message || 'Could not send the report.');
+  } finally {
+    $('submitBtn').disabled = false;
+    $('submitBtn').textContent = 'Submit report';
+  }
+});
+
+// delete-my-report, from inside a popup
+map.on('popupopen', (e) => {
+  const btn = e.popup.getElement()?.querySelector('[data-del]');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    const id = btn.dataset.del;
+    const secret = mine.get()[id];
+    if (!secret) return;
+    btn.disabled = true; btn.textContent = 'Deleting…';
+    try {
+      const r = await fetch(`${API}/booms/${id}?secret=${encodeURIComponent(secret)}`, {
+        method: 'DELETE',
+        headers: session.headers(),
+      });
+      if (!r.ok) throw new Error('failed');
+      mine.drop(id);
+      map.closePopup();
+      await load();
+    } catch {
+      btn.disabled = false; btn.textContent = 'Delete failed — retry';
+    }
+  });
+});
+
+// ---------------------------------------------------------------- accounts
+// Voting is what needs an account: one vote per account is a real cost, one
+// vote per browser is not. Reporting stays open to anyone.
+
+let acctMode = 'in';
+
+function paintAccount() {
+  const signed = !!session.token;
+  $('acctWho').textContent = signed
+    ? `Signed in as ${session.user}`
+    : 'Not signed in — you can still report anonymously.';
+  $('acctBtn').hidden = signed;
+  $('acctOut').hidden = !signed;
+  if (signed) $('acctForm').hidden = true;
+}
+
+function setAcctMode(mode) {
+  acctMode = mode;
+  document.querySelectorAll('#acctMode button').forEach((b) => {
+    b.setAttribute('aria-pressed', String(b.dataset.mode === mode));
+  });
+  $('acctGo').textContent = mode === 'in' ? 'Sign in' : 'Create account';
+  $('acctPass').setAttribute('autocomplete', mode === 'in' ? 'current-password' : 'new-password');
+}
+
+document.querySelectorAll('#acctMode button').forEach((b) =>
+  b.addEventListener('click', () => setAcctMode(b.dataset.mode)));
+
+$('acctBtn').addEventListener('click', () => {
+  $('acctForm').hidden = !$('acctForm').hidden;
+  $('acctErr').hidden = true;
+  if (!$('acctForm').hidden) $('acctUser').focus();
+});
+$('acctCancel').addEventListener('click', () => { $('acctForm').hidden = true; });
+$('acctForm').addEventListener('submit', (e) => e.preventDefault());
+
+$('acctOut').addEventListener('click', async () => {
+  const token = session.token;
+  session.clear();
+  paintAccount();
+  render();
+  try {
+    await fetch(`${API}/auth/logout`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch { /* the local session is already gone, which is what matters */ }
+});
+
+$('acctGo').addEventListener('click', async () => {
+  const err = (m) => { const el = $('acctErr'); el.textContent = m; el.hidden = false; };
+  $('acctErr').hidden = true;
+
+  const username = $('acctUser').value.trim();
+  const password = $('acctPass').value;
+  if (!username) return err('Pick a username.');
+  if (!password) return err('Enter your password.');
+
+  $('acctGo').disabled = true;
+  const was = $('acctGo').textContent;
+  $('acctGo').textContent = '…';
+  try {
+    const r = await fetch(`${API}/auth/${acctMode === 'in' ? 'login' : 'register'}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    session.save(data.token, data.username);
+    $('acctPass').value = '';
+    $('acctForm').hidden = true;
+    await load();
+  } catch (e) {
+    err(e.message || 'Could not sign in.');
+  } finally {
+    $('acctGo').disabled = false;
+    $('acctGo').textContent = was;
+  }
+});
+
+// ---------------------------------------------------------------- voting
+
+function voteControl(b) {
+  const mine = session.votes[b.id] || 0;
+  return `
+    <span class="votes" data-vote-for="${esc(b.id)}">
+      <button class="up" data-v="1" aria-pressed="${mine === 1}" title="This matches what I heard">▲</button>
+      <b>${b.score > 0 ? '+' : ''}${b.score}</b>
+      <button class="down" data-v="-1" aria-pressed="${mine === -1}" title="This looks wrong">▼</button>
+    </span>`;
+}
+
+async function castVote(id, value) {
+  if (!session.token) {
+    $('acctForm').hidden = false;
+    $('acctErr').textContent = 'Sign in to vote — it keeps one person from voting twenty times.';
+    $('acctErr').hidden = false;
+    $('acctForm').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    return;
+  }
+  try {
+    const r = await fetch(`${API}/booms/${id}/vote`, {
+      method: 'POST',
+      headers: session.headers({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ value }),
+    });
+    if (r.status === 401) { session.clear(); paintAccount(); return; }
+    if (!r.ok) return;
+    const data = await r.json();
+    const boom = state.booms.find((x) => x.id === id);
+    if (boom) {
+      boom.score = data.score;
+      boom.up = data.up;
+      boom.down = data.down;
+      boom.disputed = data.disputed;
+    }
+    if (data.mine === 0) delete session.votes[id];
+    else session.votes[id] = data.mine;
+    render();
+  } catch { /* leave the arrows as they were */ }
+}
+
+// One listener for every vote control on the page, present and future.
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.votes button');
+  if (!btn) return;
+  const holder = btn.closest('[data-vote-for]');
+  if (!holder) return;
+  e.stopPropagation();
+  castVote(holder.dataset.voteFor, Number(btn.dataset.v));
+});
+
+// ---------------------------------------------------------------- link a post
+// Facebook groups are private and have no API, so a human pasting the link is
+// the only way one of those posts reaches the map.
+
+function setLinkMode(on) {
+  $('linkCta').hidden = on;
+  $('linkForm').hidden = !on;
+  if (on) {
+    $('linkErr').hidden = true;
+    $('linkForm').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } else if (state.mode === 'link') {
+    setMode('idle');
+  }
+}
+
+$('linkBtn').addEventListener('click', () => setLinkMode(true));
+$('linkCancel').addEventListener('click', () => setLinkMode(false));
+$('linkForm').addEventListener('submit', (e) => e.preventDefault());
+
+// Reuse the report pin: pick a spot for the linked post.
+$('linkPin').addEventListener('click', () => {
+  setMode('link');
+  $('pickTitle').textContent = 'Tap the map where the post says they were';
+  $('linkPinOut').textContent = 'Tap the map — the pin you drop wins over anything read from the quote.';
+});
+
+$('linkSubmit').addEventListener('click', async () => {
+  const err = (m) => { const el = $('linkErr'); el.textContent = m; el.hidden = false; };
+  $('linkErr').hidden = true;
+
+  const url = $('linkUrl').value.trim();
+  if (!url) return err('Paste the link to the post.');
+
+  const whenVal = $('linkWhen').value;
+  const at = whenVal ? new Date(whenVal).getTime() : null;
+  if (whenVal && !Number.isFinite(at)) return err('That time did not parse.');
+
+  const payload = {
+    url,
+    excerpt: $('linkQuote').value.trim() || null,
+    at,
+    by: $('linkBy').value.trim() || null,
+    lat: state.mode === 'link' && draft ? draft.lat : null,
+    lon: state.mode === 'link' && draft ? draft.lon : null,
+  };
+
+  $('linkSubmit').disabled = true;
+  $('linkSubmit').textContent = 'Adding…';
+  try {
+    const r = await fetch(`${API}/booms/mentions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    $('linkUrl').value = '';
+    $('linkQuote').value = '';
+    $('linkWhen').value = '';
+    setLinkMode(false);
+    await load();
+    const marker = chatById.get(data.mention.id);
+    if (marker && data.mention.lat) {
+      map.setView([data.mention.lat, data.mention.lon], Math.max(map.getZoom(), 12));
+      marker.openPopup();
+    }
+  } catch (e) {
+    err(e.message || 'Could not add that link.');
+  } finally {
+    $('linkSubmit').disabled = false;
+    $('linkSubmit').textContent = 'Add the link';
+  }
+});
+
+// ---------------------------------------------------------------- chrome
+document.querySelectorAll('#daysSeg button').forEach((b) => b.addEventListener('click', () => {
+  state.days = Number(b.dataset.days);
+  document.querySelectorAll('#daysSeg button').forEach((o) => o.setAttribute('aria-pressed', String(o === b)));
+  state.event = null;
+  state.pickedScope = false;
+  load();
+}));
+
+const layerBtn = (id, key) => $(id).addEventListener('click', () => {
+  state.layers[key] = !state.layers[key];
+  $(id).setAttribute('aria-pressed', String(state.layers[key]));
+  drawOverlays();
+});
+layerBtn('lyrPins', 'pins');
+layerBtn('lyrHeat', 'heat');
+layerBtn('lyrEst', 'est');
+layerBtn('lyrSrc', 'src');
+layerBtn('lyrChat', 'chat');
+
+$('themeBtn').addEventListener('click', () => {
+  theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+  applyTheme(theme);
+});
+
+// ---------------------------------------------------------------- go
+session.load();
+applyTheme(theme);
+resetForm();
+setMode('idle');
+setAcctMode('in');
+paintAccount();
+load();
+setInterval(load, 45000);          // keep the map live for a room watching it
+setInterval(() => {                // "last boom · 12 min ago" shouldn't go stale
+  if (state.booms.length) $('sLast').textContent = ago(state.booms[0].at);
+}, 30000);
+})();
+</script>
+</body>
+</html>
