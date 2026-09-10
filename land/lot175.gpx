@@ -1,0 +1,407 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="nak.as/land" xmlns="http://www.topografix.com/GPX/1/1"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
+  <metadata>
+    <name>Original Lot 175 — Eagle Lake, Maine</name>
+    <desc>38 GPS-tagged photos walked on 11 August 2019, plus the reconstructed lot boundary. Boundary is computed from deed acreage, not surveyed.</desc>
+    <link href="https://nak.as/land/"><text>nak.as/land</text></link>
+    <time>2019-08-11T00:00:00Z</time>
+  </metadata>
+  <wpt lat="47.079733" lon="-68.621044">
+    <ele>296.3</ele>
+    <time>2019-08-11T17:50:06-04:00</time>
+    <name>GOPR6037</name>
+    <desc>Photo 1 of 38 · 17:50:06 · 972 ft · 47°04′47.04″N 68°37′15.76″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6037.jpg"><text>GOPR6037.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.079734" lon="-68.621058">
+    <ele>295</ele>
+    <time>2019-08-11T17:50:08-04:00</time>
+    <name>GOPR6038</name>
+    <desc>Photo 2 of 38 · 17:50:08 · 968 ft · 47°04′47.04″N 68°37′15.81″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6038.jpg"><text>GOPR6038.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.079731" lon="-68.621076">
+    <ele>294.4</ele>
+    <time>2019-08-11T17:50:11-04:00</time>
+    <name>GOPR6039</name>
+    <desc>Photo 3 of 38 · 17:50:11 · 966 ft · 47°04′47.03″N 68°37′15.87″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6039.jpg"><text>GOPR6039.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.079718" lon="-68.621095">
+    <ele>295.4</ele>
+    <time>2019-08-11T17:50:14-04:00</time>
+    <name>GOPR6040</name>
+    <desc>Photo 4 of 38 · 17:50:14 · 969 ft · 47°04′46.98″N 68°37′15.94″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6040.jpg"><text>GOPR6040.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.079394" lon="-68.621438">
+    <ele>307.2</ele>
+    <time>2019-08-11T17:54:38-04:00</time>
+    <name>GOPR6041</name>
+    <desc>Photo 5 of 38 · 17:54:38 · 1008 ft · 47°04′45.82″N 68°37′17.18″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6041.jpg"><text>GOPR6041.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.07928" lon="-68.621461">
+    <ele>310.3</ele>
+    <time>2019-08-11T17:56:14-04:00</time>
+    <name>GOPR6043</name>
+    <desc>Photo 6 of 38 · 17:56:14 · 1018 ft · 47°04′45.41″N 68°37′17.26″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6043.jpg"><text>GOPR6043.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.079267" lon="-68.621464">
+    <ele>309.1</ele>
+    <time>2019-08-11T17:56:18-04:00</time>
+    <name>GOPR6044</name>
+    <desc>Photo 7 of 38 · 17:56:18 · 1014 ft · 47°04′45.36″N 68°37′17.27″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6044.jpg"><text>GOPR6044.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.0793" lon="-68.621471">
+    <ele>302.1</ele>
+    <time>2019-08-11T17:56:22-04:00</time>
+    <name>GOPR6045</name>
+    <desc>Photo 8 of 38 · 17:56:22 · 991 ft · 47°04′45.48″N 68°37′17.30″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6045.jpg"><text>GOPR6045.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.079155" lon="-68.621447">
+    <ele>313.6</ele>
+    <time>2019-08-11T17:57:13-04:00</time>
+    <name>GOPR6046</name>
+    <desc>Photo 9 of 38 · 17:57:13 · 1029 ft · 47°04′44.96″N 68°37′17.21″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6046.jpg"><text>GOPR6046.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.079066" lon="-68.621396">
+    <ele>314.6</ele>
+    <time>2019-08-11T17:57:17-04:00</time>
+    <name>GOPR6047</name>
+    <desc>Photo 10 of 38 · 17:57:17 · 1032 ft · 47°04′44.64″N 68°37′17.03″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6047.jpg"><text>GOPR6047.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.079114" lon="-68.621338">
+    <ele>318.8</ele>
+    <time>2019-08-11T17:58:27-04:00</time>
+    <name>GOPR6048</name>
+    <desc>Photo 11 of 38 · 17:58:27 · 1046 ft · 47°04′44.81″N 68°37′16.82″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6048.jpg"><text>GOPR6048.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.078884" lon="-68.621657">
+    <ele>317.6</ele>
+    <time>2019-08-11T18:00:17-04:00</time>
+    <name>GOPR6049</name>
+    <desc>Photo 12 of 38 · 18:00:17 · 1042 ft · 47°04′43.98″N 68°37′17.97″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6049.jpg"><text>GOPR6049.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.078894" lon="-68.621672">
+    <ele>317.6</ele>
+    <time>2019-08-11T18:00:18-04:00</time>
+    <name>GOPR6050</name>
+    <desc>Photo 13 of 38 · 18:00:18 · 1042 ft · 47°04′44.02″N 68°37′18.02″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6050.jpg"><text>GOPR6050.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.078691" lon="-68.621859">
+    <ele>331.9</ele>
+    <time>2019-08-11T18:03:02-04:00</time>
+    <name>GOPR6051</name>
+    <desc>Photo 14 of 38 · 18:03:02 · 1089 ft · 47°04′43.29″N 68°37′18.69″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6051.jpg"><text>GOPR6051.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.078692" lon="-68.621867">
+    <ele>331.3</ele>
+    <time>2019-08-11T18:03:03-04:00</time>
+    <name>GOPR6052</name>
+    <desc>Photo 15 of 38 · 18:03:03 · 1087 ft · 47°04′43.29″N 68°37′18.72″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6052.jpg"><text>GOPR6052.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.076997" lon="-68.622032">
+    <ele>371.2</ele>
+    <time>2019-08-11T18:16:24-04:00</time>
+    <name>GOPR6054</name>
+    <desc>Photo 16 of 38 · 18:16:24 · 1218 ft · 47°04′37.19″N 68°37′19.32″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6054.jpg"><text>GOPR6054.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.076874" lon="-68.622072">
+    <ele>357.8</ele>
+    <time>2019-08-11T18:17:15-04:00</time>
+    <name>GOPR6055</name>
+    <desc>Photo 17 of 38 · 18:17:15 · 1174 ft · 47°04′36.75″N 68°37′19.46″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6055.jpg"><text>GOPR6055.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.076842" lon="-68.622071">
+    <ele>356.6</ele>
+    <time>2019-08-11T18:17:21-04:00</time>
+    <name>GOPR6056</name>
+    <desc>Photo 18 of 38 · 18:17:21 · 1170 ft · 47°04′36.63″N 68°37′19.46″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6056.jpg"><text>GOPR6056.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.076665" lon="-68.622281">
+    <ele>360</ele>
+    <time>2019-08-11T18:18:46-04:00</time>
+    <name>GOPR6057</name>
+    <desc>Photo 19 of 38 · 18:18:46 · 1181 ft · 47°04′35.99″N 68°37′20.21″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6057.jpg"><text>GOPR6057.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.076617" lon="-68.622287">
+    <ele>363</ele>
+    <time>2019-08-11T18:18:52-04:00</time>
+    <name>GOPR6058</name>
+    <desc>Photo 20 of 38 · 18:18:52 · 1191 ft · 47°04′35.82″N 68°37′20.23″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6058.jpg"><text>GOPR6058.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.076524" lon="-68.622192">
+    <ele>368.2</ele>
+    <time>2019-08-11T18:18:55-04:00</time>
+    <name>GOPR6059</name>
+    <desc>Photo 21 of 38 · 18:18:55 · 1208 ft · 47°04′35.49″N 68°37′19.89″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6059.jpg"><text>GOPR6059.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.076556" lon="-68.622222">
+    <ele>369.4</ele>
+    <time>2019-08-11T18:18:59-04:00</time>
+    <name>GOPR6060</name>
+    <desc>Photo 22 of 38 · 18:18:59 · 1212 ft · 47°04′35.60″N 68°37′20.00″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6060.jpg"><text>GOPR6060.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.076595" lon="-68.622428">
+    <ele>361.8</ele>
+    <time>2019-08-11T18:19:15-04:00</time>
+    <name>GOPR6061</name>
+    <desc>Photo 23 of 38 · 18:19:15 · 1187 ft · 47°04′35.74″N 68°37′20.74″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6061.jpg"><text>GOPR6061.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.076431" lon="-68.623082">
+    <ele>358.7</ele>
+    <time>2019-08-11T18:21:02-04:00</time>
+    <name>GOPR6062</name>
+    <desc>Photo 24 of 38 · 18:21:02 · 1177 ft · 47°04′35.15″N 68°37′23.10″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6062.jpg"><text>GOPR6062.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.076418" lon="-68.623179">
+    <ele>363.6</ele>
+    <time>2019-08-11T18:21:18-04:00</time>
+    <name>GOPR6063</name>
+    <desc>Photo 25 of 38 · 18:21:18 · 1193 ft · 47°04′35.10″N 68°37′23.44″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6063.jpg"><text>GOPR6063.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.076425" lon="-68.623185">
+    <ele>363.6</ele>
+    <time>2019-08-11T18:21:20-04:00</time>
+    <name>GOPR6064</name>
+    <desc>Photo 26 of 38 · 18:21:20 · 1193 ft · 47°04′35.13″N 68°37′23.47″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6064.jpg"><text>GOPR6064.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.075745" lon="-68.62297">
+    <ele>380.7</ele>
+    <time>2019-08-11T18:46:03-04:00</time>
+    <name>GOPR6074</name>
+    <desc>Photo 27 of 38 · 18:46:03 · 1249 ft · 47°04′32.68″N 68°37′22.69″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6074.jpg"><text>GOPR6074.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.075762" lon="-68.623006">
+    <ele>381.6</ele>
+    <time>2019-08-11T18:46:15-04:00</time>
+    <name>GOPR6075</name>
+    <desc>Photo 28 of 38 · 18:46:15 · 1252 ft · 47°04′32.74″N 68°37′22.82″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6075.jpg"><text>GOPR6075.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.075761" lon="-68.623014">
+    <ele>378.6</ele>
+    <time>2019-08-11T18:46:18-04:00</time>
+    <name>GOPR6076</name>
+    <desc>Photo 29 of 38 · 18:46:18 · 1242 ft · 47°04′32.74″N 68°37′22.85″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6076.jpg"><text>GOPR6076.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.075771" lon="-68.623036">
+    <ele>374.6</ele>
+    <time>2019-08-11T18:46:25-04:00</time>
+    <name>GOPR6077</name>
+    <desc>Photo 30 of 38 · 18:46:25 · 1229 ft · 47°04′32.78″N 68°37′22.93″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6077.jpg"><text>GOPR6077.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.075765" lon="-68.623041">
+    <ele>373.7</ele>
+    <time>2019-08-11T18:46:27-04:00</time>
+    <name>GOPR6078</name>
+    <desc>Photo 31 of 38 · 18:46:27 · 1226 ft · 47°04′32.75″N 68°37′22.95″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6078.jpg"><text>GOPR6078.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.075768" lon="-68.623011">
+    <ele>372.5</ele>
+    <time>2019-08-11T18:46:46-04:00</time>
+    <name>GOPR6079</name>
+    <desc>Photo 32 of 38 · 18:46:46 · 1222 ft · 47°04′32.76″N 68°37′22.84″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6079.jpg"><text>GOPR6079.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.075756" lon="-68.623006">
+    <ele>372.8</ele>
+    <time>2019-08-11T18:46:50-04:00</time>
+    <name>GOPR6080</name>
+    <desc>Photo 33 of 38 · 18:46:50 · 1223 ft · 47°04′32.72″N 68°37′22.82″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6080.jpg"><text>GOPR6080.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.075753" lon="-68.623007">
+    <ele>372.5</ele>
+    <time>2019-08-11T18:46:52-04:00</time>
+    <name>GOPR6081</name>
+    <desc>Photo 34 of 38 · 18:46:52 · 1222 ft · 47°04′32.71″N 68°37′22.83″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6081.jpg"><text>GOPR6081.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.07596" lon="-68.622166">
+    <ele>366.1</ele>
+    <time>2019-08-11T18:53:42-04:00</time>
+    <name>GOPR6088</name>
+    <desc>Photo 35 of 38 · 18:53:42 · 1201 ft · 47°04′33.46″N 68°37′19.80″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6088.jpg"><text>GOPR6088.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.075977" lon="-68.622174">
+    <ele>363.9</ele>
+    <time>2019-08-11T18:53:45-04:00</time>
+    <name>GOPR6089</name>
+    <desc>Photo 36 of 38 · 18:53:45 · 1194 ft · 47°04′33.52″N 68°37′19.83″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6089.jpg"><text>GOPR6089.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.075983" lon="-68.62217">
+    <ele>361.8</ele>
+    <time>2019-08-11T18:53:46-04:00</time>
+    <name>GOPR6090</name>
+    <desc>Photo 37 of 38 · 18:53:46 · 1187 ft · 47°04′33.54″N 68°37′19.81″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6090.jpg"><text>GOPR6090.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <wpt lat="47.077242" lon="-68.621623">
+    <ele>355.4</ele>
+    <time>2019-08-11T19:04:56-04:00</time>
+    <name>GOPR6092</name>
+    <desc>Photo 38 of 38 · 19:04:56 · 1166 ft · 47°04′38.07″N 68°37′17.84″W</desc>
+    <link href="https://nak.as/land/photos/GOPR6092.jpg"><text>GOPR6092.jpg</text></link>
+    <sym>Camera</sym>
+    <type>Photo</type>
+  </wpt>
+  <trk>
+    <name>Walked track — 11 Aug 2019</name>
+    <desc>Straight-line path through the photo positions, in shutter order.</desc>
+    <trkseg>
+      <trkpt lat="47.079733" lon="-68.621044"><ele>296.3</ele><time>2019-08-11T17:50:06-04:00</time></trkpt>
+      <trkpt lat="47.079734" lon="-68.621058"><ele>295</ele><time>2019-08-11T17:50:08-04:00</time></trkpt>
+      <trkpt lat="47.079731" lon="-68.621076"><ele>294.4</ele><time>2019-08-11T17:50:11-04:00</time></trkpt>
+      <trkpt lat="47.079718" lon="-68.621095"><ele>295.4</ele><time>2019-08-11T17:50:14-04:00</time></trkpt>
+      <trkpt lat="47.079394" lon="-68.621438"><ele>307.2</ele><time>2019-08-11T17:54:38-04:00</time></trkpt>
+      <trkpt lat="47.07928" lon="-68.621461"><ele>310.3</ele><time>2019-08-11T17:56:14-04:00</time></trkpt>
+      <trkpt lat="47.079267" lon="-68.621464"><ele>309.1</ele><time>2019-08-11T17:56:18-04:00</time></trkpt>
+      <trkpt lat="47.0793" lon="-68.621471"><ele>302.1</ele><time>2019-08-11T17:56:22-04:00</time></trkpt>
+      <trkpt lat="47.079155" lon="-68.621447"><ele>313.6</ele><time>2019-08-11T17:57:13-04:00</time></trkpt>
+      <trkpt lat="47.079066" lon="-68.621396"><ele>314.6</ele><time>2019-08-11T17:57:17-04:00</time></trkpt>
+      <trkpt lat="47.079114" lon="-68.621338"><ele>318.8</ele><time>2019-08-11T17:58:27-04:00</time></trkpt>
+      <trkpt lat="47.078884" lon="-68.621657"><ele>317.6</ele><time>2019-08-11T18:00:17-04:00</time></trkpt>
+      <trkpt lat="47.078894" lon="-68.621672"><ele>317.6</ele><time>2019-08-11T18:00:18-04:00</time></trkpt>
+      <trkpt lat="47.078691" lon="-68.621859"><ele>331.9</ele><time>2019-08-11T18:03:02-04:00</time></trkpt>
+      <trkpt lat="47.078692" lon="-68.621867"><ele>331.3</ele><time>2019-08-11T18:03:03-04:00</time></trkpt>
+      <trkpt lat="47.076997" lon="-68.622032"><ele>371.2</ele><time>2019-08-11T18:16:24-04:00</time></trkpt>
+      <trkpt lat="47.076874" lon="-68.622072"><ele>357.8</ele><time>2019-08-11T18:17:15-04:00</time></trkpt>
+      <trkpt lat="47.076842" lon="-68.622071"><ele>356.6</ele><time>2019-08-11T18:17:21-04:00</time></trkpt>
+      <trkpt lat="47.076665" lon="-68.622281"><ele>360</ele><time>2019-08-11T18:18:46-04:00</time></trkpt>
+      <trkpt lat="47.076617" lon="-68.622287"><ele>363</ele><time>2019-08-11T18:18:52-04:00</time></trkpt>
+      <trkpt lat="47.076524" lon="-68.622192"><ele>368.2</ele><time>2019-08-11T18:18:55-04:00</time></trkpt>
+      <trkpt lat="47.076556" lon="-68.622222"><ele>369.4</ele><time>2019-08-11T18:18:59-04:00</time></trkpt>
+      <trkpt lat="47.076595" lon="-68.622428"><ele>361.8</ele><time>2019-08-11T18:19:15-04:00</time></trkpt>
+      <trkpt lat="47.076431" lon="-68.623082"><ele>358.7</ele><time>2019-08-11T18:21:02-04:00</time></trkpt>
+      <trkpt lat="47.076418" lon="-68.623179"><ele>363.6</ele><time>2019-08-11T18:21:18-04:00</time></trkpt>
+      <trkpt lat="47.076425" lon="-68.623185"><ele>363.6</ele><time>2019-08-11T18:21:20-04:00</time></trkpt>
+      <trkpt lat="47.075745" lon="-68.62297"><ele>380.7</ele><time>2019-08-11T18:46:03-04:00</time></trkpt>
+      <trkpt lat="47.075762" lon="-68.623006"><ele>381.6</ele><time>2019-08-11T18:46:15-04:00</time></trkpt>
+      <trkpt lat="47.075761" lon="-68.623014"><ele>378.6</ele><time>2019-08-11T18:46:18-04:00</time></trkpt>
+      <trkpt lat="47.075771" lon="-68.623036"><ele>374.6</ele><time>2019-08-11T18:46:25-04:00</time></trkpt>
+      <trkpt lat="47.075765" lon="-68.623041"><ele>373.7</ele><time>2019-08-11T18:46:27-04:00</time></trkpt>
+      <trkpt lat="47.075768" lon="-68.623011"><ele>372.5</ele><time>2019-08-11T18:46:46-04:00</time></trkpt>
+      <trkpt lat="47.075756" lon="-68.623006"><ele>372.8</ele><time>2019-08-11T18:46:50-04:00</time></trkpt>
+      <trkpt lat="47.075753" lon="-68.623007"><ele>372.5</ele><time>2019-08-11T18:46:52-04:00</time></trkpt>
+      <trkpt lat="47.07596" lon="-68.622166"><ele>366.1</ele><time>2019-08-11T18:53:42-04:00</time></trkpt>
+      <trkpt lat="47.075977" lon="-68.622174"><ele>363.9</ele><time>2019-08-11T18:53:45-04:00</time></trkpt>
+      <trkpt lat="47.075983" lon="-68.62217"><ele>361.8</ele><time>2019-08-11T18:53:46-04:00</time></trkpt>
+      <trkpt lat="47.077242" lon="-68.621623"><ele>355.4</ele><time>2019-08-11T19:04:56-04:00</time></trkpt>
+    </trkseg>
+  </trk>
+  <trk>
+    <name>Lot 175 boundary (reconstructed — not a survey)</name>
+    <trkseg>
+      <trkpt lat="47.081632" lon="-68.620794"></trkpt>
+      <trkpt lat="47.081632" lon="-68.623448"></trkpt>
+      <trkpt lat="47.075544" lon="-68.623448"></trkpt>
+      <trkpt lat="47.075544" lon="-68.620794"></trkpt>
+      <trkpt lat="47.081632" lon="-68.620794"></trkpt>
+    </trkseg>
+  </trk>
+</gpx>

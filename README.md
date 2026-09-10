@@ -56,3 +56,23 @@ Optional worker vars: `BOOM_SALT` (salt for the rate-limit IP hashes),
 
 Reddit rate-limits the public RSS feeds hard, which is why the scraper takes one
 feed per tick and keeps its place in the rotation when it gets a 429.
+
+## Lot 175 — `/land/`
+
+A public page for the Eagle Lake, Maine property: a self-contained canvas map (its
+own tile pyramid in `land/tiles/`, no map library), the 38 GPS-tagged photos from
+11 August 2019, and the scanned deed and tax documents. Tapping a photo dot pins a
+card with the picture, decimal and DMS coordinates, elevation and time; live GPS
+plots your position, and when you are off the current view the blue marker clamps
+to the map edge with range and heading to the lot.
+
+`land/index.html` holds the data in a single `<script id="payload">` block —
+boundary, brook, photo points. The downloadable files are generated from it:
+
+```sh
+node tools/build-land-exports.mjs   # -> land/lot175.{gpx,geojson,kml} + lot175-photos.csv
+```
+
+Re-run that after editing the payload, or the downloads drift from the map.
+GeoJSON is the one to import into CalTopo (it keeps styling and names); GPX suits
+Garmin and Gaia; KML puts the photo itself in the Google Earth balloon.

@@ -54,11 +54,41 @@
   #map:active{cursor:grabbing}
   #map canvas{display:block;width:100%;height:100%}
   .pop{position:absolute;z-index:5;background:var(--card);border:1px solid var(--rule);
-    box-shadow:0 6px 22px rgba(0,0,0,.22);padding:7px;width:196px;pointer-events:none;
+    box-shadow:0 6px 22px rgba(0,0,0,.22);padding:7px;width:212px;pointer-events:none;
     border-radius:3px;display:none}
-  .pop img{width:100%;display:block;border-radius:2px}
+  .pop.pin{pointer-events:auto}          /* pinned by a tap or click: it has buttons */
+  .pop img{width:100%;display:block;border-radius:2px;cursor:zoom-in}
   .pop b{display:block;font-size:12px;margin-top:6px}
-  .pop span{font-size:11.5px;color:var(--soft)}
+  .pop span{display:block;font-size:11.5px;color:var(--soft)}
+  .pop .gps{margin-top:5px;font-size:11.5px;line-height:1.5;color:var(--ink);
+    font-variant-numeric:tabular-nums;word-break:break-word}
+  .pop .gps em{font-style:normal;color:var(--soft)}
+  .pop .row{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;align-items:center}
+  .pop .row button,.pop .row a{font-size:11.5px;line-height:1.2;padding:5px 8px;border-radius:3px;
+    border:1px solid var(--rule);background:var(--card);color:var(--ink);
+    text-decoration:none;cursor:pointer;white-space:nowrap}
+  .pop .nav{margin-left:auto;display:flex;gap:4px}
+  .pop .x{position:absolute;top:4px;right:4px;width:27px;height:27px;padding:0;line-height:1;
+    border:none;border-radius:3px;background:rgba(0,0,0,.55);color:#fff;font-size:16px;cursor:pointer}
+  /* On a phone the pinned card sits as a sheet along the bottom of the map, clear of the dot. */
+  @media (max-width:640px){
+    .pop.pin{left:8px!important;right:8px!important;top:auto!important;bottom:8px;width:auto;
+      display:flex;gap:10px;padding:9px}
+    .pop.pin img{width:108px;min-width:108px;aspect-ratio:4/3;object-fit:cover;align-self:flex-start}
+    .pop.pin .body{flex:1;min-width:0}
+    .pop.pin b{margin-top:0}
+    .pop.pin .x{top:2px;right:2px}
+  }
+
+  /* downloads */
+  .dl{display:inline-flex;flex-direction:column;gap:1px;padding:8px 13px;border-radius:3px;
+    border:1px solid var(--rule);background:var(--card);color:var(--ink);text-decoration:none}
+  .dl:hover{border-color:var(--soft)}
+  .dl b{font-size:13px}
+  .dl span{font-size:11.5px;color:var(--soft)}
+  #gpstable{min-width:660px}
+  #gpstable tbody tr{cursor:pointer}
+  #gpstable tbody tr:hover,#gpstable tbody tr:focus-visible{background:var(--band);outline:none}
   .legend{display:flex;flex-wrap:wrap;gap:15px;font-size:13px;color:var(--soft);align-items:center}
   .legend i{display:inline-block;width:20px;height:0;border-top:3px solid;margin-right:6px;vertical-align:middle}
   .legend i.dot{width:10px;height:10px;border-radius:50%;border:none;margin-right:6px}
@@ -139,10 +169,12 @@
       <span><i style="border-color:var(--water)"></i>Brown Brook — north line</span>
       <span><i style="border-color:var(--track)"></i>Walked track</span>
       <span><i class="dot" style="background:var(--track)"></i>Photo</span>
-      <span><i class="dot" style="background:var(--live)"></i>You</span>
+      <span><i class="dot" style="background:var(--live)"></i>You — pinned to the map edge with
+        range and heading when you are off the view</span>
     </div>
-    <p class="sub" style="font-size:13px">Drag to pan, scroll or pinch to zoom, hover or tap a
-      green dot for the photo. "Show my location" plots live GPS — on the lot it will tell you
+    <p class="sub" style="font-size:13px">Drag to pan, scroll or pinch to zoom. Tap a green dot
+      — on a phone or a mouse — to pin its photo, coordinates and elevation, then step through
+      the walk with the arrows. "Show my location" plots live GPS — on the lot it will tell you
       which boundary you are nearest.</p>
   </section>
 
@@ -151,6 +183,40 @@
     <p class="sub">Every one falls inside the reconstructed boundary. Click to enlarge; the matching
       dot highlights on the map.</p>
     <div class="strip" id="strip"></div>
+  </section>
+
+  <section id="gpsdata">
+    <h2>GPS data &amp; downloads</h2>
+    <p class="sub">These are the EXIF positions the GoPro wrote with each frame on 11 August 2019 —
+      WGS84, camera clock in EDT, elevation as the receiver reported it (consumer GPS altitude runs
+      roughly ±30 ft). Tap any row to pin that point on the map.</p>
+
+    <div class="maptools" style="gap:10px">
+      <a class="dl" href="lot175.geojson" download><b>GeoJSON</b><span>everything, styled — best for CalTopo</span></a>
+      <a class="dl" href="lot175.gpx" download><b>GPX</b><span>waypoints + tracks — Garmin, Gaia</span></a>
+      <a class="dl" href="lot175.kml" download><b>KML</b><span>Google Earth, photo in the balloon</span></a>
+      <a class="dl" href="lot175-photos.csv" download><b>CSV</b><span>raw coordinates, decimal and DMS</span></a>
+    </div>
+
+    <div class="flag">
+      <b>Import into CalTopo</b>
+      <p>On <a href="https://caltopo.com/map.html">caltopo.com</a>, open a map and click
+        <b>Import</b> at the top of the map objects sidebar on the left, then pick the file. In the
+        mobile app the same button lives in the <b>Map Objects</b> menu, top right — save the file to
+        the phone first, then import it. Use <b>GeoJSON</b>: one import brings in the boundary, Brown
+        Brook, the walked track and all 38 photo markers with their names and colours. <b>GPX</b> is
+        the one for a Garmin or for Gaia — waypoints and tracks, no styling. Every photo marker
+        carries a link back to the image on this page, so a marker in the field opens the picture
+        taken standing there.</p>
+    </div>
+
+    <div class="scroll">
+      <table id="gpstable">
+        <thead><tr><th>#</th><th>Photo</th><th>Latitude</th><th>Longitude</th>
+          <th>Deg min sec</th><th>Elev</th><th>Time</th></tr></thead>
+        <tbody id="gpsrows"></tbody>
+      </table>
+    </div>
   </section>
 
   <section>
@@ -305,7 +371,7 @@ const y2lat=(y,z)=>Math.atan(Math.sinh(Math.PI*(1-2*y/(Math.pow(2,z)*256))))*180
 
 let W=0,H=0,dpr=1;
 let cam={lon:-68.6221,lat:47.0786,z:16};   // centre + fractional zoom
-let sat=true, hover=null, live=null, watchId=null;
+let sat=true, hover=null, sel=null, live=null, watchId=null;   // sel = tapped/clicked photo
 
 function px(lon,lat){                      // geo -> screen
   const s=Math.pow(2,cam.z-ZMAX);
@@ -358,9 +424,11 @@ function draw(){
 
   D.photos.forEach((p,i)=>{
     const[x,y]=px(p[0],p[1]);
-    ctx.beginPath();ctx.arc(x,y,hover===i?6.5:4,0,7);
+    ctx.beginPath();ctx.arc(x,y,(hover===i||sel===i)?6.5:4,0,7);
     ctx.fillStyle=css('--track');ctx.fill();
     ctx.strokeStyle='#fff';ctx.lineWidth=1.5;ctx.stroke();
+    if(sel===i){ctx.beginPath();ctx.arc(x,y,11,0,7);
+      ctx.strokeStyle=css('--survey');ctx.lineWidth=2;ctx.stroke();}
   });
 
   const[bx,by]=px(D.pin[0],D.pin[1]);
@@ -369,17 +437,89 @@ function draw(){
 
   if(live){
     const[lx,ly]=px(live.lon,live.lat);
-    if(live.acc){
-      const m=live.acc, mp=metersToPx(m);
-      if(mp>3){ctx.beginPath();ctx.arc(lx,ly,mp,0,7);
-        ctx.fillStyle=css('--live')+'22';ctx.fill();
-        ctx.strokeStyle=css('--live')+'88';ctx.lineWidth=1;ctx.stroke();}
+    const pad=30, off=lx<pad||ly<pad||lx>W-pad||ly>H-pad;
+    if(off) drawOffscreen(lx,ly);          // you are outside the view — pin you to the edge
+    else{
+      if(live.acc){
+        const m=live.acc, mp=metersToPx(m);
+        if(mp>3){ctx.beginPath();ctx.arc(lx,ly,mp,0,7);
+          ctx.fillStyle=css('--live')+'22';ctx.fill();
+          ctx.strokeStyle=css('--live')+'88';ctx.lineWidth=1;ctx.stroke();}
+      }
+      ctx.beginPath();ctx.arc(lx,ly,7,0,7);
+      ctx.fillStyle=css('--live');ctx.fill();ctx.strokeStyle='#fff';ctx.lineWidth=2.5;ctx.stroke();
     }
-    ctx.beginPath();ctx.arc(lx,ly,7,0,7);
-    ctx.fillStyle=css('--live');ctx.fill();ctx.strokeStyle='#fff';ctx.lineWidth=2.5;ctx.stroke();
   }
 
   scaleBar();
+  anchorPop();
+}
+// Great-circle distance in metres, and a compass bearing, live -> lot.
+function haversine(a,b){
+  const R=6371000, rad=Math.PI/180;
+  const dLat=(b[1]-a[1])*rad, dLon=(b[0]-a[0])*rad;
+  const la1=a[1]*rad, la2=b[1]*rad;
+  const h=Math.sin(dLat/2)**2+Math.cos(la1)*Math.cos(la2)*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+function bearing(a,b){
+  const rad=Math.PI/180;
+  const la1=a[1]*rad, la2=b[1]*rad, dLon=(b[0]-a[0])*rad;
+  const y=Math.sin(dLon)*Math.cos(la2);
+  const x=Math.cos(la1)*Math.sin(la2)-Math.sin(la1)*Math.cos(la2)*Math.cos(dLon);
+  return (Math.atan2(y,x)/rad+360)%360;
+}
+const COMPASS=['N','NE','E','SE','S','SW','W','NW'];
+const compass=deg=>COMPASS[Math.round(deg/45)%8];
+// Feet close in, miles once feet stop being readable.
+function far(m){
+  const ft=m*3.28084;
+  return ft<1000 ? Math.round(ft)+' ft' :
+         ft<5280 ? (ft/5280).toFixed(2)+' mi' : (ft/5280).toFixed(ft<52800?1:0)+' mi';
+}
+// The nearest point of the lot to you, not its middle — so this distance agrees
+// with the "X ft from the north line" reading under the buttons.
+const nearestOnLot=(lon,lat)=>{
+  const la=D.poly.map(p=>p[1]), lo=D.poly.map(p=>p[0]);
+  const clamp=(v,a,b)=>Math.min(Math.max(v,a),b);
+  return [clamp(lon,Math.min(...lo),Math.max(...lo)),clamp(lat,Math.min(...la),Math.max(...la))];
+};
+
+// The live position is off the canvas: clamp it to the edge on the line from the
+// map centre, and label it with how far the lot is and in which direction — so the
+// blue dot is always on screen, and always says where you stand relative to the land.
+function drawOffscreen(lx,ly){
+  const cx=W/2, cy=H/2, pad=30;
+  let dx=lx-cx, dy=ly-cy;
+  if(!dx&&!dy)dy=-1;
+  const t=Math.min((cx-pad)/Math.abs(dx||1e-9),(cy-pad)/Math.abs(dy||1e-9));
+  const x=cx+dx*t, y=cy+dy*t, ang=Math.atan2(dy,dx);
+
+  const me=[live.lon,live.lat], c=nearestOnLot(live.lon,live.lat);
+  const d=haversine(me,c);
+  const label=d<1 ? 'You \u00b7 on the lot'
+                  : 'You \u00b7 lot is '+far(d)+' '+compass(bearing(me,c));
+
+  ctx.save();
+  ctx.translate(x,y);
+  ctx.rotate(ang);
+  ctx.beginPath();ctx.moveTo(13,0);ctx.lineTo(-3,-9);ctx.lineTo(-3,9);ctx.closePath();
+  ctx.fillStyle=css('--live');ctx.fill();
+  ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();
+  ctx.restore();
+
+  ctx.beginPath();ctx.arc(x,y,7,0,7);
+  ctx.fillStyle=css('--live');ctx.fill();
+  ctx.strokeStyle='#fff';ctx.lineWidth=2.5;ctx.stroke();
+
+  ctx.font='600 12px ui-sans-serif,system-ui,sans-serif';
+  const w=ctx.measureText(label).width;
+  // Keep the label inside the canvas whichever edge the marker landed on.
+  let tx=Math.min(Math.max(x-w/2,6),W-w-6);
+  let ty=y<H/2 ? y+26 : y-16;
+  ctx.textAlign='left';
+  ctx.lineWidth=3.5;ctx.strokeStyle='rgba(0,0,0,.6)';ctx.strokeText(label,tx,ty);
+  ctx.fillStyle='#fff';ctx.fillText(label,tx,ty);
 }
 function metersToPx(m){
   const s=Math.pow(2,cam.z-ZMAX);
@@ -420,12 +560,23 @@ function reset(){
 }
 
 /* interaction */
-let drag=null;
+let drag=null, down=null, pinching=false;
 map.addEventListener('pointerdown',e=>{
+  if(pop.contains(e.target))return;        // the pinned card handles its own buttons
+  down={x:e.clientX,y:e.clientY,t:performance.now()};
   drag={x:e.clientX,y:e.clientY,lon:cam.lon,lat:cam.lat};
   map.setPointerCapture(e.pointerId);
 });
-map.addEventListener('pointerup',()=>drag=null);
+// A finger that lands and lifts in the same spot is a tap: pin the nearest dot, or clear.
+// Touch targets get a wider radius than a mouse cursor — a fingertip is not a pixel.
+map.addEventListener('pointerup',e=>{
+  drag=null;
+  const d=down; down=null;
+  if(!d||pinching||pts2.size>1)return;
+  if(Math.hypot(e.clientX-d.x,e.clientY-d.y)>10||performance.now()-d.t>700)return;
+  const r=map.getBoundingClientRect();
+  select(nearest(e.clientX-r.left,e.clientY-r.top,e.pointerType==='mouse'?15:24));
+});
 map.addEventListener('pointercancel',()=>drag=null);
 map.addEventListener('pointerleave',()=>{drag=null;setHover(null)});
 map.addEventListener('pointermove',e=>{
@@ -437,10 +588,8 @@ map.addEventListener('pointermove',e=>{
     cam.lon=x2lon(cx/s,ZMAX);cam.lat=y2lat(cy/s,ZMAX);
     draw();return;
   }
-  let best=null,bd=15;
-  D.photos.forEach((p,i)=>{const[x,y]=px(p[0],p[1]);
-    const d=Math.hypot(x-mx,y-my); if(d<bd){bd=d;best=i}});
-  setHover(best,mx,my);
+  if(e.pointerType!=='mouse')return;      // touch pins with a tap instead of hovering
+  setHover(nearest(mx,my,15),mx,my);
 });
 map.addEventListener('wheel',e=>{
   e.preventDefault();
@@ -459,7 +608,7 @@ map.addEventListener('pointermove',e=>{
   if(!pts2.has(e.pointerId))return;
   pts2.set(e.pointerId,e);
   if(pts2.size===2){
-    drag=null;
+    drag=null;pinching=true;
     const[a,b]=[...pts2.values()];
     const d=Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);
     if(pd){cam.z=Math.max(ZMIN,Math.min(ZMAX+1.6,cam.z+Math.log2(d/pd)));draw()}
@@ -467,29 +616,103 @@ map.addEventListener('pointermove',e=>{
   }
 });
 ['pointerup','pointercancel','pointerleave'].forEach(t=>
-  map.addEventListener(t,e=>{pts2.delete(e.pointerId);if(pts2.size<2)pd=0}));
+  map.addEventListener(t,e=>{pts2.delete(e.pointerId);if(pts2.size<2)pd=0;
+    if(!pts2.size)pinching=false}));
+
+/* ---- photo card: a mouse hovers it, a finger pins it ---- */
+const N=D.photos.length;
+function dms(v,axis){
+  const hemi=axis==='lat'?(v<0?'S':'N'):(v<0?'W':'E');
+  const a=Math.abs(v), d=Math.floor(a), m=Math.floor((a-d)*60), sec=((a-d)*60-m)*60;
+  return d+'\u00b0'+String(m).padStart(2,'0')+'\u2032'+sec.toFixed(2).padStart(5,'0')+'\u2033'+hemi;
+}
+const decimal=p=>p[1].toFixed(6)+', '+p[0].toFixed(6);
+const dmsPair=p=>dms(p[1],'lat')+' '+dms(p[0],'lon');
+const caption=i=>{const p=D.photos[i];
+  return p[2]+' \u00b7 '+p[3]+' \u00b7 '+p[4]+' ft \u00b7 '+decimal(p)};
+// Apple Maps understands a bare ll= on iOS and macOS; send everyone else to Google.
+const APPLE=/iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent);
+const mapsUrl=p=>APPLE
+  ? 'https://maps.apple.com/?t=k&q='+encodeURIComponent(p[2])+'&ll='+p[1]+','+p[0]
+  : 'https://www.google.com/maps/search/?api=1&query='+p[1]+','+p[0];
+
+function nearest(mx,my,rad){
+  let best=null,bd=rad;
+  D.photos.forEach((p,i)=>{const[x,y]=px(p[0],p[1]);
+    const d=Math.hypot(x-mx,y-my); if(d<bd){bd=d;best=i}});
+  return best;
+}
+function markStrip(i){
+  document.querySelectorAll('.strip figure').forEach((f,k)=>f.classList.toggle('on',k===i));
+}
+function renderPop(i,pinned){
+  const p=D.photos[i];
+  pop.innerHTML='<img src="'+('photos/'+p[2]+'.jpg')+'" alt="'+p[2]+'" data-act="open">'+
+    '<div class="body"><b>'+p[2]+'</b>'+
+    '<span>'+p[3]+' \u00b7 '+p[4]+' ft \u00b7 '+(i+1)+' of '+N+'</span>'+
+    '<div class="gps">'+decimal(p)+'<br><em>'+dmsPair(p)+'</em></div>'+
+    (pinned?'<div class="row"><button data-act="copy">Copy</button>'+
+      '<a href="'+mapsUrl(p)+'" target="_blank" rel="noopener">Maps \u2197</a>'+
+      '<span class="nav"><button data-act="prev" aria-label="Previous photo">\u2039</button>'+
+      '<button data-act="next" aria-label="Next photo">\u203a</button></span></div>':'')+
+    '</div>'+
+    (pinned?'<button class="x" data-act="close" aria-label="Close">\u00d7</button>':'');
+  pop.classList.toggle('pin',pinned);
+  pop.style.display='block';
+}
+function hidePop(){pop.style.display='none';pop.classList.remove('pin');pop.innerHTML=''}
 
 function setHover(i,mx,my){
+  if(sel!==null)return;                    // a pinned card owns the popup
   if(i===hover){if(i!==null&&mx!=null)placePop(mx,my);return}
-  hover=i;
-  document.querySelectorAll('.strip figure').forEach((f,k)=>f.classList.toggle('on',k===i));
-  if(i===null){pop.style.display='none'}
-  else{
-    const p=D.photos[i];
-    pop.innerHTML='<img src="'+('photos/'+p[2]+'.jpg')+'" alt=""><b>'+p[2]+'</b><span>'+p[3]+' · '+p[4]+' ft elev</span>';
-    pop.style.display='block';
-    placePop(mx,my);
-  }
+  hover=i; markStrip(i);
+  if(i===null)hidePop(); else{renderPop(i,false);placePop(mx,my)}
   draw();
+}
+function select(i,center){
+  sel=i; hover=null; markStrip(i);
+  if(i===null){hidePop();draw();return}
+  renderPop(i,true);
+  if(center){const p=D.photos[i];cam.lon=p[0];cam.lat=p[1];cam.z=Math.max(cam.z,17.4)}
+  draw();                                  // draw() ends by anchoring the card to its dot
 }
 function placePop(mx,my){
   if(mx==null)return;
-  let x=mx+14,y=my-14;
-  if(x+206>W)x=mx-206;
-  if(y+180>H)y=H-186;
+  const w=pop.offsetWidth||212, h=pop.offsetHeight||190;
+  let x=mx+14, y=my-14;
+  if(x+w+6>W)x=mx-w-14;
+  if(x<4)x=4;
+  if(y+h+6>H)y=H-h-6;
   if(y<4)y=4;
   pop.style.left=x+'px';pop.style.top=y+'px';
 }
+function anchorPop(){                      // keep a pinned card beside its dot while panning
+  if(sel===null)return;
+  const p=D.photos[sel], [x,y]=px(p[0],p[1]);
+  placePop(x,y);
+}
+
+pop.addEventListener('click',e=>{
+  const el=e.target.closest('[data-act]');
+  if(!el||sel===null)return;
+  const p=D.photos[sel], act=el.dataset.act;
+  if(act==='close')return select(null);
+  if(act==='open')return show('photos/'+p[2]+'.jpg',caption(sel));
+  if(act==='prev')return select((sel-1+N)%N,true);
+  if(act==='next')return select((sel+1)%N,true);
+  if(act==='copy'){
+    const t=decimal(p);
+    const done=()=>{el.textContent='Copied';setTimeout(()=>{if(sel!==null)el.textContent='Copy'},1400)};
+    if(navigator.clipboard)navigator.clipboard.writeText(t).then(done,()=>{el.textContent=t});
+    else el.textContent=t;                 // no clipboard: show it to read off instead
+  }
+});
+document.addEventListener('keydown',e=>{
+  if(sel===null||lb.open)return;
+  if(e.key==='Escape')select(null);
+  if(e.key==='ArrowLeft')select((sel-1+N)%N,true);
+  if(e.key==='ArrowRight')select((sel+1)%N,true);
+});
 
 /* live GPS */
 const gpsBtn=document.getElementById('gps'), note=document.getElementById('gpsnote');
@@ -523,6 +746,10 @@ function describe(l){
   const near=Object.entries(d).sort((a,b)=>Math.abs(a[1])-Math.abs(b[1]))[0];
   const acc=' ±'+Math.round(l.acc)+' m';
   if(inside)return 'Inside the lot — '+f(Math.abs(near[1]))+' ft from the '+near[0]+' line.'+acc;
+  // Far away, corner-by-corner feet stop meaning anything: give range and heading instead.
+  const c=nearestOnLot(l.lon,l.lat), away=haversine([l.lon,l.lat],c);
+  if(away>1600)return 'Off the lot — the land is '+far(away)+' '+compass(bearing([l.lon,l.lat],c))+
+    ' of you. The blue marker on the map edge points your way.'+acc;
   const out=Object.entries(d).filter(([,v])=>v<0)
     .map(([k,v])=>f(-v)+' ft '+({north:'north',south:'south',east:'east',west:'west'}[k])+' of it');
   return 'Off the lot — '+(out.join(', ')||'just outside')+'.'+acc;
@@ -540,8 +767,8 @@ D.photos.forEach((p,i)=>{
   f.innerHTML='<img loading="lazy" src="'+('photos/'+p[2]+'.jpg')+'" alt="'+p[2]+'">'+
     '<figcaption><span>'+p[2]+'</span><span class="num">'+p[3].slice(0,5)+'</span></figcaption>';
   f.addEventListener('click',()=>{
-    show(('photos/'+p[2]+'.jpg'),p[2]+' · '+p[3]+' · '+p[4]+' ft');
-    cam.lon=p[0];cam.lat=p[1];cam.z=Math.max(cam.z,17.4);draw();
+    select(i,true);                        // pin it so the coordinates stay on the map
+    show(('photos/'+p[2]+'.jpg'),caption(i));
   });
   f.addEventListener('mouseenter',()=>setHover(i));
   f.addEventListener('mouseleave',()=>setHover(null));
@@ -554,6 +781,20 @@ D.docmeta.forEach(m=>{
   d.addEventListener('click',()=>show(('docs/'+m.k+'.jpg'),m.t));
   dw.appendChild(d);
 });
+const rows=document.getElementById('gpsrows');
+D.photos.forEach((p,i)=>{
+  const tr=document.createElement('tr');
+  tr.tabIndex=0;
+  tr.innerHTML='<td class="num">'+(i+1)+'</td><td>'+p[2]+'</td>'+
+    '<td class="num">'+p[1].toFixed(6)+'</td><td class="num">'+p[0].toFixed(6)+'</td>'+
+    '<td class="num">'+dmsPair(p)+'</td><td class="num">'+p[4]+' ft</td>'+
+    '<td class="num">'+p[3]+'</td>';
+  const go=()=>{select(i,true);map.scrollIntoView({behavior:'smooth',block:'center'})};
+  tr.addEventListener('click',go);
+  tr.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();go()}});
+  rows.appendChild(tr);
+});
+
 const lb=document.getElementById('lb'),lbi=document.getElementById('lbi'),lbc=document.getElementById('lbc');
 function show(src,cap){lbi.src=src;lbc.textContent=cap;lb.showModal()}
 document.getElementById('lbx').addEventListener('click',()=>lb.close());
