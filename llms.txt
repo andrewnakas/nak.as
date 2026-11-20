@@ -1,0 +1,40 @@
+# Andrew Nakas
+
+> Personal site of Andrew Nakas, with a list of the websites and apps he has built: browser-based retro software and game sites, weather and camera apps, AI tools, and a family of file tools that work without uploading your files.
+
+## On this site
+
+- [Home](https://nak.as/): Andrew Nakas — personal site, with an interactive 3D scan and the Nakas Motivation soundboard.
+- [Projects](https://nak.as/projects/): Every site and app listed below, grouped, with one-line descriptions.
+- [Blog](https://nak.as/blog): Writing by Andrew Nakas.
+- [Nak's Awakening](https://nak.as/game/): A Game Boy-style co-op action RPG you can play with friends, right in the browser.
+- [Bozeman Boom Map](https://nak.as/bozemanboom/): A public map of unexplained booms heard in Bozeman and the Gallatin Valley. Report what you heard and where, and the map triangulates a likely source.
+
+## Retro software and games
+
+- [ExeBrowser](https://exebrowser.com/): Run Windows .exe files in your browser: nothing installed, nothing uploaded. Plus classic games playable in one click.
+- [macemu](https://macemu.com/): Classic Mac games and apps from System 6, System 7 and Mac OS 8, running in a browser tab. No download, no install.
+- [Decomp Games](https://decompgames.com/): Decompilations, source ports, engine recreations and emulated games, playable in your browser.
+- [Recomp](https://recompsoftware.com/): Tracks every decompilation, static recompilation and clean-room rebuild of games and software, with builds you can play in the browser.
+- [OpenOldFile](https://openoldfile.com/): Open old and obsolete file formats in your browser: Lotus 1-2-3, dBASE, Windows Write, CHM, XPS, Flash, MIDI and more.
+- [AI Game Mashups](https://aigamemashups.com/): AI game mashups put one game inside another. Play clean-room mashups free in your browser and read how the real ones were made.
+- [skatemods](https://skatemods.com/): ReSkate mods, Skate 3 on PC and custom maps: free guides and FAQs for every skate game.
+
+## Weather, camera and AI
+
+- [Tree 60 Weather](https://tree60weather.com/): Forecast radar, 11 weather models, lightning, river gauges, smoke and snow on one map.
+- [Phone Take A Photo](https://phonetakeaphoto.com/): Say “take a photo” and your phone snaps the picture: a free hands-free camera with offline voice control.
+- [GPTTrace](https://gpttrace.com/): Free AI detector for text, images, audio and video that runs on your device and publishes its measured accuracy.
+- [Humanizer Studio](https://humanizerstudio.com/): A free AI humanizer that runs privately on your own device, even offline.
+
+## File tools that don't upload your files
+
+- [PDFToolBench](https://pdftoolbench.com/): Merge, split, compress, redact, OCR, watermark and unlock PDFs in your browser.
+- [FreeBookConvert](https://freebookconvert.com/): Free file converters that run in your browser: EPUB, PDF, CBZ, HEIC, JPG, PNG and WEBP.
+- [ShrinkVideo](https://shrinkvideo.com/): Convert, compress and edit video entirely in your browser, down to a target file size.
+- [AudioSaw](https://audiosaw.com/): Free audio converter, cutter and ringtone maker in your browser.
+- [Kiln](https://editkiln.com/): Free photo editor, vector editor, video editor and motion graphics app in your browser.
+- [FixHEIC](https://fixheic.com/): Open iPhone HEIC photos anywhere and convert them to JPG, PNG or PDF in your browser.
+- [FreePhotoConvert](https://freephotoconvert.com/): Free image converter that runs in your browser: HEIC, JPG, PNG, WEBP, AVIF, GIF, TIFF, PSD, RAW and more.
+- [unrarit](https://unrarit.com/): Open a .rar in your browser, including v4, v5, password-protected and split archives.
+- [extract7z](https://extract7z.com/): Open 7Z, ZIP, RAR, TAR, GZ and BZ2 archives entirely in your browser.
